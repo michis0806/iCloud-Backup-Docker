@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% block title %}iCloud Backup – Logs{% endblock %}
+
+{% block content %}
+<div x-data="logViewer()" x-init="init()">
+
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1 class="h3 mb-0">Logs</h1>
+        <div class="d-flex gap-2 align-items-center">
+            <select class="form-select form-select-sm" style="width: auto" x-model="levelFilter">
+                <option value="">Alle Level</option>
+                <option value="DEBUG">DEBUG</option>
+                <option value="INFO">INFO</option>
+                <option value="WARNING">WARNING</option>
+                <option value="ERROR">ERROR</option>
+            </select>
+            <div class="form-check form-switch mb-0">
+                <input class="form-check-input" type="checkbox" id="autoScroll" x-model="autoScroll">
+                <label class="form-check-label small" for="autoScroll">Auto-Scroll</label>
+            </div>
+            <button class="btn btn-outline-secondary btn-sm" @click="clear()">
+                <i class="bi bi-trash me-1"></i> Leeren
+            </button>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-body p-0">
+            <div class="log-container" x-ref="logContainer"
+                 style="height: 70vh; overflow-y: auto; font-family: monospace; font-size: 0.8rem;">
+                <table class="table table-sm table-hover mb-0">
+                    <thead class="sticky-top">
+                        <tr>
+                            <th style="width: 160px">Zeit</th>
+                            <th style="width: 70px">Level</th>
+                            <th>Nachricht</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <template x-for="entry in filteredEntries" :key="entry.id">
+                            <tr :class="rowClass(entry.level)">
+                                <td class="text-nowrap text-muted" x-text="entry.timestamp"></td>
+                                <td>
+                                    <span class="badge" :class="levelBadge(entry.level)"
+                                          x-text="entry.level" style="font-size: 0.7rem"></span>
+                                </td>
+                                <td x-text="entry.message" style="word-break: break-word"></td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+                <div x-show="filteredEntries.length === 0" class="text-center text-muted py-4">
+                    Keine Log-Einträge vorhanden.
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function logViewer() {
+    return {
+        entries: [],
+        lastId: 0,
+        levelFilter: '',
+        autoScroll: true,
+        pollInterval: null,
+
+        async init() {
+            await this.fetchLogs();
+            this.pollInterval = setInterval(() => this.fetchLogs(), 2000);
+        },
+
+        destroy() {
+            if (this.pollInterval) clearInterval(this.pollInterval);
+        },
+
+        async fetchLogs() {
+            try {
+                const res = await fetch(`/api/logs?after=${this.lastId}&limit=500`);
+                const newEntries = await res.json();
+                if (newEntries.length > 0) {
+                    this.entries.push(...newEntries);
+                    this.lastId = newEntries[newEntries.length - 1].id;
+                    // Keep max 5000 entries in the browser
+                    if (this.entries.length > 5000) {
+                        this.entries = this.entries.slice(-5000);
+                    }
+                    if (this.autoScroll) {
+                        this.$nextTick(() => {
+                            const c = this.$refs.logContainer;
+                            if (c) c.scrollTop = c.scrollHeight;
+                        });
+                    }
+                }
+            } catch (e) {
+                console.error('Log-Fetch-Fehler:', e);
+            }
+        },
+
+        get filteredEntries() {
+            if (!this.levelFilter) return this.entries;
+            const levels = ['DEBUG', 'INFO', 'WARNING', 'ERROR'];
+            const minIdx = levels.indexOf(this.levelFilter);
+            return this.entries.filter(e => levels.indexOf(e.level) >= minIdx);
+        },
+
+        clear() {
+            this.entries = [];
+        },
+
+        levelBadge(level) {
+            return {
+                'DEBUG': 'bg-secondary',
+                'INFO': 'bg-info',
+                'WARNING': 'bg-warning text-dark',
+                'ERROR': 'bg-danger',
+            }[level] || 'bg-secondary';
+        },
+
+        rowClass(level) {
+            return {
+                'ERROR': 'table-danger',
+                'WARNING': 'table-warning',
+            }[level] || '';
+        },
+    };
+}
+</script>
+{% endblock %}

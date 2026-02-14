@@ -231,6 +231,45 @@
                     </div>
                 </div>
 
+                <!-- Live Progress (visible while backup is running) -->
+                <div class="card mb-4" x-show="progress.running" x-transition>
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <span class="spinner-border spinner-border-sm me-2"></span>
+                            Backup läuft...
+                        </h5>
+                    </div>
+                    <div class="card-body small">
+                        <div class="mb-2">
+                            <strong>Phase:</strong>
+                            <span x-text="progressPhaseLabel(progress.phase)"></span>
+                        </div>
+                        <div class="mb-2" x-show="progress.folder">
+                            <strong>Ordner:</strong>
+                            <span x-text="progress.folder"></span>
+                        </div>
+                        <div class="mb-2" x-show="progress.current_file">
+                            <strong>Datei:</strong>
+                            <span class="font-monospace" x-text="progress.current_file"
+                                  style="word-break: break-all"></span>
+                        </div>
+                        <div class="d-flex gap-3 mt-3">
+                            <div>
+                                <span class="text-success" x-text="progress.downloaded || 0"></span>
+                                <span class="text-muted">heruntergeladen</span>
+                            </div>
+                            <div>
+                                <span class="text-muted" x-text="progress.skipped || 0"></span>
+                                <span class="text-muted">übersprungen</span>
+                            </div>
+                            <div>
+                                <span class="text-danger" x-text="progress.errors || 0"></span>
+                                <span class="text-muted">Fehler</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Backup Status -->
                 <div class="card">
                     <div class="card-header">
@@ -300,9 +339,12 @@ function accountConfig(accountId) {
         saving: false,
         backupRunning: false,
         backupStatus: {},
+        progress: { running: false },
+        configId: null,
         successMsg: '',
         errorMsg: '',
         statusInterval: null,
+        progressInterval: null,
 
         async init() {
             await Promise.all([
@@ -319,6 +361,7 @@ function accountConfig(accountId) {
 
         destroy() {
             if (this.statusInterval) clearInterval(this.statusInterval);
+            if (this.progressInterval) clearInterval(this.progressInterval);
         },
 
         async loadAccount() {
@@ -337,6 +380,7 @@ function accountConfig(accountId) {
                 const configs = await res.json();
                 if (configs.length > 0) {
                     const c = configs[0];
+                    this.configId = c.id;
                     this.config = {
                         backup_drive: c.backup_drive,
                         backup_photos: c.backup_photos,
@@ -373,12 +417,50 @@ function accountConfig(accountId) {
                 this.backupStatus = await res.json();
                 if (this.backupStatus.status === 'running') {
                     this.backupRunning = true;
+                    this.startProgressPolling();
                 } else {
                     this.backupRunning = false;
+                    this.stopProgressPolling();
                 }
             } catch (e) {
                 console.error(e);
             }
+        },
+
+        startProgressPolling() {
+            if (this.progressInterval || !this.configId) return;
+            this.progressInterval = setInterval(() => this.pollProgress(), 2000);
+            this.pollProgress();
+        },
+
+        stopProgressPolling() {
+            if (this.progressInterval) {
+                clearInterval(this.progressInterval);
+                this.progressInterval = null;
+            }
+            this.progress = { running: false };
+        },
+
+        async pollProgress() {
+            if (!this.configId) return;
+            try {
+                const res = await fetch(`/api/backup/progress/${this.configId}`);
+                this.progress = await res.json();
+                if (!this.progress.running) {
+                    this.stopProgressPolling();
+                    await this.loadBackupStatus();
+                }
+            } catch (e) {
+                console.error(e);
+            }
+        },
+
+        progressPhaseLabel(phase) {
+            return {
+                'starting': 'Starte...',
+                'drive': 'iCloud Drive',
+                'photos': 'iCloud Fotos',
+            }[phase] || phase || '';
         },
 
         toggleFolder(name) {
@@ -432,6 +514,7 @@ function accountConfig(accountId) {
                 const res = await fetch(`/api/backup/run/${this.accountId}`, { method: 'POST' });
                 if (res.ok) {
                     this.successMsg = 'Backup wurde gestartet.';
+                    this.startProgressPolling();
                 } else {
                     const err = await res.json();
                     this.errorMsg = err.detail || 'Fehler beim Starten.';

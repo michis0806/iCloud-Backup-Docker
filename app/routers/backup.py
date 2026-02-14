@@ -121,6 +121,7 @@ async def trigger_backup(account_id: int, db: AsyncSession = Depends(get_db)):
                 photos_include_family=config.photos_include_family,
                 destination=config.destination,
                 exclusions=config.exclusions,
+                config_id=config.id,
             )
             status = BackupStatus.SUCCESS if result["success"] else BackupStatus.ERROR
             message = result["message"]

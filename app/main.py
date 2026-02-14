@@ -11,6 +11,7 @@ from fastapi.templating import Jinja2Templates
 from app.config import settings
 from app.database import init_db
 from app.routers import accounts, backup
+from app.services.log_handler import log_buffer
 from app.services.scheduler import start_scheduler, stop_scheduler, sync_scheduled_jobs
 
 # ---------------------------------------------------------------------------
@@ -21,6 +22,11 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s – %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
+
+# Attach ring buffer handler to the root logger so all messages are captured
+root_logger = logging.getLogger()
+root_logger.addHandler(log_buffer)
+
 log = logging.getLogger("icloud-backup")
 
 
@@ -72,6 +78,29 @@ async def health():
 
 
 # ---------------------------------------------------------------------------
+# Logs API
+# ---------------------------------------------------------------------------
+@app.get("/api/logs")
+async def get_logs(after: int = 0, limit: int = 200):
+    """Return recent log entries (for polling-based log viewer)."""
+    return log_buffer.get_entries(after_id=after, limit=limit)
+
+
+# ---------------------------------------------------------------------------
+# Progress API
+# ---------------------------------------------------------------------------
+@app.get("/api/backup/progress/{config_id}")
+async def get_backup_progress(config_id: int):
+    """Return live progress for a running backup."""
+    from app.services.backup_service import get_progress
+
+    progress = get_progress(config_id)
+    if progress is None:
+        return {"running": False}
+    return {"running": True, **progress}
+
+
+# ---------------------------------------------------------------------------
 # Web UI routes
 # ---------------------------------------------------------------------------
 @app.get("/")
@@ -84,3 +113,8 @@ async def account_detail(request: Request, account_id: int):
     return templates.TemplateResponse(
         "account_detail.html", {"request": request, "account_id": account_id}
     )
+
+
+@app.get("/logs")
+async def logs_page(request: Request):
+    return templates.TemplateResponse("logs.html", {"request": request})

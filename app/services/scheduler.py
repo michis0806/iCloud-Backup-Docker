@@ -56,6 +56,7 @@ async def _run_backup_job(config_id: int) -> None:
             photos_include_family=config.photos_include_family,
             destination=config.destination,
             exclusions=config.exclusions,
+            config_id=config_id,
         )
 
         status = BackupStatus.SUCCESS if result["success"] else BackupStatus.ERROR
