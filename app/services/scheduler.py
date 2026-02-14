@@ -9,6 +9,7 @@ from apscheduler.triggers.cron import CronTrigger
 
 from app import config_store
 from app.services import backup_service
+from app.services.notification import notify_backup_result
 
 log = logging.getLogger("icloud-backup")
 
@@ -74,6 +75,7 @@ async def _run_backup_job(apple_id: str) -> None:
         stats = None
 
     config_store.update_backup_status(apple_id, status=status, message=message, stats=stats)
+    notify_backup_result(apple_id, status, message)
 
 
 async def sync_scheduled_jobs() -> None:

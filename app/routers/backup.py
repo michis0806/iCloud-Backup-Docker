@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException
 from app import config_store
 from app.schemas import BackupConfigCreate, BackupConfigResponse, BackupTriggerResponse
 from app.services import backup_service, icloud_service
+from app.services.notification import notify_backup_result
 from app.services.scheduler import sync_scheduled_jobs
 
 log = logging.getLogger("icloud-backup")
@@ -92,6 +93,7 @@ async def trigger_backup(apple_id: str):
             stats = None
 
         config_store.update_backup_status(apple_id, status=status, message=message, stats=stats)
+        notify_backup_result(apple_id, status, message)
 
     asyncio.create_task(_run())
 

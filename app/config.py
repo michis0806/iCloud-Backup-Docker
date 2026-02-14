@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     backup_path: Path = Path("/backups")
     cookie_directory: Path = Path("/config/sessions")
     log_level: str = "INFO"
+    dsm_notify: bool = False
 
     model_config = {"env_prefix": ""}
 
