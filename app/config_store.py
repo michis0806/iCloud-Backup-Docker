@@ -4,6 +4,7 @@ Replaces the SQLite/SQLAlchemy persistence layer with a simple
 human-readable YAML file at /config/config.yaml.
 """
 
+import logging
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -11,6 +12,8 @@ from pathlib import Path
 import yaml
 
 from app.config import settings
+
+log = logging.getLogger("icloud-backup")
 
 
 _lock = threading.Lock()
@@ -28,6 +31,7 @@ def _read() -> dict:
     try:
         data = yaml.safe_load(_CONFIG_FILE.read_text()) or {}
     except Exception:
+        log.error("Fehler beim Lesen der Konfigurationsdatei %s", _CONFIG_FILE, exc_info=True)
         data = {}
     if "accounts" not in data:
         data["accounts"] = []

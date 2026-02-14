@@ -172,7 +172,12 @@ function dashboard() {
             this.loading = true;
             try {
                 const res = await fetch('/api/accounts');
-                this.accounts = await res.json();
+                if (!res.ok) {
+                    console.error('API-Fehler:', res.status, await res.text());
+                    return;
+                }
+                const data = await res.json();
+                this.accounts = Array.isArray(data) ? data : [];
             } catch (e) {
                 console.error('Fehler beim Laden der Accounts:', e);
             }
