@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 from app.models import AccountStatus, BackupStatus, DriveConfigMode
 
 
@@ -8,12 +8,9 @@ class AccountCreate(BaseModel):
 
 
 class AccountResponse(BaseModel):
-    id: int
     apple_id: str
     status: AccountStatus
     status_message: str | None = None
-
-    model_config = {"from_attributes": True}
 
 
 class TwoFactorSubmit(BaseModel):
@@ -34,8 +31,7 @@ class BackupConfigCreate(BaseModel):
 
 
 class BackupConfigResponse(BaseModel):
-    id: int
-    account_id: int
+    apple_id: str
     backup_drive: bool
     backup_photos: bool
     drive_config_mode: DriveConfigMode
@@ -46,17 +42,15 @@ class BackupConfigResponse(BaseModel):
     destination: str
     schedule_enabled: bool
     schedule_cron: str | None = None
-    last_backup_status: BackupStatus
+    last_backup_status: BackupStatus = BackupStatus.IDLE
     last_backup_at: str | None = None
     last_backup_message: str | None = None
     last_backup_stats: dict | None = None
 
-    model_config = {"from_attributes": True}
-
 
 class BackupTriggerResponse(BaseModel):
     message: str
-    account_id: int
+    apple_id: str
 
 
 class DriveFolderInfo(BaseModel):

@@ -6,10 +6,8 @@ from datetime import datetime
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
-from sqlalchemy import select
 
-from app.database import async_session
-from app.models import BackupConfig, BackupStatus, Account, AccountStatus
+from app import config_store
 from app.services import backup_service
 
 log = logging.getLogger("icloud-backup")
@@ -17,76 +15,70 @@ log = logging.getLogger("icloud-backup")
 scheduler = AsyncIOScheduler()
 
 
-def _parse_folders(config: BackupConfig) -> list[str]:
-    """Extract the list of drive folders from a backup config."""
-    if config.drive_config_mode.value == "simple":
-        return config.drive_folders_simple or []
+def _parse_folders(cfg: dict) -> list[str]:
+    """Extract the list of drive folders from a backup config dict."""
+    if cfg.get("drive_config_mode", "simple") == "simple":
+        return cfg.get("drive_folders_simple") or []
     else:
         # Advanced mode: one path per line
-        text = config.drive_folders_advanced or ""
+        text = cfg.get("drive_folders_advanced") or ""
         return [line.strip() for line in text.splitlines() if line.strip()]
 
 
-async def _run_backup_job(config_id: int) -> None:
+async def _run_backup_job(apple_id: str) -> None:
     """Execute a single backup job."""
-    async with async_session() as session:
-        config = await session.get(BackupConfig, config_id)
-        if config is None:
-            log.warning("Backup-Konfiguration %d nicht gefunden", config_id)
-            return
+    account = config_store.get_account(apple_id)
+    if account is None:
+        log.warning("Account %s nicht gefunden", apple_id)
+        return
+    if account["status"] != "authenticated":
+        log.warning("Account %s nicht authentifiziert, überspringe Backup", apple_id)
+        return
 
-        account = await session.get(Account, config.account_id)
-        if account is None or account.status != AccountStatus.AUTHENTICATED:
-            log.warning("Account %d nicht authentifiziert, überspringe Backup", config.account_id)
-            return
+    cfg = config_store.get_backup_config(apple_id)
+    if cfg is None:
+        log.warning("Keine Backup-Konfiguration für %s", apple_id)
+        return
 
-        config.last_backup_status = BackupStatus.RUNNING
-        config.last_backup_at = datetime.utcnow()
-        await session.commit()
+    config_store.update_backup_status(
+        apple_id,
+        status="running",
+        at=datetime.utcnow().isoformat(),
+    )
 
     # Run the actual backup in a thread to avoid blocking the event loop
     try:
-        folders = _parse_folders(config)
+        folders = _parse_folders(cfg)
         result = await asyncio.to_thread(
             backup_service.run_backup,
-            apple_id=account.apple_id,
-            backup_drive=config.backup_drive,
-            backup_photos=config.backup_photos,
+            apple_id=apple_id,
+            backup_drive=cfg.get("backup_drive", False),
+            backup_photos=cfg.get("backup_photos", False),
             drive_folders=folders,
-            photos_include_family=config.photos_include_family,
-            destination=config.destination,
-            exclusions=config.exclusions,
-            config_id=config_id,
+            photos_include_family=cfg.get("photos_include_family", False),
+            destination=cfg.get("destination", ""),
+            exclusions=cfg.get("exclusions"),
+            config_id=apple_id,
         )
 
-        status = BackupStatus.SUCCESS if result["success"] else BackupStatus.ERROR
+        status = "success" if result["success"] else "error"
         message = result["message"]
         stats = {
             "drive": result.get("drive_stats"),
             "photos": result.get("photos_stats"),
         }
     except Exception as exc:
-        log.error("Backup-Job %d fehlgeschlagen: %s", config_id, exc)
-        status = BackupStatus.ERROR
+        log.error("Backup-Job für %s fehlgeschlagen: %s", apple_id, exc)
+        status = "error"
         message = str(exc)
         stats = None
 
-    async with async_session() as session:
-        config = await session.get(BackupConfig, config_id)
-        if config:
-            config.last_backup_status = status
-            config.last_backup_message = message
-            config.last_backup_stats = stats
-            await session.commit()
+    config_store.update_backup_status(apple_id, status=status, message=message, stats=stats)
 
 
 async def sync_scheduled_jobs() -> None:
-    """Read all backup configs from DB and register/update scheduled jobs."""
-    async with async_session() as session:
-        result = await session.execute(
-            select(BackupConfig).where(BackupConfig.schedule_enabled.is_(True))
-        )
-        configs = result.scalars().all()
+    """Read all backup configs and register/update scheduled jobs."""
+    configs = config_store.list_scheduled_configs()
 
     # Remove all existing jobs
     for job in scheduler.get_jobs():
@@ -94,8 +86,9 @@ async def sync_scheduled_jobs() -> None:
             job.remove()
 
     # Add jobs for enabled schedules
-    for config in configs:
-        cron_expr = config.schedule_cron or "0 2 * * *"  # Default: 2 AM daily
+    for cfg in configs:
+        apple_id = cfg["apple_id"]
+        cron_expr = cfg.get("schedule_cron") or "0 2 * * *"  # Default: 2 AM daily
         try:
             parts = cron_expr.split()
             trigger = CronTrigger(
@@ -108,16 +101,16 @@ async def sync_scheduled_jobs() -> None:
             scheduler.add_job(
                 _run_backup_job,
                 trigger=trigger,
-                id=f"backup_{config.id}",
-                args=[config.id],
+                id=f"backup_{apple_id}",
+                args=[apple_id],
                 replace_existing=True,
-                name=f"Backup Config #{config.id}",
+                name=f"Backup {apple_id}",
             )
-            log.info("Geplanter Job registriert: Config #%d (%s)", config.id, cron_expr)
+            log.info("Geplanter Job registriert: %s (%s)", apple_id, cron_expr)
         except Exception as exc:
             log.error(
-                "Ungültiger Cron-Ausdruck '%s' für Config #%d: %s",
-                cron_expr, config.id, exc,
+                "Ungültiger Cron-Ausdruck '%s' für %s: %s",
+                cron_expr, apple_id, exc,
             )
 
 

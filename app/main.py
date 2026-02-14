@@ -9,7 +9,6 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from app.config import settings
-from app.database import init_db
 from app.routers import accounts, backup
 from app.services.log_handler import log_buffer
 from app.services.scheduler import start_scheduler, stop_scheduler, sync_scheduled_jobs
@@ -36,7 +35,6 @@ log = logging.getLogger("icloud-backup")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings.ensure_directories()
-    await init_db()
     start_scheduler()
     await sync_scheduled_jobs()
     log.info("iCloud Backup Service gestartet")
@@ -89,12 +87,12 @@ async def get_logs(after: int = 0, limit: int = 200):
 # ---------------------------------------------------------------------------
 # Progress API
 # ---------------------------------------------------------------------------
-@app.get("/api/backup/progress/{config_id}")
-async def get_backup_progress(config_id: int):
+@app.get("/api/backup/progress/{apple_id}")
+async def get_backup_progress(apple_id: str):
     """Return live progress for a running backup."""
     from app.services.backup_service import get_progress
 
-    progress = get_progress(config_id)
+    progress = get_progress(apple_id)
     if progress is None:
         return {"running": False}
     return {"running": True, **progress}
@@ -108,10 +106,10 @@ async def index(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
 
-@app.get("/accounts/{account_id}")
-async def account_detail(request: Request, account_id: int):
+@app.get("/accounts/{apple_id}")
+async def account_detail(request: Request, apple_id: str):
     return templates.TemplateResponse(
-        "account_detail.html", {"request": request, "account_id": account_id}
+        "account_detail.html", {"request": request, "apple_id": apple_id}
     )
 
 

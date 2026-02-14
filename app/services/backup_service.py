@@ -19,21 +19,21 @@ log = logging.getLogger("icloud-backup")
 # Live progress tracking
 # ---------------------------------------------------------------------------
 
-_progress: dict[int, dict] = {}  # keyed by backup config id
+_progress: dict[str, dict] = {}  # keyed by apple_id
 _progress_lock = threading.Lock()
 
 
-def get_progress(config_id: int) -> dict | None:
+def get_progress(config_id: str) -> dict | None:
     with _progress_lock:
         return _progress.get(config_id)
 
 
-def _set_progress(config_id: int, data: dict) -> None:
+def _set_progress(config_id: str, data: dict) -> None:
     with _progress_lock:
         _progress[config_id] = data
 
 
-def _clear_progress(config_id: int) -> None:
+def _clear_progress(config_id: str) -> None:
     with _progress_lock:
         _progress.pop(config_id, None)
 
@@ -169,7 +169,7 @@ def sync_drive_folder(
     destination_key: str,
     excludes: list[str] | None = None,
     dry_run: bool = False,
-    config_id: int | None = None,
+    config_id: str | None = None,
 ) -> dict:
     """Synchronise a single iCloud Drive folder to *destination_path*.
 
@@ -278,7 +278,7 @@ def run_drive_backup(
     destination: str,
     excludes: list[str] | None = None,
     dry_run: bool = False,
-    config_id: int | None = None,
+    config_id: str | None = None,
 ) -> dict:
     """Run a full iCloud Drive backup for the given folders."""
     dest_path = settings.backup_path / destination / "drive"
@@ -313,7 +313,7 @@ def run_photos_backup(
     include_family: bool = False,
     excludes: list[str] | None = None,
     dry_run: bool = False,
-    config_id: int | None = None,
+    config_id: str | None = None,
 ) -> dict:
     """Download iCloud Photos (and optionally family library) to *destination*."""
     stats = {"downloaded": 0, "skipped": 0, "errors": 0}
@@ -418,7 +418,7 @@ def run_backup(
     destination: str = "",
     exclusions: list[str] | None = None,
     dry_run: bool = False,
-    config_id: int | None = None,
+    config_id: str | None = None,
 ) -> dict:
     """Run a complete backup for one account based on its configuration."""
     result = {"drive_stats": None, "photos_stats": None, "success": True, "message": ""}

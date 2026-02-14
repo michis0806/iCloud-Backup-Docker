@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 
 from pydantic_settings import BaseSettings
@@ -6,7 +5,6 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     secret_key: str = "change-me-in-production"
-    database_url: str = "sqlite+aiosqlite:///config/icloud_backup.db"
     config_path: Path = Path("/config")
     backup_path: Path = Path("/backups")
     cookie_directory: Path = Path("/config/sessions")
