@@ -1,108 +1,129 @@
 # iCloud Backup Docker
 
-Ein Docker-basierter Backup-Service für **iCloud Drive** und **iCloud Fotos** mit einer benutzerfreundlichen Weboberfläche.
+A Docker-based backup service for **iCloud Drive** and **iCloud Photos** with a user-friendly web interface.
 
 ## Features
 
-- **Multi-Account-Support** – Verwalten und sichern Sie mehrere iCloud-Accounts
-- **iCloud Drive Backup** – Einfacher Modus (Ordner-Auswahl per Checkbox) oder erweiterter Modus (manuelle Pfad-Konfiguration)
-- **iCloud Fotos Backup** – Inklusive optionaler Familienbibliothek
-- **Exclusions** – Flexible Ausschlussmuster (Glob-Patterns, Pfade)
-- **Automatische Backups** – Zeitplan per Cron-Ausdruck konfigurierbar
-- **2FA-Support** – Zwei-Faktor-Authentifizierung direkt über die Weboberfläche
-- **Dark Mode UI** – Moderne, responsive Weboberfläche
-- **Etag-Caching** – Nur geänderte Ordner werden erneut gescannt
-- **Live-Fortschritt** – Echtzeit-Fortschrittsanzeige während laufender Backups
-- **Log-Viewer** – Integrierter Log-Viewer in der Weboberfläche
+- **Multi-Account Support** – Manage and back up multiple iCloud accounts
+- **iCloud Drive Backup** – Simple mode (folder selection via checkboxes) or advanced mode (manual path configuration)
+- **iCloud Photos Backup** – Including optional family library
+- **Exclusions** – Flexible exclusion patterns (glob patterns, paths)
+- **Scheduled Backups** – Configurable via cron expressions
+- **2FA Support** – Two-factor authentication directly through the web UI
+- **Password Protection** – Web UI secured with password authentication
+- **Dark Mode UI** – Modern, responsive web interface
+- **Etag Caching** – Only changed folders are re-scanned
+- **Live Progress** – Real-time progress display during running backups
+- **Log Viewer** – Built-in log viewer in the web interface
 
-## Schnellstart
+## Quick Start
 
 ```bash
-# Repository klonen
+# Clone the repository
 git clone https://github.com/michis0806/iCloud-Backup-Docker.git
 cd iCloud-Backup-Docker
 
-# .env erstellen
-cp .env.example .env
-
-# Container starten
+# Start the container
 docker compose up -d
 ```
 
-Die Weboberfläche ist dann erreichbar unter: **http://localhost:8080**
+The web interface is available at: **http://localhost:8080**
 
-## Konfiguration
+On first startup, a random password is logged to the console:
+```
+docker logs icloud-backup
+# Look for: "Kein AUTH_PASSWORD gesetzt. Generiertes Passwort: <your-password>"
+```
 
-### docker-compose.yml
+To set a fixed password, add `AUTH_PASSWORD` to your environment (see [Configuration](#configuration)).
 
-| Variable | Standard | Beschreibung |
-|----------|----------|--------------|
-| `WEB_PORT` | `8080` | Port der Weboberfläche |
-| `BACKUP_PATH` | `./backups` | Pfad für Backup-Dateien |
-| `CONFIG_PATH` | `./config` | Pfad für Konfiguration & Sessions |
-| `TZ` | `Europe/Berlin` | Zeitzone |
-| `SECRET_KEY` | `change-me-in-production` | Geheimer Schlüssel |
+## Configuration
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AUTH_PASSWORD` | *(random, logged)* | Password for the web UI. If not set, a random password is generated and printed to the log on startup. |
+| `SECRET_KEY` | `change-me-in-production` | Secret key for session cookie signing. Change this in production! |
+| `WEB_PORT` | `8080` | Web UI port |
+| `BACKUP_PATH` | `./backups` | Host path for backup files |
+| `CONFIG_PATH` | `./config` | Host path for configuration & sessions |
+| `TZ` | `Europe/Berlin` | Timezone |
 
 ### Volumes
 
-| Container-Pfad | Beschreibung |
-|----------------|--------------|
-| `/backups` | Backup-Zielverzeichnis |
-| `/config` | Konfiguration, Datenbank, Session-Tokens |
+| Container Path | Description |
+|----------------|-------------|
+| `/backups` | Backup destination directory |
+| `/config` | Configuration, session tokens, etag caches |
 
-## Nutzung
+### docker-compose.yml
 
-### 1. Account hinzufügen
-- Öffnen Sie die Weboberfläche
-- Klicken Sie auf "Account hinzufügen"
-- Geben Sie Ihre Apple-ID und Passwort ein (app-spezifisches Passwort empfohlen)
-- Bestätigen Sie den 2FA-Code von Ihrem Apple-Gerät
+```yaml
+version: "3.8"
+services:
+  icloud-backup:
+    build: .
+    # Or use the pre-built image:
+    # image: michis0806/icloud-backup-docker:latest
+    container_name: icloud-backup
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./backups:/backups
+      - ./config:/config
+    environment:
+      - TZ=Europe/Berlin
+      - AUTH_PASSWORD=my-secure-password
+      - SECRET_KEY=change-me-in-production
+```
 
-### 2. Backup konfigurieren
-- Klicken Sie auf "Konfigurieren" beim gewünschten Account
-- Wählen Sie aus: iCloud Drive und/oder iCloud Fotos
-- **Drive (Einfach):** Ordner per Checkbox auswählen
-- **Drive (Erweitert):** Pfade manuell eingeben (ein Pfad pro Zeile)
-- **Fotos:** Optional Familienbibliothek mitsichern
-- Ausschlüsse definieren (z.B. `*.tmp`, `.DS_Store`, `node_modules`)
+## Usage
 
-### 3. Backup starten
-- Manuell: "Backup jetzt starten"
-- Automatisch: Zeitplan aktivieren (Cron-Ausdruck, Standard: täglich 2:00 Uhr)
+### 1. Add an Account
+- Open the web interface and log in
+- Click "Account hinzufügen" (Add Account)
+- Enter your Apple ID and password (app-specific password recommended)
+- Confirm the 2FA code from your Apple device
 
-## Technologie
+### 2. Configure Backup
+- Click "Konfigurieren" (Configure) on the desired account
+- Select: iCloud Drive and/or iCloud Photos
+- **Drive (Simple):** Select folders via checkboxes
+- **Drive (Advanced):** Enter paths manually (one path per line)
+- **Photos:** Optionally include family library
+- Define exclusions (e.g. `*.tmp`, `.DS_Store`, `node_modules`)
 
-- **Backend:** Python / FastAPI
-- **Frontend:** Bootstrap 5 / Alpine.js
-- **iCloud API:** [pyicloud](https://github.com/picklepete/pyicloud)
-- **Konfiguration:** YAML (`/config/config.yaml`)
-- **Scheduler:** APScheduler
+### 3. Run Backup
+- Manual: Click "Backup jetzt starten" (Start backup now)
+- Automatic: Enable schedule with a cron expression (default: daily at 2:00 AM)
 
-## Installation auf Synology NAS
+## Installation on Synology NAS
 
-### Variante 1: Container Manager (DSM 7.2+)
+### Option 1: Container Manager (DSM 7.2+)
 
-1. **Container Manager** im DSM-Paketmanager installieren (falls nicht vorhanden)
+1. Install **Container Manager** from the DSM Package Center (if not already installed)
 
-2. **Projekt erstellen:**
-   - Container Manager öffnen → **Projekt** → **Erstellen**
-   - Projektname: `icloud-backup`
-   - Pfad: einen Ordner auf dem NAS wählen (z.B. `/volume1/docker/icloud-backup`)
-   - Die `docker-compose.yml` aus diesem Repository als Quelle verwenden
+2. **Create a project:**
+   - Open Container Manager → **Project** → **Create**
+   - Project name: `icloud-backup`
+   - Path: choose a folder on the NAS (e.g. `/volume1/docker/icloud-backup`)
+   - Use the `docker-compose.yml` from this repository
 
-3. **Volumes vorbereiten:**
+3. **Prepare volumes:**
    ```bash
-   # Per SSH oder File Station erstellen:
+   # Via SSH or File Station:
    mkdir -p /volume1/docker/icloud-backup/config
    mkdir -p /volume1/docker/icloud-backup/backups
    ```
 
-4. **docker-compose.yml anpassen** (Pfade für Synology):
+4. **Adjust docker-compose.yml** (paths for Synology):
    ```yaml
    version: "3.8"
    services:
      icloud-backup:
-       build: .
+       image: michis0806/icloud-backup-docker:latest
        container_name: icloud-backup
        restart: unless-stopped
        ports:
@@ -112,60 +133,59 @@ Die Weboberfläche ist dann erreichbar unter: **http://localhost:8080**
          - /volume1/docker/icloud-backup/config:/config
        environment:
          - TZ=Europe/Berlin
+         - AUTH_PASSWORD=my-secure-password
+         - SECRET_KEY=my-secret-key
    ```
 
-5. **Projekt starten** → Container Manager baut und startet den Container
+5. **Start the project** → Container Manager builds and starts the container
 
-6. **Weboberfläche** aufrufen: `http://<NAS-IP>:8080`
+6. **Open the web interface** at `http://<NAS-IP>:8080`
 
-### Variante 2: Docker per SSH (DSM 7.x)
+### Option 2: Docker via SSH (DSM 7.x)
 
 ```bash
-# Per SSH auf die Synology verbinden
+# Connect via SSH
 ssh admin@<NAS-IP>
 
-# Repository klonen
-cd /volume1/docker
-git clone https://github.com/michis0806/iCloud-Backup-Docker.git
-cd iCloud-Backup-Docker
+# Create directory and docker-compose.yml
+mkdir -p /volume1/docker/icloud-backup && cd /volume1/docker/icloud-backup
+# Create docker-compose.yml with the content above
 
-# Container bauen und starten
+# Start the container
 sudo docker compose up -d
 ```
 
-### Variante 3: Portainer (falls installiert)
+### Option 3: Portainer (if installed)
 
-1. Portainer öffnen → **Stacks** → **Add stack**
+1. Open Portainer → **Stacks** → **Add stack**
 2. Name: `icloud-backup`
-3. Den Inhalt der `docker-compose.yml` einfügen
-4. Pfade anpassen (s.o.)
+3. Paste the `docker-compose.yml` contents
+4. Adjust paths as needed
 5. **Deploy the stack**
 
-### Synology-Tipps
+### Synology Tips
 
-- **Ports:** Falls Port 8080 belegt ist, in der `docker-compose.yml` z.B. `"8085:8080"` setzen
-- **Berechtigungen:** Der Container läuft als Root. Die Backup-Verzeichnisse müssen beschreibbar sein
-- **Firewall:** Ggf. den Port in der DSM-Firewall freigeben (Systemsteuerung → Sicherheit → Firewall)
-- **Autostart:** `restart: unless-stopped` sorgt dafür, dass der Container nach einem NAS-Neustart automatisch wieder startet
-- **Backup-Ziel:** Am besten einen freigegebenen Ordner verwenden, der im Synology Hyper Backup mit gesichert wird – so haben Sie ein doppeltes Backup
+- **Ports:** If port 8080 is already in use, change it in `docker-compose.yml` e.g. `"8085:8080"`
+- **Permissions:** The container runs as root. Backup directories must be writable.
+- **Firewall:** You may need to allow the port in the DSM firewall (Control Panel → Security → Firewall)
+- **Auto-start:** `restart: unless-stopped` ensures the container restarts automatically after a NAS reboot
+- **Backup target:** Consider using a shared folder that is also backed up with Synology Hyper Backup for a double backup
 
-## Hinweise
+## Notes
 
-- **2FA-Tokens** laufen nach ca. 2 Monaten ab und müssen erneuert werden
-- Es wird empfohlen, ein **app-spezifisches Passwort** zu verwenden
-- Das Passwort wird **nicht gespeichert** – nur die Session-Tokens von pyicloud im `/config/sessions`-Verzeichnis
-- Die **Etag-Cache-Dateien** liegen in `/config/` und beschleunigen wiederholte Backups erheblich
+- **2FA tokens** expire after approximately 2 months and need to be renewed
+- It is recommended to use an **app-specific password** ([create one here](https://support.apple.com/en-us/102654))
+- The password is **not stored** – only pyicloud's session tokens in the `/config/sessions` directory
+- **Etag cache files** are stored in `/config/` and significantly speed up repeated backups
 
-## Entwicklung
+## Tech Stack
 
-```bash
-# Dev-Dependencies installieren
-pip install -r requirements-dev.txt
+- **Backend:** Python / FastAPI
+- **Frontend:** Bootstrap 5 / Alpine.js
+- **iCloud API:** [pyicloud](https://github.com/picklepete/pyicloud)
+- **Configuration:** YAML (`/config/config.yaml`)
+- **Scheduler:** APScheduler
 
-# Tests ausführen
-pytest
-```
-
-## Lizenz
+## License
 
 MIT
