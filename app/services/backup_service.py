@@ -77,10 +77,11 @@ def _is_glob(pattern: str) -> bool:
 def is_excluded(rel_path: str, excludes: list[str]) -> bool:
     """Check whether *rel_path* matches any exclusion pattern.
 
-    Supported patterns (same semantics as the original backup.py):
+    Supported patterns:
       - Glob patterns on individual path components: ``*.tmp``, ``.git``
-      - Relative paths: ``Projects``  (matches any component)
-      - Absolute paths from drive root: ``Documents/Projects``
+      - Simple names (no slash): matches any path component
+      - Path patterns (with slash): ``Ablage/gescannte Alben`` matches if
+        *rel_path* starts with or equals the pattern
     """
     if not excludes:
         return False
@@ -97,6 +98,29 @@ def is_excluded(rel_path: str, excludes: list[str]) -> bool:
             if pattern in parts:
                 return True
     return False
+
+
+def _adjust_excludes_for_folder(folder_name: str, excludes: list[str] | None) -> list[str]:
+    """Strip *folder_name* prefix from path-based exclusion patterns.
+
+    When syncing folder "Ablage", internal paths are relative to that folder
+    (e.g. "gescannte Alben/file.pdf").  If the user set an exclusion like
+    "Ablage/gescannte Alben", we need to strip the "Ablage/" prefix so the
+    pattern becomes "gescannte Alben" which will match the relative path.
+    """
+    if not excludes:
+        return []
+    prefix = folder_name + "/"
+    adjusted = []
+    for pattern in excludes:
+        if not _is_glob(pattern) and "/" in pattern and pattern.startswith(prefix):
+            stripped = pattern[len(prefix):]
+            if stripped:
+                adjusted.append(stripped)
+            # else: pattern == folder_name + "/" → skip entire folder (shouldn't happen)
+        else:
+            adjusted.append(pattern)
+    return adjusted
 
 
 # ---------------------------------------------------------------------------
@@ -191,13 +215,17 @@ def sync_drive_folder(
     dest = destination_path / folder_name
     dest.mkdir(parents=True, exist_ok=True)
 
+    # Adjust exclusion patterns: strip folder_name prefix from path patterns
+    # so "Ablage/gescannte Alben" becomes "gescannte Alben" inside the Ablage walk
+    adjusted_excludes = _adjust_excludes_for_folder(folder_name, excludes)
+
     # Load etag cache
     cache = _load_cache(destination_key, folder_name)
     new_etags: dict[str, str] = {}
 
     remote_files: set[str] = set()
 
-    for rel_path, node, etag in _walk_remote(folder_node, excludes=excludes, cache=cache):
+    for rel_path, node, etag in _walk_remote(folder_node, excludes=adjusted_excludes, cache=cache):
         # Folder etag sentinel
         if node is None and etag:
             new_etags[rel_path] = etag
