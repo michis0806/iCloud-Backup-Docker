@@ -43,10 +43,10 @@
                                 </a>
                             </template>
 
-                            <!-- Reconnect button -->
+                            <!-- Reconnect button (uses saved session tokens, triggers 2FA if needed) -->
                             <template x-if="account.status === 'error'">
                                 <button class="btn btn-outline-warning btn-sm"
-                                        @click="reconnect(account.id)">
+                                        @click="reconnect(account)">
                                     <i class="bi bi-arrow-repeat me-1"></i> Erneut verbinden
                                 </button>
                             </template>
@@ -95,9 +95,10 @@
                         <div class="mb-3">
                             <label class="form-label">Passwort</label>
                             <input type="password" class="form-control" x-model="newPassword"
-                                   placeholder="App-spezifisches Passwort empfohlen">
+                                   placeholder="App-spezifisches Passwort empfohlen" required>
                             <div class="form-text">
-                                Wir empfehlen ein
+                                Das Passwort wird nur zur Erstanmeldung verwendet und
+                                <strong>nicht gespeichert</strong>. Wir empfehlen ein
                                 <a href="https://support.apple.com/de-de/102654" target="_blank">
                                     app-spezifisches Passwort</a>.
                             </div>
@@ -235,9 +236,14 @@ function dashboard() {
             this.tfaLoading = false;
         },
 
-        async reconnect(accountId) {
+        async reconnect(account) {
             try {
-                await fetch(`/api/accounts/${accountId}/reconnect`, { method: 'POST' });
+                const res = await fetch(`/api/accounts/${account.id}/reconnect`, { method: 'POST' });
+                const data = await res.json();
+                // If reconnect requires 2FA, show the 2FA dialog
+                if (data.status === 'requires_2fa') {
+                    this.show2FA(data);
+                }
                 await this.loadAccounts();
             } catch (e) {
                 console.error('Reconnect-Fehler:', e);

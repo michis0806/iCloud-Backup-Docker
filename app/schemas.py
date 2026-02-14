@@ -4,7 +4,7 @@ from app.models import AccountStatus, BackupStatus, DriveConfigMode
 
 class AccountCreate(BaseModel):
     apple_id: str
-    password: str | None = None
+    password: str
 
 
 class AccountResponse(BaseModel):

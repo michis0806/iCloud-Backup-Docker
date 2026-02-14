@@ -32,9 +32,9 @@ async def add_account(data: AccountCreate, db: AsyncSession = Depends(get_db)):
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Account existiert bereits.")
 
-    account = Account(apple_id=data.apple_id, password=data.password)
+    account = Account(apple_id=data.apple_id)
 
-    # Attempt authentication
+    # Attempt authentication (password is only used here, not stored)
     auth_result = icloud_service.authenticate(data.apple_id, data.password)
 
     if auth_result["status"] == "requires_2fa":
@@ -84,7 +84,8 @@ async def reconnect_account(
     if account is None:
         raise HTTPException(status_code=404, detail="Account nicht gefunden.")
 
-    auth_result = icloud_service.authenticate(account.apple_id, account.password)
+    # Reconnect using saved session tokens – no password needed
+    auth_result = icloud_service.authenticate(account.apple_id)
 
     if auth_result["status"] == "requires_2fa":
         account.status = AccountStatus.REQUIRES_2FA
