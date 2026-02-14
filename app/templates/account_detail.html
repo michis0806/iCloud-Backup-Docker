@@ -1,0 +1,473 @@
+{% extends "base.html" %}
+{% block title %}iCloud Backup – Account Konfiguration{% endblock %}
+
+{% block content %}
+<div x-data="accountConfig({{ account_id }})" x-init="init()">
+
+    <!-- Header -->
+    <div class="d-flex align-items-center gap-3 mb-4">
+        <a href="/" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left"></i>
+        </a>
+        <div>
+            <h1 class="h3 mb-0" x-text="account.apple_id || 'Lade...'"></h1>
+            <span class="badge mt-1"
+                  :class="account.status === 'authenticated' ? 'bg-success' : 'bg-warning'"
+                  x-text="account.status === 'authenticated' ? 'Verbunden' : account.status">
+            </span>
+        </div>
+    </div>
+
+    <!-- Alert messages -->
+    <div class="alert alert-success alert-dismissible" x-show="successMsg" x-transition>
+        <span x-text="successMsg"></span>
+        <button type="button" class="btn-close" @click="successMsg = ''"></button>
+    </div>
+    <div class="alert alert-danger alert-dismissible" x-show="errorMsg" x-transition>
+        <span x-text="errorMsg"></span>
+        <button type="button" class="btn-close" @click="errorMsg = ''"></button>
+    </div>
+
+    <form @submit.prevent="saveConfig()">
+        <div class="row g-4">
+
+            <!-- Left column: Backup selection -->
+            <div class="col-lg-8">
+
+                <!-- What to backup -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">Was soll gesichert werden?</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="form-check form-switch mb-3">
+                            <input class="form-check-input" type="checkbox" id="backupDrive"
+                                   x-model="config.backup_drive">
+                            <label class="form-check-label" for="backupDrive">
+                                <i class="bi bi-folder me-1"></i> iCloud Drive
+                            </label>
+                        </div>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="backupPhotos"
+                                   x-model="config.backup_photos">
+                            <label class="form-check-label" for="backupPhotos">
+                                <i class="bi bi-image me-1"></i> iCloud Fotos
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- iCloud Drive Configuration -->
+                <div class="card mb-4" x-show="config.backup_drive" x-transition>
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">
+                            <i class="bi bi-folder me-1"></i> iCloud Drive Konfiguration
+                        </h5>
+                        <div class="btn-group btn-group-sm">
+                            <button type="button" class="btn"
+                                    :class="config.drive_config_mode === 'simple' ? 'btn-primary' : 'btn-outline-primary'"
+                                    @click="config.drive_config_mode = 'simple'">
+                                Einfach
+                            </button>
+                            <button type="button" class="btn"
+                                    :class="config.drive_config_mode === 'advanced' ? 'btn-primary' : 'btn-outline-primary'"
+                                    @click="config.drive_config_mode = 'advanced'">
+                                Erweitert
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <!-- Simple mode: checkboxes -->
+                        <div x-show="config.drive_config_mode === 'simple'">
+                            <p class="text-muted small mb-3">
+                                Wählen Sie die Ordner aus, die gesichert werden sollen:
+                            </p>
+                            <div x-show="driveFoldersLoading" class="text-center py-3">
+                                <div class="spinner-border spinner-border-sm"></div>
+                                <span class="ms-2">Ordner werden geladen...</span>
+                            </div>
+                            <div x-show="!driveFoldersLoading">
+                                <template x-for="folder in driveFolders" :key="folder.name">
+                                    <div class="form-check mb-2">
+                                        <input class="form-check-input" type="checkbox"
+                                               :id="'folder-' + folder.name"
+                                               :value="folder.name"
+                                               :checked="selectedFolders.includes(folder.name)"
+                                               @change="toggleFolder(folder.name)">
+                                        <label class="form-check-label" :for="'folder-' + folder.name">
+                                            <i class="bi me-1"
+                                               :class="folder.type === 'folder' ? 'bi-folder-fill text-warning' : 'bi-file-earmark'"></i>
+                                            <span x-text="folder.name"></span>
+                                        </label>
+                                    </div>
+                                </template>
+                                <div x-show="driveFolders.length === 0 && !driveFoldersLoading"
+                                     class="text-muted small">
+                                    Keine Ordner gefunden. Stellen Sie sicher, dass der Account verbunden ist.
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Advanced mode: text fields -->
+                        <div x-show="config.drive_config_mode === 'advanced'">
+                            <p class="text-muted small mb-3">
+                                Geben Sie die Pfade ein, die gesichert werden sollen (ein Pfad pro Zeile):
+                            </p>
+                            <textarea class="form-control font-monospace" rows="8"
+                                      x-model="config.drive_folders_advanced"
+                                      placeholder="Documents&#10;Desktop&#10;Projects/MyProject"></textarea>
+                            <div class="form-text">
+                                Relative Pfade ab dem iCloud Drive Root-Verzeichnis.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- iCloud Photos Configuration -->
+                <div class="card mb-4" x-show="config.backup_photos" x-transition>
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="bi bi-image me-1"></i> iCloud Fotos Konfiguration
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="includeFamily"
+                                   x-model="config.photos_include_family">
+                            <label class="form-check-label" for="includeFamily">
+                                <i class="bi bi-people me-1"></i>
+                                Familienbibliothek mitsichern
+                            </label>
+                            <div class="form-text">
+                                Falls vorhanden, werden geteilte Familienfotos ebenfalls gesichert.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Exclusions -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="bi bi-funnel me-1"></i> Ausschlüsse (Exclusions)
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted small mb-3">
+                            Dateien und Ordner, die vom Backup ausgeschlossen werden sollen
+                            (ein Muster pro Zeile):
+                        </p>
+                        <textarea class="form-control font-monospace" rows="5"
+                                  x-model="exclusionsText"
+                                  placeholder=".DS_Store&#10;*.tmp&#10;.git&#10;node_modules&#10;__pycache__"></textarea>
+                        <div class="form-text">
+                            Unterstützt Glob-Muster (<code>*.tmp</code>, <code>.git</code>)
+                            und relative Pfade (<code>Documents/Temp</code>).
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Right column: Settings & Status -->
+            <div class="col-lg-4">
+
+                <!-- Destination -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">Zielverzeichnis</h5>
+                    </div>
+                    <div class="card-body">
+                        <input type="text" class="form-control font-monospace"
+                               x-model="config.destination"
+                               placeholder="Wird automatisch generiert">
+                        <div class="form-text">
+                            Relativ zum Backup-Verzeichnis (<code>/backups/</code>).
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Schedule -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="bi bi-clock me-1"></i> Zeitplan
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="form-check form-switch mb-3">
+                            <input class="form-check-input" type="checkbox" id="scheduleEnabled"
+                                   x-model="config.schedule_enabled">
+                            <label class="form-check-label" for="scheduleEnabled">
+                                Automatisches Backup aktivieren
+                            </label>
+                        </div>
+                        <div x-show="config.schedule_enabled" x-transition>
+                            <label class="form-label small">Cron-Ausdruck</label>
+                            <input type="text" class="form-control font-monospace"
+                                   x-model="config.schedule_cron"
+                                   placeholder="0 2 * * *">
+                            <div class="form-text">
+                                Standard: <code>0 2 * * *</code> (täglich um 2:00 Uhr)
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Actions -->
+                <div class="card mb-4">
+                    <div class="card-body d-grid gap-2">
+                        <button type="submit" class="btn btn-primary" :disabled="saving">
+                            <span x-show="saving" class="spinner-border spinner-border-sm me-1"></span>
+                            <i class="bi bi-check-lg me-1" x-show="!saving"></i>
+                            Konfiguration speichern
+                        </button>
+                        <button type="button" class="btn btn-success" @click="triggerBackup()"
+                                :disabled="backupRunning">
+                            <span x-show="backupRunning" class="spinner-border spinner-border-sm me-1"></span>
+                            <i class="bi bi-play-fill me-1" x-show="!backupRunning"></i>
+                            Backup jetzt starten
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Backup Status -->
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">Backup Status</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="d-flex align-items-center gap-2 mb-2">
+                            <span class="badge"
+                                  :class="backupStatusBadge(backupStatus.status)"
+                                  x-text="backupStatusLabel(backupStatus.status)">
+                            </span>
+                        </div>
+                        <p class="small text-muted mb-1" x-show="backupStatus.last_backup_at">
+                            Letztes Backup: <span x-text="formatDate(backupStatus.last_backup_at)"></span>
+                        </p>
+                        <p class="small mb-0" x-show="backupStatus.message" x-text="backupStatus.message"></p>
+
+                        <!-- Stats -->
+                        <div x-show="backupStatus.stats" class="mt-2 small">
+                            <template x-if="backupStatus.stats?.drive">
+                                <div class="border-top pt-2 mt-2">
+                                    <strong>Drive:</strong>
+                                    <span x-text="backupStatus.stats.drive.downloaded"></span> heruntergeladen,
+                                    <span x-text="backupStatus.stats.drive.skipped"></span> übersprungen,
+                                    <span x-text="backupStatus.stats.drive.errors"></span> Fehler
+                                </div>
+                            </template>
+                            <template x-if="backupStatus.stats?.photos">
+                                <div class="border-top pt-2 mt-2">
+                                    <strong>Fotos:</strong>
+                                    <span x-text="backupStatus.stats.photos.downloaded"></span> heruntergeladen,
+                                    <span x-text="backupStatus.stats.photos.skipped"></span> übersprungen,
+                                    <span x-text="backupStatus.stats.photos.errors"></span> Fehler
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function accountConfig(accountId) {
+    return {
+        accountId: accountId,
+        account: {},
+        config: {
+            backup_drive: false,
+            backup_photos: false,
+            drive_config_mode: 'simple',
+            drive_folders_simple: [],
+            drive_folders_advanced: '',
+            photos_include_family: false,
+            destination: '',
+            schedule_enabled: false,
+            schedule_cron: '0 2 * * *',
+        },
+        exclusionsText: '',
+        selectedFolders: [],
+        driveFolders: [],
+        driveFoldersLoading: false,
+        saving: false,
+        backupRunning: false,
+        backupStatus: {},
+        successMsg: '',
+        errorMsg: '',
+        statusInterval: null,
+
+        async init() {
+            await Promise.all([
+                this.loadAccount(),
+                this.loadConfig(),
+                this.loadBackupStatus(),
+            ]);
+            if (this.account.status === 'authenticated') {
+                await this.loadDriveFolders();
+            }
+            // Poll backup status every 10 seconds
+            this.statusInterval = setInterval(() => this.loadBackupStatus(), 10000);
+        },
+
+        destroy() {
+            if (this.statusInterval) clearInterval(this.statusInterval);
+        },
+
+        async loadAccount() {
+            try {
+                const res = await fetch('/api/accounts');
+                const accounts = await res.json();
+                this.account = accounts.find(a => a.id === this.accountId) || {};
+            } catch (e) {
+                console.error(e);
+            }
+        },
+
+        async loadConfig() {
+            try {
+                const res = await fetch(`/api/backup/configs/${this.accountId}`);
+                const configs = await res.json();
+                if (configs.length > 0) {
+                    const c = configs[0];
+                    this.config = {
+                        backup_drive: c.backup_drive,
+                        backup_photos: c.backup_photos,
+                        drive_config_mode: c.drive_config_mode,
+                        drive_folders_simple: c.drive_folders_simple || [],
+                        drive_folders_advanced: c.drive_folders_advanced || '',
+                        photos_include_family: c.photos_include_family,
+                        destination: c.destination || '',
+                        schedule_enabled: c.schedule_enabled,
+                        schedule_cron: c.schedule_cron || '0 2 * * *',
+                    };
+                    this.selectedFolders = [...(c.drive_folders_simple || [])];
+                    this.exclusionsText = (c.exclusions || []).join('\n');
+                }
+            } catch (e) {
+                console.error(e);
+            }
+        },
+
+        async loadDriveFolders() {
+            this.driveFoldersLoading = true;
+            try {
+                const res = await fetch(`/api/accounts/${this.accountId}/drive-folders`);
+                this.driveFolders = await res.json();
+            } catch (e) {
+                console.error(e);
+            }
+            this.driveFoldersLoading = false;
+        },
+
+        async loadBackupStatus() {
+            try {
+                const res = await fetch(`/api/backup/status/${this.accountId}`);
+                this.backupStatus = await res.json();
+                if (this.backupStatus.status === 'running') {
+                    this.backupRunning = true;
+                } else {
+                    this.backupRunning = false;
+                }
+            } catch (e) {
+                console.error(e);
+            }
+        },
+
+        toggleFolder(name) {
+            const idx = this.selectedFolders.indexOf(name);
+            if (idx >= 0) {
+                this.selectedFolders.splice(idx, 1);
+            } else {
+                this.selectedFolders.push(name);
+            }
+        },
+
+        async saveConfig() {
+            this.saving = true;
+            this.successMsg = '';
+            this.errorMsg = '';
+
+            const exclusions = this.exclusionsText
+                .split('\n')
+                .map(l => l.trim())
+                .filter(l => l.length > 0);
+
+            const payload = {
+                ...this.config,
+                drive_folders_simple: this.selectedFolders,
+                exclusions: exclusions,
+            };
+
+            try {
+                const res = await fetch(`/api/backup/configs/${this.accountId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                if (res.ok) {
+                    this.successMsg = 'Konfiguration gespeichert.';
+                } else {
+                    const err = await res.json();
+                    this.errorMsg = err.detail || 'Fehler beim Speichern.';
+                }
+            } catch (e) {
+                this.errorMsg = 'Netzwerkfehler: ' + e.message;
+            }
+            this.saving = false;
+        },
+
+        async triggerBackup() {
+            this.backupRunning = true;
+            this.successMsg = '';
+            this.errorMsg = '';
+            try {
+                const res = await fetch(`/api/backup/run/${this.accountId}`, { method: 'POST' });
+                if (res.ok) {
+                    this.successMsg = 'Backup wurde gestartet.';
+                } else {
+                    const err = await res.json();
+                    this.errorMsg = err.detail || 'Fehler beim Starten.';
+                    this.backupRunning = false;
+                }
+            } catch (e) {
+                this.errorMsg = 'Netzwerkfehler: ' + e.message;
+                this.backupRunning = false;
+            }
+        },
+
+        backupStatusBadge(status) {
+            return {
+                'idle': 'bg-secondary',
+                'running': 'bg-info',
+                'success': 'bg-success',
+                'error': 'bg-danger',
+                'not_configured': 'bg-secondary',
+            }[status] || 'bg-secondary';
+        },
+
+        backupStatusLabel(status) {
+            return {
+                'idle': 'Bereit',
+                'running': 'Läuft...',
+                'success': 'Erfolgreich',
+                'error': 'Fehler',
+                'not_configured': 'Nicht konfiguriert',
+            }[status] || status;
+        },
+
+        formatDate(iso) {
+            if (!iso) return '';
+            return new Date(iso).toLocaleString('de-DE');
+        },
+    };
+}
+</script>
+{% endblock %}

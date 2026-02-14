@@ -1,0 +1,277 @@
+{% extends "base.html" %}
+{% block title %}iCloud Backup – Dashboard{% endblock %}
+
+{% block content %}
+<div x-data="dashboard()" x-init="init()">
+
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1 class="h3 mb-0">Accounts</h1>
+        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addAccountModal">
+            <i class="bi bi-plus-lg me-1"></i> Account hinzufügen
+        </button>
+    </div>
+
+    <!-- Accounts list -->
+    <div class="row g-3">
+        <template x-for="account in accounts" :key="account.id">
+            <div class="col-md-6 col-lg-4">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-start mb-2">
+                            <h5 class="card-title mb-0" x-text="account.apple_id"></h5>
+                            <span class="badge"
+                                  :class="statusBadge(account.status)"
+                                  x-text="statusLabel(account.status)">
+                            </span>
+                        </div>
+                        <p class="card-text text-muted small" x-text="account.status_message"></p>
+
+                        <div class="d-flex gap-2 mt-3">
+                            <!-- 2FA button -->
+                            <template x-if="account.status === 'requires_2fa'">
+                                <button class="btn btn-warning btn-sm"
+                                        @click="show2FA(account)">
+                                    <i class="bi bi-shield-lock me-1"></i> 2FA eingeben
+                                </button>
+                            </template>
+
+                            <!-- Configure button -->
+                            <template x-if="account.status === 'authenticated'">
+                                <a :href="'/accounts/' + account.id"
+                                   class="btn btn-outline-primary btn-sm">
+                                    <i class="bi bi-gear me-1"></i> Konfigurieren
+                                </a>
+                            </template>
+
+                            <!-- Reconnect button -->
+                            <template x-if="account.status === 'error'">
+                                <button class="btn btn-outline-warning btn-sm"
+                                        @click="reconnect(account.id)">
+                                    <i class="bi bi-arrow-repeat me-1"></i> Erneut verbinden
+                                </button>
+                            </template>
+
+                            <!-- Delete button -->
+                            <button class="btn btn-outline-danger btn-sm"
+                                    @click="deleteAccount(account.id)">
+                                <i class="bi bi-trash me-1"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </template>
+
+        <!-- Empty state -->
+        <template x-if="accounts.length === 0 && !loading">
+            <div class="col-12">
+                <div class="text-center py-5 text-muted">
+                    <i class="bi bi-cloud-slash fs-1 d-block mb-3"></i>
+                    <p>Noch keine Accounts vorhanden.</p>
+                    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addAccountModal">
+                        <i class="bi bi-plus-lg me-1"></i> Ersten Account hinzufügen
+                    </button>
+                </div>
+            </div>
+        </template>
+    </div>
+
+    <!-- Add Account Modal -->
+    <div class="modal fade" id="addAccountModal" tabindex="-1" x-ref="addModal">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">iCloud Account hinzufügen</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-danger" x-show="addError" x-text="addError"></div>
+                    <form @submit.prevent="addAccount()">
+                        <div class="mb-3">
+                            <label class="form-label">Apple-ID (E-Mail)</label>
+                            <input type="email" class="form-control" x-model="newAppleId"
+                                   placeholder="name@icloud.com" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Passwort</label>
+                            <input type="password" class="form-control" x-model="newPassword"
+                                   placeholder="App-spezifisches Passwort empfohlen">
+                            <div class="form-text">
+                                Wir empfehlen ein
+                                <a href="https://support.apple.com/de-de/102654" target="_blank">
+                                    app-spezifisches Passwort</a>.
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-primary w-100" :disabled="addLoading">
+                            <span x-show="addLoading" class="spinner-border spinner-border-sm me-1"></span>
+                            Anmelden
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 2FA Modal -->
+    <div class="modal fade" id="tfaModal" tabindex="-1" x-ref="tfaModal">
+        <div class="modal-dialog modal-sm">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Zwei-Faktor-Code</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-danger" x-show="tfaError" x-text="tfaError"></div>
+                    <p class="text-muted small">
+                        Geben Sie den 6-stelligen Code von Ihrem Apple-Gerät ein.
+                    </p>
+                    <form @submit.prevent="submit2FA()">
+                        <div class="mb-3">
+                            <input type="text" class="form-control form-control-lg text-center"
+                                   x-model="tfaCode" maxlength="6" pattern="[0-9]{6}"
+                                   placeholder="000000" autofocus>
+                        </div>
+                        <button type="submit" class="btn btn-warning w-100" :disabled="tfaLoading">
+                            <span x-show="tfaLoading" class="spinner-border spinner-border-sm me-1"></span>
+                            Bestätigen
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function dashboard() {
+    return {
+        accounts: [],
+        loading: true,
+
+        // Add account
+        newAppleId: '',
+        newPassword: '',
+        addLoading: false,
+        addError: '',
+
+        // 2FA
+        tfaAccountId: null,
+        tfaCode: '',
+        tfaLoading: false,
+        tfaError: '',
+
+        async init() {
+            await this.loadAccounts();
+        },
+
+        async loadAccounts() {
+            this.loading = true;
+            try {
+                const res = await fetch('/api/accounts');
+                this.accounts = await res.json();
+            } catch (e) {
+                console.error('Fehler beim Laden der Accounts:', e);
+            }
+            this.loading = false;
+        },
+
+        async addAccount() {
+            this.addLoading = true;
+            this.addError = '';
+            try {
+                const res = await fetch('/api/accounts', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        apple_id: this.newAppleId,
+                        password: this.newPassword,
+                    }),
+                });
+                if (!res.ok) {
+                    const err = await res.json();
+                    this.addError = err.detail || 'Fehler beim Hinzufügen.';
+                    this.addLoading = false;
+                    return;
+                }
+                this.newAppleId = '';
+                this.newPassword = '';
+                bootstrap.Modal.getInstance(this.$refs.addModal).hide();
+                await this.loadAccounts();
+            } catch (e) {
+                this.addError = 'Netzwerkfehler: ' + e.message;
+            }
+            this.addLoading = false;
+        },
+
+        show2FA(account) {
+            this.tfaAccountId = account.id;
+            this.tfaCode = '';
+            this.tfaError = '';
+            new bootstrap.Modal(this.$refs.tfaModal).show();
+        },
+
+        async submit2FA() {
+            this.tfaLoading = true;
+            this.tfaError = '';
+            try {
+                const res = await fetch(`/api/accounts/${this.tfaAccountId}/2fa`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ code: this.tfaCode }),
+                });
+                const data = await res.json();
+                if (data.status === 'authenticated') {
+                    bootstrap.Modal.getInstance(this.$refs.tfaModal).hide();
+                    await this.loadAccounts();
+                } else {
+                    this.tfaError = data.status_message || 'Code ungültig.';
+                }
+            } catch (e) {
+                this.tfaError = 'Netzwerkfehler: ' + e.message;
+            }
+            this.tfaLoading = false;
+        },
+
+        async reconnect(accountId) {
+            try {
+                await fetch(`/api/accounts/${accountId}/reconnect`, { method: 'POST' });
+                await this.loadAccounts();
+            } catch (e) {
+                console.error('Reconnect-Fehler:', e);
+            }
+        },
+
+        async deleteAccount(accountId) {
+            if (!confirm('Account wirklich löschen? Alle zugehörigen Konfigurationen werden ebenfalls entfernt.')) return;
+            try {
+                await fetch(`/api/accounts/${accountId}`, { method: 'DELETE' });
+                await this.loadAccounts();
+            } catch (e) {
+                console.error('Lösch-Fehler:', e);
+            }
+        },
+
+        statusBadge(status) {
+            return {
+                'authenticated': 'bg-success',
+                'requires_2fa': 'bg-warning text-dark',
+                'pending': 'bg-secondary',
+                'error': 'bg-danger',
+            }[status] || 'bg-secondary';
+        },
+
+        statusLabel(status) {
+            return {
+                'authenticated': 'Verbunden',
+                'requires_2fa': '2FA erforderlich',
+                'pending': 'Ausstehend',
+                'error': 'Fehler',
+            }[status] || status;
+        },
+    };
+}
+</script>
+{% endblock %}

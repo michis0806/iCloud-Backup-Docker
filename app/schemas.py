@@ -1,0 +1,65 @@
+from pydantic import BaseModel, EmailStr
+from app.models import AccountStatus, BackupStatus, DriveConfigMode
+
+
+class AccountCreate(BaseModel):
+    apple_id: str
+    password: str | None = None
+
+
+class AccountResponse(BaseModel):
+    id: int
+    apple_id: str
+    status: AccountStatus
+    status_message: str | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class TwoFactorSubmit(BaseModel):
+    code: str
+
+
+class BackupConfigCreate(BaseModel):
+    backup_drive: bool = False
+    backup_photos: bool = False
+    drive_config_mode: DriveConfigMode = DriveConfigMode.SIMPLE
+    drive_folders_simple: list[str] | None = None
+    drive_folders_advanced: str | None = None
+    photos_include_family: bool = False
+    exclusions: list[str] | None = None
+    destination: str = ""
+    schedule_enabled: bool = False
+    schedule_cron: str | None = None
+
+
+class BackupConfigResponse(BaseModel):
+    id: int
+    account_id: int
+    backup_drive: bool
+    backup_photos: bool
+    drive_config_mode: DriveConfigMode
+    drive_folders_simple: list[str] | None = None
+    drive_folders_advanced: str | None = None
+    photos_include_family: bool
+    exclusions: list[str] | None = None
+    destination: str
+    schedule_enabled: bool
+    schedule_cron: str | None = None
+    last_backup_status: BackupStatus
+    last_backup_at: str | None = None
+    last_backup_message: str | None = None
+    last_backup_stats: dict | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class BackupTriggerResponse(BaseModel):
+    message: str
+    account_id: int
+
+
+class DriveFolderInfo(BaseModel):
+    name: str
+    type: str  # "folder" or "file"
+    size: int | None = None

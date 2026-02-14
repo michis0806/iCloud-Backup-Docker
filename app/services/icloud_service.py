@@ -1,0 +1,141 @@
+"""Wrapper around pyicloud for iCloud authentication and API access."""
+
+import logging
+import re
+from pathlib import Path
+
+from pyicloud import PyiCloudService
+from pyicloud.exceptions import PyiCloudFailedLoginException
+
+from app.config import settings
+
+log = logging.getLogger("icloud-backup")
+
+# In-memory cache of active PyiCloudService instances keyed by apple_id
+_sessions: dict[str, PyiCloudService] = {}
+
+
+def _cookie_dir_for(apple_id: str) -> str:
+    """Return a per-account cookie directory path."""
+    safe_name = re.sub(r"[^\w]", "_", apple_id)
+    path = settings.cookie_directory / safe_name
+    path.mkdir(parents=True, exist_ok=True)
+    return str(path)
+
+
+def authenticate(apple_id: str, password: str | None = None) -> dict:
+    """Authenticate with iCloud and return status information.
+
+    Returns a dict with:
+        - status: "authenticated" | "requires_2fa" | "error"
+        - message: human-readable status message
+    """
+    cookie_dir = _cookie_dir_for(apple_id)
+
+    try:
+        api = PyiCloudService(
+            apple_id=apple_id,
+            password=password,
+            cookie_directory=cookie_dir,
+            verify=True,
+        )
+    except PyiCloudFailedLoginException as exc:
+        return {"status": "error", "message": f"Login fehlgeschlagen: {exc}"}
+    except Exception as exc:
+        return {"status": "error", "message": f"Verbindungsfehler: {exc}"}
+
+    _sessions[apple_id] = api
+
+    if api.requires_2fa:
+        return {
+            "status": "requires_2fa",
+            "message": "Zwei-Faktor-Authentifizierung erforderlich. "
+            "Bitte geben Sie den Code von Ihrem Apple-Gerät ein.",
+        }
+
+    return {
+        "status": "authenticated",
+        "message": "Erfolgreich angemeldet.",
+    }
+
+
+def submit_2fa_code(apple_id: str, code: str) -> dict:
+    """Submit a 2FA code for the given account.
+
+    Returns a dict with:
+        - status: "authenticated" | "error"
+        - message: human-readable status message
+    """
+    api = _sessions.get(apple_id)
+    if api is None:
+        return {
+            "status": "error",
+            "message": "Keine aktive Sitzung. Bitte melden Sie sich erneut an.",
+        }
+
+    try:
+        if not api.validate_2fa_code(code):
+            return {
+                "status": "error",
+                "message": "Ungültiger Code. Bitte versuchen Sie es erneut.",
+            }
+        api.trust_session()
+    except Exception as exc:
+        return {"status": "error", "message": f"2FA-Fehler: {exc}"}
+
+    return {
+        "status": "authenticated",
+        "message": "Zwei-Faktor-Authentifizierung erfolgreich.",
+    }
+
+
+def get_session(apple_id: str) -> PyiCloudService | None:
+    """Return an active PyiCloudService session, attempting reconnection if needed."""
+    api = _sessions.get(apple_id)
+    if api is not None:
+        return api
+
+    # Try to reconnect using saved session tokens (no password needed)
+    cookie_dir = _cookie_dir_for(apple_id)
+    try:
+        api = PyiCloudService(
+            apple_id=apple_id,
+            cookie_directory=cookie_dir,
+            verify=True,
+        )
+        if not api.requires_2fa:
+            _sessions[apple_id] = api
+            return api
+    except Exception:
+        pass
+
+    return None
+
+
+def get_drive_folders(apple_id: str) -> list[dict]:
+    """List top-level iCloud Drive folders for simple mode selection."""
+    api = get_session(apple_id)
+    if api is None:
+        return []
+
+    folders = []
+    try:
+        root = api.drive
+        for child in root.dir():
+            node = root[child]
+            folders.append(
+                {
+                    "name": child,
+                    "type": "folder" if node.type == "folder" else "file",
+                    "size": getattr(node, "size", None),
+                }
+            )
+    except Exception as exc:
+        log.error("Fehler beim Abrufen der Drive-Ordner für %s: %s", apple_id, exc)
+
+    return sorted(folders, key=lambda f: f["name"].lower())
+
+
+def disconnect(apple_id: str) -> None:
+    """Remove a session from the in-memory cache."""
+    _sessions.pop(apple_id, None)
