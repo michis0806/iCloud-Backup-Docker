@@ -17,6 +17,15 @@ class TwoFactorSubmit(BaseModel):
     code: str
 
 
+class SmsSendRequest(BaseModel):
+    device_index: int
+
+
+class TwoStepSubmit(BaseModel):
+    device_index: int
+    code: str
+
+
 class BackupConfigCreate(BaseModel):
     backup_drive: bool = False
     backup_photos: bool = False

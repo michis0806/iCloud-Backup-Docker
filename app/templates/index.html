@@ -115,7 +115,7 @@
 
     <!-- 2FA Modal -->
     <div class="modal fade" id="tfaModal" tabindex="-1" x-ref="tfaModal">
-        <div class="modal-dialog modal-sm">
+        <div class="modal-dialog">
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title">Zwei-Faktor-Code</h5>
@@ -123,20 +123,99 @@
                 </div>
                 <div class="modal-body">
                     <div class="alert alert-danger" x-show="tfaError" x-text="tfaError"></div>
-                    <p class="text-muted small">
-                        Geben Sie den 6-stelligen Code von Ihrem Apple-Gerät ein.
-                    </p>
-                    <form @submit.prevent="submit2FA()">
-                        <div class="mb-3">
-                            <input type="text" class="form-control form-control-lg text-center"
-                                   x-model="tfaCode" maxlength="6" pattern="[0-9]{6}"
-                                   placeholder="000000" autofocus>
-                        </div>
-                        <button type="submit" class="btn btn-warning w-100" :disabled="tfaLoading">
-                            <span x-show="tfaLoading" class="spinner-border spinner-border-sm me-1"></span>
-                            Bestätigen
-                        </button>
-                    </form>
+                    <div class="alert alert-success" x-show="tfaSmsSuccess" x-text="tfaSmsSuccess"></div>
+
+                    <!-- Tab navigation: Device / SMS -->
+                    <ul class="nav nav-pills nav-fill mb-3">
+                        <li class="nav-item">
+                            <a class="nav-link" :class="{ active: tfaMode === 'device' }"
+                               href="#" @click.prevent="tfaMode = 'device'">
+                                <i class="bi bi-phone me-1"></i> Geräte-Code
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" :class="{ active: tfaMode === 'sms' }"
+                               href="#" @click.prevent="switchToSms()">
+                                <i class="bi bi-chat-dots me-1"></i> SMS-Code
+                            </a>
+                        </li>
+                    </ul>
+
+                    <!-- Device code tab -->
+                    <div x-show="tfaMode === 'device'">
+                        <p class="text-muted small">
+                            Geben Sie den 6-stelligen Code von Ihrem Apple-Gerät ein.
+                        </p>
+                        <form @submit.prevent="submit2FA()">
+                            <div class="mb-3">
+                                <input type="text" class="form-control form-control-lg text-center"
+                                       x-model="tfaCode" maxlength="6" pattern="[0-9]{6}"
+                                       placeholder="000000" autofocus>
+                            </div>
+                            <button type="submit" class="btn btn-warning w-100" :disabled="tfaLoading">
+                                <span x-show="tfaLoading" class="spinner-border spinner-border-sm me-1"></span>
+                                Bestätigen
+                            </button>
+                        </form>
+                    </div>
+
+                    <!-- SMS tab -->
+                    <div x-show="tfaMode === 'sms'">
+                        <!-- Device selection -->
+                        <template x-if="!tfaSmsSent">
+                            <div>
+                                <p class="text-muted small">
+                                    Wählen Sie ein Gerät, an das der SMS-Code gesendet werden soll.
+                                </p>
+                                <div x-show="tfaDevicesLoading" class="text-center py-3">
+                                    <span class="spinner-border spinner-border-sm"></span> Geräte werden geladen…
+                                </div>
+                                <div class="list-group mb-3" x-show="!tfaDevicesLoading && tfaDevices.length > 0">
+                                    <template x-for="device in tfaDevices" :key="device.index">
+                                        <button class="list-group-item list-group-item-action d-flex justify-content-between align-items-center"
+                                                @click="sendSmsCode(device.index)"
+                                                :disabled="tfaSmsLoading">
+                                            <span>
+                                                <i class="bi bi-phone me-2"></i>
+                                                <span x-text="device.name"></span>
+                                            </span>
+                                            <span class="text-muted small" x-text="device.phone"></span>
+                                        </button>
+                                    </template>
+                                </div>
+                                <div x-show="!tfaDevicesLoading && tfaDevices.length === 0" class="text-muted small">
+                                    Keine Geräte für SMS-Verifizierung verfügbar.
+                                </div>
+                                <div x-show="tfaSmsLoading" class="text-center py-2">
+                                    <span class="spinner-border spinner-border-sm"></span> SMS wird gesendet…
+                                </div>
+                            </div>
+                        </template>
+
+                        <!-- Code input after SMS sent -->
+                        <template x-if="tfaSmsSent">
+                            <div>
+                                <p class="text-muted small">
+                                    Geben Sie den per SMS empfangenen Code ein.
+                                </p>
+                                <form @submit.prevent="submit2SA()">
+                                    <div class="mb-3">
+                                        <input type="text" class="form-control form-control-lg text-center"
+                                               x-model="tfaCode" maxlength="6" pattern="[0-9]{6}"
+                                               placeholder="000000" autofocus>
+                                    </div>
+                                    <button type="submit" class="btn btn-warning w-100" :disabled="tfaLoading">
+                                        <span x-show="tfaLoading" class="spinner-border spinner-border-sm me-1"></span>
+                                        Bestätigen
+                                    </button>
+                                    <button type="button" class="btn btn-link btn-sm w-100 mt-2"
+                                            @click="tfaSmsSent = false; tfaSmsSuccess = ''">
+                                        <i class="bi bi-arrow-left me-1"></i> Anderes Gerät wählen
+                                    </button>
+                                </form>
+                            </div>
+                        </template>
+                    </div>
                 </div>
             </div>
         </div>
@@ -163,6 +242,13 @@ function dashboard() {
         tfaCode: '',
         tfaLoading: false,
         tfaError: '',
+        tfaMode: 'device',       // 'device' or 'sms'
+        tfaDevices: [],
+        tfaDevicesLoading: false,
+        tfaSmsLoading: false,
+        tfaSmsSent: false,
+        tfaSmsDeviceIndex: null,
+        tfaSmsSuccess: '',
 
         async init() {
             await this.loadAccounts();
@@ -216,7 +302,59 @@ function dashboard() {
             this.tfaAppleId = account.apple_id;
             this.tfaCode = '';
             this.tfaError = '';
+            this.tfaMode = 'device';
+            this.tfaDevices = [];
+            this.tfaSmsSent = false;
+            this.tfaSmsDeviceIndex = null;
+            this.tfaSmsSuccess = '';
             new bootstrap.Modal(this.$refs.tfaModal).show();
+        },
+
+        async switchToSms() {
+            this.tfaMode = 'sms';
+            this.tfaError = '';
+            this.tfaSmsSuccess = '';
+            this.tfaSmsSent = false;
+            if (this.tfaDevices.length === 0) {
+                await this.loadTrustedDevices();
+            }
+        },
+
+        async loadTrustedDevices() {
+            this.tfaDevicesLoading = true;
+            try {
+                const res = await fetch(`/api/accounts/${encodeURIComponent(this.tfaAppleId)}/2fa/devices`);
+                if (res.ok) {
+                    this.tfaDevices = await res.json();
+                }
+            } catch (e) {
+                this.tfaError = 'Fehler beim Laden der Geräte: ' + e.message;
+            }
+            this.tfaDevicesLoading = false;
+        },
+
+        async sendSmsCode(deviceIndex) {
+            this.tfaSmsLoading = true;
+            this.tfaError = '';
+            this.tfaSmsSuccess = '';
+            try {
+                const res = await fetch(`/api/accounts/${encodeURIComponent(this.tfaAppleId)}/2fa/sms`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ device_index: deviceIndex }),
+                });
+                const data = await res.json();
+                if (data.success) {
+                    this.tfaSmsDeviceIndex = deviceIndex;
+                    this.tfaSmsSent = true;
+                    this.tfaSmsSuccess = data.message || 'SMS-Code gesendet.';
+                } else {
+                    this.tfaError = data.message || 'SMS konnte nicht gesendet werden.';
+                }
+            } catch (e) {
+                this.tfaError = 'Netzwerkfehler: ' + e.message;
+            }
+            this.tfaSmsLoading = false;
         },
 
         async submit2FA() {
@@ -227,6 +365,32 @@ function dashboard() {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ code: this.tfaCode }),
+                });
+                const data = await res.json();
+                if (data.status === 'authenticated') {
+                    bootstrap.Modal.getInstance(this.$refs.tfaModal).hide();
+                    await this.loadAccounts();
+                } else {
+                    this.tfaError = data.status_message || 'Code ungültig.';
+                }
+            } catch (e) {
+                this.tfaError = 'Netzwerkfehler: ' + e.message;
+            }
+            this.tfaLoading = false;
+        },
+
+        async submit2SA() {
+            this.tfaLoading = true;
+            this.tfaError = '';
+            this.tfaSmsSuccess = '';
+            try {
+                const res = await fetch(`/api/accounts/${encodeURIComponent(this.tfaAppleId)}/2sa`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        device_index: this.tfaSmsDeviceIndex,
+                        code: this.tfaCode,
+                    }),
                 });
                 const data = await res.json();
                 if (data.status === 'authenticated') {
