@@ -5,7 +5,7 @@ import logging
 from fastapi import APIRouter, HTTPException
 
 from app import config_store
-from app.schemas import AccountCreate, AccountResponse, TwoFactorSubmit
+from app.schemas import AccountCreate, AccountResponse, SmsSendRequest, TwoFactorSubmit, TwoStepSubmit
 from app.services import icloud_service
 
 log = logging.getLogger("icloud-backup")
@@ -44,6 +44,42 @@ async def submit_2fa(apple_id: str, data: TwoFactorSubmit):
         raise HTTPException(status_code=404, detail="Account nicht gefunden.")
 
     result = icloud_service.submit_2fa_code(apple_id, data.code)
+
+    updated = config_store.update_account_status(
+        apple_id,
+        status=result["status"],
+        status_message=result["message"],
+    )
+    return updated
+
+
+@router.get("/{apple_id}/2fa/devices")
+async def get_trusted_devices(apple_id: str):
+    account = config_store.get_account(apple_id)
+    if account is None:
+        raise HTTPException(status_code=404, detail="Account nicht gefunden.")
+
+    devices = icloud_service.get_trusted_devices(apple_id)
+    return devices
+
+
+@router.post("/{apple_id}/2fa/sms")
+async def send_sms_code(apple_id: str, data: SmsSendRequest):
+    account = config_store.get_account(apple_id)
+    if account is None:
+        raise HTTPException(status_code=404, detail="Account nicht gefunden.")
+
+    result = icloud_service.send_sms_code(apple_id, data.device_index)
+    return result
+
+
+@router.post("/{apple_id}/2sa", response_model=AccountResponse)
+async def submit_2sa(apple_id: str, data: TwoStepSubmit):
+    account = config_store.get_account(apple_id)
+    if account is None:
+        raise HTTPException(status_code=404, detail="Account nicht gefunden.")
+
+    result = icloud_service.submit_2sa_code(apple_id, data.device_index, data.code)
 
     updated = config_store.update_account_status(
         apple_id,

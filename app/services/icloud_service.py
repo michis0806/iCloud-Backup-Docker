@@ -14,6 +14,9 @@ log = logging.getLogger("icloud-backup")
 # In-memory cache of active PyiCloudService instances keyed by apple_id
 _sessions: dict[str, PyiCloudService] = {}
 
+# Cache of trusted devices retrieved for 2SA SMS flow
+_trusted_devices: dict[str, list[dict]] = {}
+
 
 def _cookie_dir_for(apple_id: str) -> str:
     """Return a per-account cookie directory path."""
@@ -53,6 +56,13 @@ def authenticate(apple_id: str, password: str | None = None) -> dict:
             "Bitte geben Sie den Code von Ihrem Apple-Gerät ein.",
         }
 
+    if api.requires_2sa:
+        return {
+            "status": "requires_2fa",
+            "message": "Zwei-Stufen-Authentifizierung erforderlich. "
+            "Bitte fordern Sie einen Code per SMS an.",
+        }
+
     return {
         "status": "authenticated",
         "message": "Erfolgreich angemeldet.",
@@ -89,6 +99,80 @@ def submit_2fa_code(apple_id: str, code: str) -> dict:
     }
 
 
+def get_trusted_devices(apple_id: str) -> list[dict]:
+    """Return the list of trusted devices available for SMS verification."""
+    api = _sessions.get(apple_id)
+    if api is None:
+        return []
+
+    try:
+        devices = api.trusted_devices
+        _trusted_devices[apple_id] = devices
+        return [
+            {
+                "index": i,
+                "name": d.get("deviceName", "Unknown"),
+                "phone": d.get("phoneNumber", ""),
+            }
+            for i, d in enumerate(devices)
+        ]
+    except Exception as exc:
+        log.error("Fehler beim Abrufen der Geräte für %s: %s", apple_id, exc)
+        return []
+
+
+def send_sms_code(apple_id: str, device_index: int) -> dict:
+    """Send an SMS verification code to the given trusted device."""
+    api = _sessions.get(apple_id)
+    if api is None:
+        return {"success": False, "message": "Keine aktive Sitzung."}
+
+    devices = _trusted_devices.get(apple_id, [])
+    if device_index < 0 or device_index >= len(devices):
+        return {"success": False, "message": "Ungültiges Gerät."}
+
+    try:
+        success = api.send_verification_code(devices[device_index])
+        if success:
+            return {"success": True, "message": "SMS-Code gesendet."}
+        return {"success": False, "message": "SMS konnte nicht gesendet werden."}
+    except Exception as exc:
+        return {"success": False, "message": f"Fehler: {exc}"}
+
+
+def submit_2sa_code(apple_id: str, device_index: int, code: str) -> dict:
+    """Submit a 2SA (SMS) verification code.
+
+    Returns a dict with:
+        - status: "authenticated" | "error"
+        - message: human-readable status message
+    """
+    api = _sessions.get(apple_id)
+    if api is None:
+        return {
+            "status": "error",
+            "message": "Keine aktive Sitzung. Bitte melden Sie sich erneut an.",
+        }
+
+    devices = _trusted_devices.get(apple_id, [])
+    if device_index < 0 or device_index >= len(devices):
+        return {"status": "error", "message": "Ungültiges Gerät."}
+
+    try:
+        if not api.validate_verification_code(devices[device_index], code):
+            return {
+                "status": "error",
+                "message": "Ungültiger Code. Bitte versuchen Sie es erneut.",
+            }
+    except Exception as exc:
+        return {"status": "error", "message": f"2SA-Fehler: {exc}"}
+
+    return {
+        "status": "authenticated",
+        "message": "Zwei-Stufen-Authentifizierung erfolgreich.",
+    }
+
+
 def get_session(apple_id: str) -> PyiCloudService | None:
     """Return an active PyiCloudService session, attempting reconnection if needed."""
     api = _sessions.get(apple_id)
@@ -103,7 +187,7 @@ def get_session(apple_id: str) -> PyiCloudService | None:
             cookie_directory=cookie_dir,
             verify=True,
         )
-        if not api.requires_2fa:
+        if not api.requires_2fa and not api.requires_2sa:
             _sessions[apple_id] = api
             return api
     except Exception:
