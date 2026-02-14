@@ -3,7 +3,7 @@
 import json
 import logging
 import os
-import time
+import threading
 from datetime import datetime
 from fnmatch import fnmatch
 from pathlib import Path
@@ -13,6 +13,57 @@ from app.config import settings
 from app.services import icloud_service
 
 log = logging.getLogger("icloud-backup")
+
+
+# ---------------------------------------------------------------------------
+# Live progress tracking
+# ---------------------------------------------------------------------------
+
+_progress: dict[int, dict] = {}  # keyed by backup config id
+_progress_lock = threading.Lock()
+
+
+def get_progress(config_id: int) -> dict | None:
+    with _progress_lock:
+        return _progress.get(config_id)
+
+
+def _set_progress(config_id: int, data: dict) -> None:
+    with _progress_lock:
+        _progress[config_id] = data
+
+
+def _clear_progress(config_id: int) -> None:
+    with _progress_lock:
+        _progress.pop(config_id, None)
+
+
+# ---------------------------------------------------------------------------
+# Etag cache
+# ---------------------------------------------------------------------------
+
+def _cache_path(destination: str, folder_name: str) -> Path:
+    """Return the path to the etag cache file for a given folder."""
+    safe = folder_name.replace("/", "_")
+    return settings.config_path / f".icloud-backup-state-{destination}-{safe}.json"
+
+
+def _load_cache(destination: str, folder_name: str) -> dict:
+    path = _cache_path(destination, folder_name)
+    if path.exists():
+        try:
+            return json.loads(path.read_text())
+        except Exception:
+            log.warning("Cache-Datei beschädigt, wird ignoriert: %s", path)
+    return {}
+
+
+def _save_cache(destination: str, folder_name: str, cache: dict) -> None:
+    path = _cache_path(destination, folder_name)
+    try:
+        path.write_text(json.dumps(cache, indent=2))
+    except Exception as exc:
+        log.warning("Cache konnte nicht gespeichert werden: %s", exc)
 
 
 # ---------------------------------------------------------------------------
@@ -37,15 +88,12 @@ def is_excluded(rel_path: str, excludes: list[str]) -> bool:
     parts = rel_path.split("/")
     for pattern in excludes:
         if _is_glob(pattern):
-            # Match each component individually
             if any(fnmatch(p, pattern) for p in parts):
                 return True
         elif "/" in pattern:
-            # Absolute-style path match
             if rel_path.startswith(pattern) or rel_path == pattern:
                 return True
         else:
-            # Simple name match against any component
             if pattern in parts:
                 return True
     return False
@@ -55,8 +103,15 @@ def is_excluded(rel_path: str, excludes: list[str]) -> bool:
 # iCloud Drive backup
 # ---------------------------------------------------------------------------
 
-def _walk_remote(node, prefix: str = "", excludes: list[str] | None = None):
-    """Recursively yield ``(relative_path, node)`` for all files under *node*."""
+def _walk_remote(node, prefix: str = "", excludes: list[str] | None = None,
+                 cache: dict | None = None):
+    """Recursively yield ``(relative_path, node)`` for all files under *node*.
+
+    When *cache* is provided, folders whose etag matches the cached value
+    are skipped entirely.  Yields an additional sentinel
+    ``(folder_rel_path, None, new_etag)`` for folders so the caller can
+    update the cache after an error-free run.
+    """
     excludes = excludes or []
     try:
         children = node.dir()
@@ -72,9 +127,21 @@ def _walk_remote(node, prefix: str = "", excludes: list[str] | None = None):
             continue
 
         if child.type == "folder":
-            yield from _walk_remote(child, rel, excludes)
+            # Etag-based skip
+            child_etag = getattr(child, "etag", None)
+            if cache is not None and child_etag:
+                cached_etag = cache.get(rel)
+                if cached_etag and cached_etag == child_etag:
+                    log.debug("Cache-Hit (etag unverändert): %s", rel)
+                    continue
+
+            yield from _walk_remote(child, rel, excludes, cache)
+
+            # Yield folder etag so caller can update cache
+            if child_etag:
+                yield rel, None, child_etag
         else:
-            yield rel, child
+            yield rel, child, None
 
 
 def _file_needs_update(node, local_path: Path) -> bool:
@@ -98,11 +165,13 @@ def _file_needs_update(node, local_path: Path) -> bool:
 def sync_drive_folder(
     apple_id: str,
     folder_name: str,
-    destination: Path,
+    destination_path: Path,
+    destination_key: str,
     excludes: list[str] | None = None,
     dry_run: bool = False,
+    config_id: int | None = None,
 ) -> dict:
-    """Synchronise a single iCloud Drive folder to *destination*.
+    """Synchronise a single iCloud Drive folder to *destination_path*.
 
     Returns stats dict: ``{downloaded, deleted, skipped, errors}``.
     """
@@ -119,13 +188,21 @@ def sync_drive_folder(
         log.error("Ordner '%s' nicht gefunden: %s", folder_name, exc)
         return {**stats, "errors": 1}
 
-    dest = destination / folder_name
+    dest = destination_path / folder_name
     dest.mkdir(parents=True, exist_ok=True)
 
-    # Track remote files so we can detect local-only files for deletion
+    # Load etag cache
+    cache = _load_cache(destination_key, folder_name)
+    new_etags: dict[str, str] = {}
+
     remote_files: set[str] = set()
 
-    for rel_path, node in _walk_remote(folder_node, excludes=excludes):
+    for rel_path, node, etag in _walk_remote(folder_node, excludes=excludes, cache=cache):
+        # Folder etag sentinel
+        if node is None and etag:
+            new_etags[rel_path] = etag
+            continue
+
         remote_files.add(rel_path)
         local_path = dest / rel_path
 
@@ -147,7 +224,6 @@ def sync_drive_folder(
                 copyfileobj(response.raw, fh)
             tmp_path.rename(local_path)
 
-            # Preserve modification time
             if node.date_modified:
                 mtime = node.date_modified.timestamp()
                 os.utime(local_path, (mtime, mtime))
@@ -159,6 +235,15 @@ def sync_drive_folder(
             if tmp_path.exists():
                 tmp_path.unlink()
             stats["errors"] += 1
+
+        # Update progress
+        if config_id is not None:
+            _set_progress(config_id, {
+                "phase": "drive",
+                "folder": folder_name,
+                "current_file": rel_path,
+                **stats,
+            })
 
     # Delete local files that no longer exist remotely
     if not dry_run:
@@ -179,6 +264,11 @@ def sync_drive_folder(
             if dirpath.is_dir() and not any(dirpath.iterdir()):
                 dirpath.rmdir()
 
+    # Save etag cache only when no errors occurred
+    if stats["errors"] == 0:
+        cache.update(new_etags)
+        _save_cache(destination_key, folder_name, cache)
+
     return stats
 
 
@@ -188,18 +278,25 @@ def run_drive_backup(
     destination: str,
     excludes: list[str] | None = None,
     dry_run: bool = False,
+    config_id: int | None = None,
 ) -> dict:
-    """Run a full iCloud Drive backup for the given folders.
-
-    Returns aggregated stats dict.
-    """
+    """Run a full iCloud Drive backup for the given folders."""
     dest_path = settings.backup_path / destination / "drive"
     dest_path.mkdir(parents=True, exist_ok=True)
 
     total = {"downloaded": 0, "deleted": 0, "skipped": 0, "errors": 0}
     for folder in folders:
         log.info("Synchronisiere Drive-Ordner: %s → %s", folder, dest_path)
-        stats = sync_drive_folder(apple_id, folder, dest_path, excludes, dry_run)
+        if config_id is not None:
+            _set_progress(config_id, {
+                "phase": "drive",
+                "folder": folder,
+                "current_file": "",
+                **total,
+            })
+        stats = sync_drive_folder(
+            apple_id, folder, dest_path, destination, excludes, dry_run, config_id,
+        )
         for k in total:
             total[k] += stats[k]
 
@@ -216,11 +313,9 @@ def run_photos_backup(
     include_family: bool = False,
     excludes: list[str] | None = None,
     dry_run: bool = False,
+    config_id: int | None = None,
 ) -> dict:
-    """Download iCloud Photos (and optionally family library) to *destination*.
-
-    Returns stats dict.
-    """
+    """Download iCloud Photos (and optionally family library) to *destination*."""
     stats = {"downloaded": 0, "skipped": 0, "errors": 0}
 
     api = icloud_service.get_session(apple_id)
@@ -233,7 +328,6 @@ def run_photos_backup(
 
     albums_to_backup = ["All Photos"]
     if include_family:
-        # Attempt to include shared/family albums
         try:
             for album in api.photos.albums:
                 if "family" in album.lower() or "shared" in album.lower():
@@ -258,13 +352,11 @@ def run_photos_backup(
                     if not filename:
                         continue
 
-                    # Check exclusions
                     if excludes and is_excluded(filename, excludes):
                         continue
 
                     local_path = album_dest / filename
                     if local_path.exists():
-                        # Skip if sizes match
                         if hasattr(photo, "size") and photo.size:
                             if local_path.stat().st_size == photo.size:
                                 stats["skipped"] += 1
@@ -292,6 +384,15 @@ def run_photos_backup(
                     log.error("Fehler bei Foto %s: %s", getattr(photo, "filename", "?"), exc)
                     stats["errors"] += 1
 
+                # Update progress
+                if config_id is not None:
+                    _set_progress(config_id, {
+                        "phase": "photos",
+                        "folder": album_name,
+                        "current_file": filename if 'filename' in dir() else "",
+                        **stats,
+                    })
+
         except Exception as exc:
             log.error("Fehler beim Album '%s': %s", album_name, exc)
             stats["errors"] += 1
@@ -315,34 +416,45 @@ def run_backup(
     drive_folders: list[str] | None = None,
     photos_include_family: bool = False,
     destination: str = "",
-    excludes: list[str] | None = None,
+    exclusions: list[str] | None = None,
     dry_run: bool = False,
+    config_id: int | None = None,
 ) -> dict:
-    """Run a complete backup for one account based on its configuration.
-
-    Returns a result dict with drive_stats and photos_stats.
-    """
+    """Run a complete backup for one account based on its configuration."""
     result = {"drive_stats": None, "photos_stats": None, "success": True, "message": ""}
 
     if not destination:
-        # Derive from apple_id
         destination = apple_id.replace("@", "_at_").replace(".", "_")
 
-    if backup_drive and drive_folders:
-        log.info("Starte iCloud Drive Backup für %s", apple_id)
-        drive_stats = run_drive_backup(apple_id, drive_folders, destination, excludes, dry_run)
-        result["drive_stats"] = drive_stats
-        if drive_stats["errors"] > 0:
-            result["success"] = False
+    if config_id is not None:
+        _set_progress(config_id, {
+            "phase": "starting",
+            "folder": "",
+            "current_file": "",
+            "downloaded": 0, "skipped": 0, "errors": 0,
+        })
 
-    if backup_photos:
-        log.info("Starte iCloud Fotos Backup für %s", apple_id)
-        photos_stats = run_photos_backup(
-            apple_id, destination, photos_include_family, excludes, dry_run
-        )
-        result["photos_stats"] = photos_stats
-        if photos_stats["errors"] > 0:
-            result["success"] = False
+    try:
+        if backup_drive and drive_folders:
+            log.info("Starte iCloud Drive Backup für %s", apple_id)
+            drive_stats = run_drive_backup(
+                apple_id, drive_folders, destination, exclusions, dry_run, config_id,
+            )
+            result["drive_stats"] = drive_stats
+            if drive_stats["errors"] > 0:
+                result["success"] = False
+
+        if backup_photos:
+            log.info("Starte iCloud Fotos Backup für %s", apple_id)
+            photos_stats = run_photos_backup(
+                apple_id, destination, photos_include_family, exclusions, dry_run, config_id,
+            )
+            result["photos_stats"] = photos_stats
+            if photos_stats["errors"] > 0:
+                result["success"] = False
+    finally:
+        if config_id is not None:
+            _clear_progress(config_id)
 
     parts = []
     if result["drive_stats"]:
