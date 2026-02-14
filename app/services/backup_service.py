@@ -307,6 +307,109 @@ def run_drive_backup(
 # iCloud Photos backup
 # ---------------------------------------------------------------------------
 
+def _photo_date(photo) -> datetime | None:
+    """Extract the best available date from a photo asset."""
+    for attr in ("asset_date", "created", "added_date"):
+        dt = getattr(photo, attr, None)
+        if dt is not None:
+            return dt
+    return None
+
+
+def _unique_path(path: Path) -> Path:
+    """Return *path* if it does not exist, else append a counter to avoid collisions."""
+    if not path.exists():
+        return path
+    stem = path.stem
+    suffix = path.suffix
+    parent = path.parent
+    counter = 1
+    while True:
+        candidate = parent / f"{stem}_{counter}{suffix}"
+        if not candidate.exists():
+            return candidate
+        counter += 1
+
+
+def _download_photo(photo, local_path: Path, stats: dict) -> None:
+    """Download a single photo asset to *local_path* with atomic write and timestamp."""
+    try:
+        download = photo.download()
+    except Exception as exc:
+        log.error("Download-Fehler für %s: %s", getattr(photo, "filename", "?"), exc)
+        stats["errors"] += 1
+        return
+
+    if download is None:
+        log.warning("Download fehlgeschlagen (None) für %s", getattr(photo, "filename", "?"))
+        stats["errors"] += 1
+        return
+
+    tmp_path = local_path.with_suffix(local_path.suffix + ".tmp")
+    try:
+        with open(tmp_path, "wb") as fh:
+            copyfileobj(download.raw, fh)
+        tmp_path.rename(local_path)
+    except Exception as exc:
+        log.error("Schreibfehler für %s: %s", local_path.name, exc)
+        if tmp_path.exists():
+            tmp_path.unlink()
+        stats["errors"] += 1
+        return
+
+    # Preserve photo timestamp
+    dt = _photo_date(photo)
+    if dt:
+        try:
+            mtime = dt.timestamp()
+            os.utime(local_path, (mtime, mtime))
+        except Exception:
+            pass
+
+    log.info("Foto heruntergeladen: %s", local_path.name)
+    stats["downloaded"] += 1
+
+
+def _process_photo(photo, dest_path: Path, excludes: list[str] | None,
+                   stats: dict, dry_run: bool) -> str | None:
+    """Process a single photo: check exclusions, skip/download. Returns filename or None."""
+    filename = getattr(photo, "filename", None)
+    if not filename:
+        return None
+
+    if excludes and is_excluded(filename, excludes):
+        return filename
+
+    # Organise into date-based subfolders: YYYY/MM/DD
+    dt = _photo_date(photo)
+    if dt:
+        sub = dest_path / f"{dt:%Y}" / f"{dt:%m}" / f"{dt:%d}"
+    else:
+        sub = dest_path / "unknown_date"
+    sub.mkdir(parents=True, exist_ok=True)
+
+    local_path = sub / filename
+
+    # Skip if already downloaded with matching size
+    if local_path.exists():
+        remote_size = getattr(photo, "size", None)
+        if remote_size and local_path.stat().st_size == remote_size:
+            stats["skipped"] += 1
+            return filename
+
+    if dry_run:
+        log.info("[DRY RUN] Würde herunterladen: %s", filename)
+        stats["downloaded"] += 1
+        return filename
+
+    # Handle filename collisions (different photo, same name)
+    if local_path.exists():
+        local_path = _unique_path(local_path)
+
+    _download_photo(photo, local_path, stats)
+    return filename
+
+
 def run_photos_backup(
     apple_id: str,
     destination: str,
@@ -326,76 +429,54 @@ def run_photos_backup(
     dest_path = settings.backup_path / destination / "photos"
     dest_path.mkdir(parents=True, exist_ok=True)
 
-    albums_to_backup = ["All Photos"]
+    # ---- Personal library via api.photos.all ----
+    log.info("Sichere iCloud Fotos (Mediathek) für %s", apple_id)
+    current_file = ""
+    try:
+        for photo in api.photos.all:
+            current_file = _process_photo(photo, dest_path / "Mediathek", excludes, stats, dry_run) or current_file
+            if config_id is not None:
+                _set_progress(config_id, {
+                    "phase": "photos",
+                    "folder": "Mediathek",
+                    "current_file": current_file,
+                    **stats,
+                })
+    except Exception as exc:
+        log.error("Fehler beim Iterieren der Mediathek: %s", exc)
+        stats["errors"] += 1
+
+    # ---- Shared / family albums ----
     if include_family:
         try:
-            for album in api.photos.albums:
-                if "family" in album.lower() or "shared" in album.lower():
-                    albums_to_backup.append(album)
+            album_keys = list(api.photos.albums.keys()) if hasattr(api.photos.albums, "keys") else list(api.photos.albums)
         except Exception as exc:
-            log.warning("Konnte Familien-Alben nicht abrufen: %s", exc)
+            log.warning("Konnte Album-Liste nicht abrufen: %s", exc)
+            album_keys = []
 
-    for album_name in albums_to_backup:
-        try:
-            album = api.photos.albums.get(album_name)
-            if album is None:
-                log.warning("Album '%s' nicht gefunden, überspringe.", album_name)
+        for album_name in album_keys:
+            # Skip the default "All Photos" – already covered above
+            if album_name in ("All Photos", "all"):
                 continue
 
             log.info("Sichere Album: %s", album_name)
             album_dest = dest_path / _safe_dirname(album_name)
             album_dest.mkdir(parents=True, exist_ok=True)
 
-            for photo in album:
-                try:
-                    filename = photo.filename
-                    if not filename:
-                        continue
-
-                    if excludes and is_excluded(filename, excludes):
-                        continue
-
-                    local_path = album_dest / filename
-                    if local_path.exists():
-                        if hasattr(photo, "size") and photo.size:
-                            if local_path.stat().st_size == photo.size:
-                                stats["skipped"] += 1
-                                continue
-
-                    if dry_run:
-                        log.info("[DRY RUN] Würde herunterladen: %s", filename)
-                        stats["downloaded"] += 1
-                        continue
-
-                    download = photo.download()
-                    if download is None:
-                        stats["errors"] += 1
-                        continue
-
-                    tmp_path = local_path.with_suffix(local_path.suffix + ".tmp")
-                    with open(tmp_path, "wb") as fh:
-                        copyfileobj(download.raw, fh)
-                    tmp_path.rename(local_path)
-
-                    log.info("Foto heruntergeladen: %s", filename)
-                    stats["downloaded"] += 1
-
-                except Exception as exc:
-                    log.error("Fehler bei Foto %s: %s", getattr(photo, "filename", "?"), exc)
-                    stats["errors"] += 1
-
-                # Update progress
-                if config_id is not None:
-                    _set_progress(config_id, {
-                        "phase": "photos",
-                        "folder": album_name,
-                        "current_file": filename if 'filename' in dir() else "",
-                        **stats,
-                    })
-
-        except Exception as exc:
-            log.error("Fehler beim Album '%s': %s", album_name, exc)
-            stats["errors"] += 1
+            try:
+                album = api.photos.albums[album_name]
+                for photo in album:
+                    current_file = _process_photo(photo, album_dest, excludes, stats, dry_run) or current_file
+                    if config_id is not None:
+                        _set_progress(config_id, {
+                            "phase": "photos",
+                            "folder": album_name,
+                            "current_file": current_file,
+                            **stats,
+                        })
+            except Exception as exc:
+                log.error("Fehler beim Album '%s': %s", album_name, exc)
+                stats["errors"] += 1
 
     return stats
 
