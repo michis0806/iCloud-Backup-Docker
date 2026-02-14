@@ -4,7 +4,9 @@ Replaces the SQLite/SQLAlchemy persistence layer with a simple
 human-readable YAML file at /config/config.yaml.
 """
 
+import enum
 import logging
+import re
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -29,7 +31,11 @@ def _read() -> dict:
     if not _CONFIG_FILE.exists():
         return {"accounts": []}
     try:
-        data = yaml.safe_load(_CONFIG_FILE.read_text()) or {}
+        text = _CONFIG_FILE.read_text()
+        # Strip !!python/ tags that yaml.safe_load cannot handle.
+        # These are written by yaml.dump() for enum/object values.
+        text = re.sub(r"!!python/\S+\n\s*- ", "", text)
+        data = yaml.safe_load(text) or {}
     except Exception:
         log.error("Fehler beim Lesen der Konfigurationsdatei %s", _CONFIG_FILE, exc_info=True)
         data = {}
@@ -38,11 +44,23 @@ def _read() -> dict:
     return data
 
 
+def _sanitize(obj):
+    """Recursively convert enum values to plain strings for YAML serialization."""
+    if isinstance(obj, dict):
+        return {k: _sanitize(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize(v) for v in obj]
+    if isinstance(obj, enum.Enum):
+        return obj.value
+    return obj
+
+
 def _write(data: dict) -> None:
     """Atomically write *data* to the YAML config file."""
     _CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
     tmp = _CONFIG_FILE.with_suffix(".yaml.tmp")
-    tmp.write_text(yaml.dump(data, default_flow_style=False, allow_unicode=True, sort_keys=False))
+    clean = _sanitize(data)
+    tmp.write_text(yaml.safe_dump(clean, default_flow_style=False, allow_unicode=True, sort_keys=False))
     tmp.rename(_CONFIG_FILE)
 
 

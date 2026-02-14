@@ -1,13 +1,16 @@
 """iCloud Backup Service – FastAPI application entry point."""
 
+import hmac
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Form, Request
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from app.auth import AuthMiddleware, _COOKIE_NAME, create_session_cookie
 from app.config import settings
 from app.routers import accounts, backup
 from app.services.log_handler import log_buffer
@@ -37,6 +40,12 @@ async def lifespan(app: FastAPI):
     settings.ensure_directories()
     start_scheduler()
     await sync_scheduled_jobs()
+    # Log the password if it was auto-generated
+    if not settings.auth_password:
+        log.info(
+            "Kein AUTH_PASSWORD gesetzt. Generiertes Passwort: %s",
+            settings.get_auth_password(),
+        )
     log.info("iCloud Backup Service gestartet")
     yield
     stop_scheduler()
@@ -61,6 +70,9 @@ static_dir.mkdir(exist_ok=True)
 
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 templates = Jinja2Templates(directory=str(templates_dir))
+
+# Authentication middleware
+app.add_middleware(AuthMiddleware)
 
 # API routers
 app.include_router(accounts.router)
@@ -96,6 +108,38 @@ async def get_backup_progress(apple_id: str):
     if progress is None:
         return {"running": False}
     return {"running": True, **progress}
+
+
+# ---------------------------------------------------------------------------
+# Login / Logout
+# ---------------------------------------------------------------------------
+@app.get("/login")
+async def login_page(request: Request):
+    return templates.TemplateResponse("login.html", {"request": request, "error": None})
+
+
+@app.post("/login")
+async def login_submit(request: Request, password: str = Form(...)):
+    if hmac.compare_digest(password, settings.get_auth_password()):
+        response = RedirectResponse(url="/", status_code=302)
+        response.set_cookie(
+            _COOKIE_NAME,
+            create_session_cookie(),
+            max_age=86400 * 7,
+            httponly=True,
+            samesite="lax",
+        )
+        return response
+    return templates.TemplateResponse(
+        "login.html", {"request": request, "error": "Falsches Passwort."}, status_code=401
+    )
+
+
+@app.post("/logout")
+async def logout():
+    response = RedirectResponse(url="/login", status_code=302)
+    response.delete_cookie(_COOKIE_NAME)
+    return response
 
 
 # ---------------------------------------------------------------------------

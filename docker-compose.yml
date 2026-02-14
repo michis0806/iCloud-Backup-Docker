@@ -13,3 +13,4 @@ services:
     environment:
       - TZ=${TZ:-Europe/Berlin}
       - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
+      # - AUTH_PASSWORD=mein-sicheres-passwort  # If not set, a random password is logged on startup
