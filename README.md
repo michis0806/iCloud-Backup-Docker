@@ -75,7 +75,7 @@ Die Weboberfläche ist dann erreichbar unter: **http://localhost:8080**
 - **Backend:** Python / FastAPI
 - **Frontend:** Bootstrap 5 / Alpine.js
 - **iCloud API:** [pyicloud](https://github.com/picklepete/pyicloud)
-- **Datenbank:** SQLite
+- **Konfiguration:** YAML (`/config/config.yaml`)
 - **Scheduler:** APScheduler
 
 ## Installation auf Synology NAS

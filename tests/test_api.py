@@ -6,34 +6,18 @@ from unittest.mock import patch, MagicMock
 from httpx import AsyncClient, ASGITransport
 
 from app.main import app
-from app.database import init_db, engine, Base
+from app import config_store
 
 
 @pytest_asyncio.fixture
-async def client():
-    """Create a test client with a fresh in-memory database."""
-    # Use in-memory SQLite for tests
-    from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
-
-    test_engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    test_session = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
-
-    async with test_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    async def override_get_db():
-        async with test_session() as session:
-            yield session
-
-    from app.database import get_db
-    app.dependency_overrides[get_db] = override_get_db
+async def client(tmp_path, monkeypatch):
+    """Create a test client with a temporary YAML config."""
+    # Point config_store to a temp file
+    monkeypatch.setattr(config_store, "_CONFIG_FILE", tmp_path / "config.yaml")
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         yield client
-
-    app.dependency_overrides.clear()
-    await test_engine.dispose()
 
 
 class TestHealthEndpoint:
@@ -86,13 +70,12 @@ class TestAccountsAPI:
     @patch("app.routers.accounts.icloud_service.authenticate")
     async def test_delete_account(self, mock_auth, mock_disconnect, client):
         mock_auth.return_value = {"status": "authenticated", "message": "OK"}
-        create_res = await client.post(
+        await client.post(
             "/api/accounts",
             json={"apple_id": "del@icloud.com", "password": "pw"},
         )
-        account_id = create_res.json()["id"]
 
-        res = await client.delete(f"/api/accounts/{account_id}")
+        res = await client.delete("/api/accounts/del@icloud.com")
         assert res.status_code == 200
 
         list_res = await client.get("/api/accounts")
@@ -110,6 +93,6 @@ class TestLogsAPI:
 class TestProgressAPI:
     @pytest.mark.asyncio
     async def test_no_progress(self, client):
-        res = await client.get("/api/backup/progress/9999")
+        res = await client.get("/api/backup/progress/nonexistent@icloud.com")
         assert res.status_code == 200
         assert res.json()["running"] is False

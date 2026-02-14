@@ -13,7 +13,7 @@
 
     <!-- Accounts list -->
     <div class="row g-3">
-        <template x-for="account in accounts" :key="account.id">
+        <template x-for="account in accounts" :key="account.apple_id">
             <div class="col-md-6 col-lg-4">
                 <div class="card h-100">
                     <div class="card-body">
@@ -37,7 +37,7 @@
 
                             <!-- Configure button -->
                             <template x-if="account.status === 'authenticated'">
-                                <a :href="'/accounts/' + account.id"
+                                <a :href="'/accounts/' + encodeURIComponent(account.apple_id)"
                                    class="btn btn-outline-primary btn-sm">
                                     <i class="bi bi-gear me-1"></i> Konfigurieren
                                 </a>
@@ -53,7 +53,7 @@
 
                             <!-- Delete button -->
                             <button class="btn btn-outline-danger btn-sm"
-                                    @click="deleteAccount(account.id)">
+                                    @click="deleteAccount(account.apple_id)">
                                 <i class="bi bi-trash me-1"></i>
                             </button>
                         </div>
@@ -159,7 +159,7 @@ function dashboard() {
         addError: '',
 
         // 2FA
-        tfaAccountId: null,
+        tfaAppleId: null,
         tfaCode: '',
         tfaLoading: false,
         tfaError: '',
@@ -208,7 +208,7 @@ function dashboard() {
         },
 
         show2FA(account) {
-            this.tfaAccountId = account.id;
+            this.tfaAppleId = account.apple_id;
             this.tfaCode = '';
             this.tfaError = '';
             new bootstrap.Modal(this.$refs.tfaModal).show();
@@ -218,7 +218,7 @@ function dashboard() {
             this.tfaLoading = true;
             this.tfaError = '';
             try {
-                const res = await fetch(`/api/accounts/${this.tfaAccountId}/2fa`, {
+                const res = await fetch(`/api/accounts/${encodeURIComponent(this.tfaAppleId)}/2fa`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ code: this.tfaCode }),
@@ -238,7 +238,7 @@ function dashboard() {
 
         async reconnect(account) {
             try {
-                const res = await fetch(`/api/accounts/${account.id}/reconnect`, { method: 'POST' });
+                const res = await fetch(`/api/accounts/${encodeURIComponent(account.apple_id)}/reconnect`, { method: 'POST' });
                 const data = await res.json();
                 // If reconnect requires 2FA, show the 2FA dialog
                 if (data.status === 'requires_2fa') {
@@ -250,10 +250,10 @@ function dashboard() {
             }
         },
 
-        async deleteAccount(accountId) {
+        async deleteAccount(appleId) {
             if (!confirm('Account wirklich löschen? Alle zugehörigen Konfigurationen werden ebenfalls entfernt.')) return;
             try {
-                await fetch(`/api/accounts/${accountId}`, { method: 'DELETE' });
+                await fetch(`/api/accounts/${encodeURIComponent(appleId)}`, { method: 'DELETE' });
                 await this.loadAccounts();
             } catch (e) {
                 console.error('Lösch-Fehler:', e);

@@ -2,7 +2,7 @@
 {% block title %}iCloud Backup – Account Konfiguration{% endblock %}
 
 {% block content %}
-<div x-data="accountConfig({{ account_id }})" x-init="init()">
+<div x-data="accountConfig('{{ apple_id }}')" x-init="init()">
 
     <!-- Header -->
     <div class="d-flex align-items-center gap-3 mb-4">
@@ -317,9 +317,9 @@
 
 {% block scripts %}
 <script>
-function accountConfig(accountId) {
+function accountConfig(appleId) {
     return {
-        accountId: accountId,
+        appleId: appleId,
         account: {},
         config: {
             backup_drive: false,
@@ -340,7 +340,6 @@ function accountConfig(accountId) {
         backupRunning: false,
         backupStatus: {},
         progress: { running: false },
-        configId: null,
         successMsg: '',
         errorMsg: '',
         statusInterval: null,
@@ -364,11 +363,15 @@ function accountConfig(accountId) {
             if (this.progressInterval) clearInterval(this.progressInterval);
         },
 
+        encodedId() {
+            return encodeURIComponent(this.appleId);
+        },
+
         async loadAccount() {
             try {
                 const res = await fetch('/api/accounts');
                 const accounts = await res.json();
-                this.account = accounts.find(a => a.id === this.accountId) || {};
+                this.account = accounts.find(a => a.apple_id === this.appleId) || {};
             } catch (e) {
                 console.error(e);
             }
@@ -376,25 +379,22 @@ function accountConfig(accountId) {
 
         async loadConfig() {
             try {
-                const res = await fetch(`/api/backup/configs/${this.accountId}`);
-                const configs = await res.json();
-                if (configs.length > 0) {
-                    const c = configs[0];
-                    this.configId = c.id;
-                    this.config = {
-                        backup_drive: c.backup_drive,
-                        backup_photos: c.backup_photos,
-                        drive_config_mode: c.drive_config_mode,
-                        drive_folders_simple: c.drive_folders_simple || [],
-                        drive_folders_advanced: c.drive_folders_advanced || '',
-                        photos_include_family: c.photos_include_family,
-                        destination: c.destination || '',
-                        schedule_enabled: c.schedule_enabled,
-                        schedule_cron: c.schedule_cron || '0 2 * * *',
-                    };
-                    this.selectedFolders = [...(c.drive_folders_simple || [])];
-                    this.exclusionsText = (c.exclusions || []).join('\n');
-                }
+                const res = await fetch(`/api/backup/configs/${this.encodedId()}`);
+                if (!res.ok) return;
+                const c = await res.json();
+                this.config = {
+                    backup_drive: c.backup_drive,
+                    backup_photos: c.backup_photos,
+                    drive_config_mode: c.drive_config_mode,
+                    drive_folders_simple: c.drive_folders_simple || [],
+                    drive_folders_advanced: c.drive_folders_advanced || '',
+                    photos_include_family: c.photos_include_family,
+                    destination: c.destination || '',
+                    schedule_enabled: c.schedule_enabled,
+                    schedule_cron: c.schedule_cron || '0 2 * * *',
+                };
+                this.selectedFolders = [...(c.drive_folders_simple || [])];
+                this.exclusionsText = (c.exclusions || []).join('\n');
             } catch (e) {
                 console.error(e);
             }
@@ -403,7 +403,7 @@ function accountConfig(accountId) {
         async loadDriveFolders() {
             this.driveFoldersLoading = true;
             try {
-                const res = await fetch(`/api/accounts/${this.accountId}/drive-folders`);
+                const res = await fetch(`/api/accounts/${this.encodedId()}/drive-folders`);
                 this.driveFolders = await res.json();
             } catch (e) {
                 console.error(e);
@@ -413,7 +413,7 @@ function accountConfig(accountId) {
 
         async loadBackupStatus() {
             try {
-                const res = await fetch(`/api/backup/status/${this.accountId}`);
+                const res = await fetch(`/api/backup/status/${this.encodedId()}`);
                 this.backupStatus = await res.json();
                 if (this.backupStatus.status === 'running') {
                     this.backupRunning = true;
@@ -428,7 +428,7 @@ function accountConfig(accountId) {
         },
 
         startProgressPolling() {
-            if (this.progressInterval || !this.configId) return;
+            if (this.progressInterval) return;
             this.progressInterval = setInterval(() => this.pollProgress(), 2000);
             this.pollProgress();
         },
@@ -442,9 +442,8 @@ function accountConfig(accountId) {
         },
 
         async pollProgress() {
-            if (!this.configId) return;
             try {
-                const res = await fetch(`/api/backup/progress/${this.configId}`);
+                const res = await fetch(`/api/backup/progress/${this.encodedId()}`);
                 this.progress = await res.json();
                 if (!this.progress.running) {
                     this.stopProgressPolling();
@@ -489,7 +488,7 @@ function accountConfig(accountId) {
             };
 
             try {
-                const res = await fetch(`/api/backup/configs/${this.accountId}`, {
+                const res = await fetch(`/api/backup/configs/${this.encodedId()}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload),
@@ -511,7 +510,7 @@ function accountConfig(accountId) {
             this.successMsg = '';
             this.errorMsg = '';
             try {
-                const res = await fetch(`/api/backup/run/${this.accountId}`, { method: 'POST' });
+                const res = await fetch(`/api/backup/run/${this.encodedId()}`, { method: 'POST' });
                 if (res.ok) {
                     this.successMsg = 'Backup wurde gestartet.';
                     this.startProgressPolling();
