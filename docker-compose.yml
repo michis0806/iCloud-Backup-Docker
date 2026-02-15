@@ -5,6 +5,8 @@ services:
     build: .
     container_name: icloud-backup
     restart: unless-stopped
+    mem_limit: 512m
+    cpus: 1.0
     ports:
       - "${WEB_PORT:-8080}:8080"
     volumes:
