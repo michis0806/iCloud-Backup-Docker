@@ -709,11 +709,6 @@ def run_photos_backup(
     return stats
 
 
-def _safe_dirname(name: str) -> str:
-    """Create a filesystem-safe directory name."""
-    return "".join(c if c.isalnum() or c in (" ", "-", "_") else "_" for c in name).strip()
-
-
 def get_backup_storage_stats(destination: str) -> dict:
     """Scan local backup directories and return file counts and sizes.
 
