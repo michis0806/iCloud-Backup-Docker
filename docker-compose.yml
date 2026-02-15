@@ -10,7 +10,11 @@ services:
     volumes:
       - ${BACKUP_PATH:-./backups}:/backups
       - ${CONFIG_PATH:-./config}:/config
+      # Synology DSM notifications (uncomment on Synology NAS)
+      # - /usr/syno/bin/synodsmnotify:/usr/local/bin/synodsmnotify:ro
     environment:
       - TZ=${TZ:-Europe/Berlin}
       - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - DSM_NOTIFY=${DSM_NOTIFY:-false}
       # - AUTH_PASSWORD=mein-sicheres-passwort  # If not set, a random password is logged on startup
