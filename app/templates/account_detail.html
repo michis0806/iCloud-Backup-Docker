@@ -250,10 +250,17 @@
                             Konfiguration speichern
                         </button>
                         <button type="button" class="btn btn-success" @click="triggerBackup()"
-                                :disabled="backupRunning">
-                            <span x-show="backupRunning" class="spinner-border spinner-border-sm me-1"></span>
-                            <i class="bi bi-play-fill me-1" x-show="!backupRunning"></i>
+                                :disabled="backupRunning"
+                                x-show="!backupRunning">
+                            <i class="bi bi-play-fill me-1"></i>
                             Backup jetzt starten
+                        </button>
+                        <button type="button" class="btn btn-danger" @click="cancelBackup()"
+                                :disabled="cancelRequested"
+                                x-show="backupRunning">
+                            <i class="bi bi-x-circle me-1" x-show="!cancelRequested"></i>
+                            <span x-show="cancelRequested" class="spinner-border spinner-border-sm me-1"></span>
+                            <span x-text="cancelRequested ? 'Wird abgebrochen...' : 'Backup abbrechen'"></span>
                         </button>
                     </div>
                 </div>
@@ -378,6 +385,7 @@ function accountConfig(appleId) {
         driveFoldersLoading: false,
         saving: false,
         backupRunning: false,
+        cancelRequested: false,
         backupStatus: {},
         progress: { running: false },
         successMsg: '',
@@ -462,6 +470,7 @@ function accountConfig(appleId) {
                     this.startProgressPolling();
                 } else {
                     this.backupRunning = false;
+                    this.cancelRequested = false;
                     this.stopProgressPolling();
                 }
             } catch (e) {
@@ -568,6 +577,24 @@ function accountConfig(appleId) {
             } catch (e) {
                 this.errorMsg = 'Netzwerkfehler: ' + e.message;
                 this.backupRunning = false;
+            }
+        },
+
+        async cancelBackup() {
+            this.cancelRequested = true;
+            this.errorMsg = '';
+            try {
+                const res = await fetch(`/api/backup/cancel/${this.encodedId()}`, { method: 'POST' });
+                if (res.ok) {
+                    this.successMsg = 'Abbruch angefordert...';
+                } else {
+                    const err = await res.json();
+                    this.errorMsg = err.detail || 'Fehler beim Abbrechen.';
+                    this.cancelRequested = false;
+                }
+            } catch (e) {
+                this.errorMsg = 'Netzwerkfehler: ' + e.message;
+                this.cancelRequested = false;
             }
         },
 
