@@ -1,4 +1,4 @@
-"""Backup scheduler using APScheduler."""
+"""Backup scheduler using APScheduler – single central schedule."""
 
 import asyncio
 import logging
@@ -15,6 +15,8 @@ log = logging.getLogger("icloud-backup")
 
 scheduler = AsyncIOScheduler()
 
+_BACKUP_JOB_ID = "backup_all"
+
 
 def _parse_folders(cfg: dict) -> list[str]:
     """Extract the list of drive folders from a backup config dict."""
@@ -27,7 +29,7 @@ def _parse_folders(cfg: dict) -> list[str]:
 
 
 async def _run_backup_job(apple_id: str) -> None:
-    """Execute a single backup job."""
+    """Execute a single backup job for one account."""
     account = config_store.get_account(apple_id)
     if account is None:
         log.warning("Account %s nicht gefunden", apple_id)
@@ -78,42 +80,53 @@ async def _run_backup_job(apple_id: str) -> None:
     notify_backup_result(apple_id, status, message)
 
 
+async def _run_all_backups() -> None:
+    """Run backups for all configured accounts sequentially."""
+    accounts = config_store.list_configured_accounts()
+    if not accounts:
+        log.info("Kein Account mit Backup-Konfiguration gefunden, überspringe geplanten Lauf")
+        return
+
+    log.info("Geplanter Backup-Lauf gestartet für %d Account(s)", len(accounts))
+    for acc in accounts:
+        apple_id = acc["apple_id"]
+        log.info("Starte Backup für %s", apple_id)
+        await _run_backup_job(apple_id)
+    log.info("Geplanter Backup-Lauf abgeschlossen")
+
+
 async def sync_scheduled_jobs() -> None:
-    """Read all backup configs and register/update scheduled jobs."""
-    configs = config_store.list_scheduled_configs()
+    """Read global schedule config and register/update the central backup job."""
+    # Remove existing backup job
+    existing = scheduler.get_job(_BACKUP_JOB_ID)
+    if existing:
+        existing.remove()
 
-    # Remove all existing jobs
-    for job in scheduler.get_jobs():
-        if job.id.startswith("backup_"):
-            job.remove()
+    schedule = config_store.get_schedule()
+    if not schedule.get("enabled"):
+        log.info("Zeitplan deaktiviert")
+        return
 
-    # Add jobs for enabled schedules
-    for cfg in configs:
-        apple_id = cfg["apple_id"]
-        cron_expr = cfg.get("schedule_cron") or "0 2 * * *"  # Default: 2 AM daily
-        try:
-            parts = cron_expr.split()
-            trigger = CronTrigger(
-                minute=parts[0] if len(parts) > 0 else "0",
-                hour=parts[1] if len(parts) > 1 else "2",
-                day=parts[2] if len(parts) > 2 else "*",
-                month=parts[3] if len(parts) > 3 else "*",
-                day_of_week=parts[4] if len(parts) > 4 else "*",
-            )
-            scheduler.add_job(
-                _run_backup_job,
-                trigger=trigger,
-                id=f"backup_{apple_id}",
-                args=[apple_id],
-                replace_existing=True,
-                name=f"Backup {apple_id}",
-            )
-            log.info("Geplanter Job registriert: %s (%s)", apple_id, cron_expr)
-        except Exception as exc:
-            log.error(
-                "Ungültiger Cron-Ausdruck '%s' für %s: %s",
-                cron_expr, apple_id, exc,
-            )
+    cron_expr = schedule.get("cron") or "0 2 * * *"
+    try:
+        parts = cron_expr.split()
+        trigger = CronTrigger(
+            minute=parts[0] if len(parts) > 0 else "0",
+            hour=parts[1] if len(parts) > 1 else "2",
+            day=parts[2] if len(parts) > 2 else "*",
+            month=parts[3] if len(parts) > 3 else "*",
+            day_of_week=parts[4] if len(parts) > 4 else "*",
+        )
+        scheduler.add_job(
+            _run_all_backups,
+            trigger=trigger,
+            id=_BACKUP_JOB_ID,
+            replace_existing=True,
+            name="Backup alle Accounts",
+        )
+        log.info("Zentraler Zeitplan registriert: %s", cron_expr)
+    except Exception as exc:
+        log.error("Ungültiger Cron-Ausdruck '%s': %s", cron_expr, exc)
 
 
 def start_scheduler() -> None:

@@ -81,12 +81,17 @@ def _default_backup() -> dict:
         "photos_include_family": False,
         "exclusions": None,
         "destination": "",
-        "schedule_enabled": False,
-        "schedule_cron": None,
         "last_backup_status": "idle",
         "last_backup_at": None,
         "last_backup_message": None,
         "last_backup_stats": None,
+    }
+
+
+def _default_schedule() -> dict:
+    return {
+        "enabled": False,
+        "cron": "0 2 * * *",
     }
 
 
@@ -193,7 +198,6 @@ def save_backup_config(apple_id: str, config: dict) -> dict | None:
             "backup_drive", "backup_photos", "drive_config_mode",
             "drive_folders_simple", "drive_folders_advanced",
             "photos_include_family", "exclusions", "destination",
-            "schedule_enabled", "schedule_cron",
         ):
             if key in config:
                 acc["backup"][key] = config[key]
@@ -229,17 +233,33 @@ def update_backup_status(
 
 
 # ---------------------------------------------------------------------------
-# Public API – scheduled configs
+# Public API – global schedule
 # ---------------------------------------------------------------------------
 
-def list_scheduled_configs() -> list[dict]:
-    """Return all backup configs that have scheduling enabled."""
+def get_schedule() -> dict:
+    """Return the global backup schedule settings."""
+    with _lock:
+        data = _read()
+    return data.get("schedule") or _default_schedule()
+
+
+def save_schedule(enabled: bool, cron: str) -> dict:
+    """Save the global backup schedule settings."""
+    with _lock:
+        data = _read()
+        data["schedule"] = {"enabled": enabled, "cron": cron}
+        _write(data)
+    return data["schedule"]
+
+
+def list_configured_accounts() -> list[dict]:
+    """Return all accounts that have a backup configuration (drive or photos enabled)."""
     with _lock:
         data = _read()
     result = []
     for acc in data["accounts"]:
         backup = acc.get("backup") or {}
-        if backup.get("schedule_enabled"):
+        if backup.get("backup_drive") or backup.get("backup_photos"):
             result.append({
                 "apple_id": acc["apple_id"],
                 "status": acc.get("status", "pending"),

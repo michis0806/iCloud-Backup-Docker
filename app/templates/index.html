@@ -4,6 +4,35 @@
 {% block content %}
 <div x-data="dashboard()" x-init="init()">
 
+    <!-- Global Schedule Card -->
+    <div class="card mb-4">
+        <div class="card-body d-flex flex-wrap align-items-center gap-3">
+            <div class="d-flex align-items-center gap-2">
+                <i class="bi bi-clock fs-5"></i>
+                <strong>Zeitplan</strong>
+            </div>
+            <div class="form-check form-switch mb-0">
+                <input class="form-check-input" type="checkbox" id="globalScheduleEnabled"
+                       x-model="schedule.enabled" @change="saveSchedule()">
+                <label class="form-check-label" for="globalScheduleEnabled">
+                    Automatisches Backup
+                </label>
+            </div>
+            <div class="d-flex align-items-center gap-2" x-show="schedule.enabled" x-transition>
+                <label class="form-label mb-0 small text-nowrap">Cron:</label>
+                <input type="text" class="form-control form-control-sm font-monospace" style="width: 10rem"
+                       x-model="schedule.cron" @change="saveSchedule()"
+                       placeholder="0 2 * * *">
+            </div>
+            <div class="text-muted small" x-show="schedule.enabled" x-transition>
+                Sichert alle konfigurierten Accounts nacheinander.
+            </div>
+            <div x-show="scheduleSaved" x-transition class="text-success small">
+                <i class="bi bi-check-lg"></i> Gespeichert
+            </div>
+        </div>
+    </div>
+
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h1 class="h3 mb-0">Accounts</h1>
         <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addAccountModal">
@@ -231,6 +260,10 @@ function dashboard() {
         accounts: [],
         loading: true,
 
+        // Global schedule
+        schedule: { enabled: false, cron: '0 2 * * *' },
+        scheduleSaved: false,
+
         // Add account
         newAppleId: '',
         newPassword: '',
@@ -251,7 +284,38 @@ function dashboard() {
         tfaSmsSuccess: '',
 
         async init() {
-            await this.loadAccounts();
+            await Promise.all([
+                this.loadAccounts(),
+                this.loadSchedule(),
+            ]);
+        },
+
+        async loadSchedule() {
+            try {
+                const res = await fetch('/api/backup/schedule');
+                if (res.ok) {
+                    this.schedule = await res.json();
+                }
+            } catch (e) {
+                console.error('Fehler beim Laden des Zeitplans:', e);
+            }
+        },
+
+        async saveSchedule() {
+            this.scheduleSaved = false;
+            try {
+                const res = await fetch('/api/backup/schedule', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(this.schedule),
+                });
+                if (res.ok) {
+                    this.scheduleSaved = true;
+                    setTimeout(() => this.scheduleSaved = false, 3000);
+                }
+            } catch (e) {
+                console.error('Fehler beim Speichern des Zeitplans:', e);
+            }
         },
 
         async loadAccounts() {
