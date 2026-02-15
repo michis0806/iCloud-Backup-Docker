@@ -79,6 +79,8 @@ def _default_backup() -> dict:
         "drive_folders_simple": None,
         "drive_folders_advanced": None,
         "photos_include_family": False,
+        "drive_sync_policy": "delete",
+        "photos_sync_policy": "keep",
         "exclusions": None,
         "destination": "",
         "last_backup_status": "idle",
@@ -197,7 +199,8 @@ def save_backup_config(apple_id: str, config: dict) -> dict | None:
         for key in (
             "backup_drive", "backup_photos", "drive_config_mode",
             "drive_folders_simple", "drive_folders_advanced",
-            "photos_include_family", "exclusions", "destination",
+            "photos_include_family", "drive_sync_policy", "photos_sync_policy",
+            "exclusions", "destination",
         ):
             if key in config:
                 acc["backup"][key] = config[key]

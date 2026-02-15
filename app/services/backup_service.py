@@ -4,6 +4,7 @@ import gc
 import json
 import logging
 import os
+import shutil
 import threading
 from datetime import datetime
 from fnmatch import fnmatch
@@ -11,6 +12,7 @@ from pathlib import Path
 from shutil import copyfileobj
 
 from app.config import settings
+from app.models import SyncPolicy
 from app.services import icloud_service
 
 log = logging.getLogger("icloud-backup")
@@ -187,6 +189,42 @@ def _file_needs_update(node, local_path: Path) -> bool:
     return False
 
 
+def _apply_sync_policy(
+    local_file: Path,
+    rel_path: str,
+    policy: str,
+    archive_dest: Path,
+    stats: dict,
+) -> None:
+    """Handle an orphaned local file according to the sync policy.
+
+    *policy* is one of ``"keep"``, ``"delete"``, ``"archive"``.
+    """
+    if policy == SyncPolicy.KEEP:
+        return
+
+    if policy == SyncPolicy.ARCHIVE:
+        target = archive_dest / rel_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            shutil.move(str(local_file), str(target))
+            log.info("Archiviert (remote entfernt): %s → %s", rel_path, target)
+            stats["archived"] += 1
+        except Exception as exc:
+            log.error("Fehler beim Archivieren von %s: %s", rel_path, exc)
+            stats["errors"] += 1
+        return
+
+    # policy == "delete"
+    try:
+        local_file.unlink()
+        log.info("Gelöscht (remote entfernt): %s", rel_path)
+        stats["deleted"] += 1
+    except Exception as exc:
+        log.error("Fehler beim Löschen von %s: %s", rel_path, exc)
+        stats["errors"] += 1
+
+
 def sync_drive_folder(
     apple_id: str,
     folder_name: str,
@@ -195,12 +233,13 @@ def sync_drive_folder(
     excludes: list[str] | None = None,
     dry_run: bool = False,
     config_id: str | None = None,
+    sync_policy: str = SyncPolicy.DELETE,
 ) -> dict:
     """Synchronise a single iCloud Drive folder to *destination_path*.
 
-    Returns stats dict: ``{downloaded, deleted, skipped, errors}``.
+    Returns stats dict: ``{downloaded, deleted, archived, skipped, errors}``.
     """
-    stats = {"downloaded": 0, "deleted": 0, "skipped": 0, "errors": 0}
+    stats = {"downloaded": 0, "deleted": 0, "archived": 0, "skipped": 0, "errors": 0}
 
     api = icloud_service.get_session(apple_id)
     if api is None:
@@ -274,19 +313,14 @@ def sync_drive_folder(
                 **stats,
             })
 
-    # Delete local files that no longer exist remotely
-    if not dry_run:
+    # Handle local files that no longer exist remotely
+    if not dry_run and sync_policy != SyncPolicy.KEEP:
+        archive_dest = settings.archive_path / destination_key / "drive" / folder_name
         for local_file in dest.rglob("*"):
             if local_file.is_file() and not local_file.name.endswith(".tmp"):
                 rel = str(local_file.relative_to(dest))
                 if rel not in remote_files:
-                    try:
-                        local_file.unlink()
-                        log.info("Gelöscht (remote entfernt): %s", rel)
-                        stats["deleted"] += 1
-                    except Exception as exc:
-                        log.error("Fehler beim Löschen von %s: %s", rel, exc)
-                        stats["errors"] += 1
+                    _apply_sync_policy(local_file, rel, sync_policy, archive_dest, stats)
 
         # Clean up empty directories
         for dirpath in sorted(dest.rglob("*"), reverse=True):
@@ -316,6 +350,7 @@ def run_drive_backup(
     excludes: list[str] | None = None,
     dry_run: bool = False,
     config_id: str | None = None,
+    sync_policy: str = SyncPolicy.DELETE,
 ) -> dict:
     """Run a full iCloud Drive backup for the given folders."""
     folders = _resolve_drive_folders(apple_id, folders)
@@ -323,7 +358,7 @@ def run_drive_backup(
     dest_path = settings.backup_path / destination / "drive"
     dest_path.mkdir(parents=True, exist_ok=True)
 
-    total = {"downloaded": 0, "deleted": 0, "skipped": 0, "errors": 0}
+    total = {"downloaded": 0, "deleted": 0, "archived": 0, "skipped": 0, "errors": 0}
     for folder in folders:
         log.info("Synchronisiere Drive-Ordner: %s → %s", folder, dest_path)
         if config_id is not None:
@@ -335,9 +370,10 @@ def run_drive_backup(
             })
         stats = sync_drive_folder(
             apple_id, folder, dest_path, destination, excludes, dry_run, config_id,
+            sync_policy=sync_policy,
         )
         for k in total:
-            total[k] += stats[k]
+            total[k] += stats.get(k, 0)
 
     return total
 
@@ -485,6 +521,33 @@ def _process_photo(photo, dest_path: Path, excludes: list[str] | None,
     return filename, False
 
 
+def _reconcile_photos(
+    local_dir: Path,
+    remote_files: set[str],
+    sync_policy: str,
+    archive_dest: Path,
+    stats: dict,
+    dry_run: bool,
+) -> None:
+    """Remove / archive local photos that no longer exist in iCloud."""
+    if dry_run or sync_policy == SyncPolicy.KEEP:
+        return
+    if not local_dir.exists():
+        return
+
+    for local_file in local_dir.rglob("*"):
+        if not local_file.is_file() or local_file.name.endswith(".tmp"):
+            continue
+        rel = str(local_file.relative_to(local_dir))
+        if rel not in remote_files:
+            _apply_sync_policy(local_file, rel, sync_policy, archive_dest, stats)
+
+    # Clean up empty directories
+    for dirpath in sorted(local_dir.rglob("*"), reverse=True):
+        if dirpath.is_dir() and not any(dirpath.iterdir()):
+            dirpath.rmdir()
+
+
 def run_photos_backup(
     apple_id: str,
     destination: str,
@@ -492,9 +555,10 @@ def run_photos_backup(
     excludes: list[str] | None = None,
     dry_run: bool = False,
     config_id: str | None = None,
+    sync_policy: str = SyncPolicy.KEEP,
 ) -> dict:
     """Download iCloud Photos (and optionally family library) to *destination*."""
-    stats = {"downloaded": 0, "skipped": 0, "errors": 0}
+    stats = {"downloaded": 0, "skipped": 0, "deleted": 0, "archived": 0, "errors": 0}
 
     api = icloud_service.get_session(apple_id)
     if api is None:
@@ -504,16 +568,27 @@ def run_photos_backup(
     dest_path = settings.backup_path / destination / "photos"
     dest_path.mkdir(parents=True, exist_ok=True)
 
+    mediathek_dir = dest_path / "Mediathek"
+
     # ---- Personal library via api.photos.all ----
     log.info("Sichere iCloud Fotos (Mediathek) für %s", apple_id)
 
     current_file = ""
     processed = 0
+    remote_files: set[str] = set()
     try:
         for photo in api.photos.all:
-            fname, was_skipped = _process_photo(photo, dest_path / "Mediathek", excludes, stats, dry_run)
+            fname, was_skipped = _process_photo(photo, mediathek_dir, excludes, stats, dry_run)
             processed += 1
             current_file = fname or current_file
+            # Track remote file paths for sync policy
+            if fname:
+                dt = _photo_date(photo)
+                if dt:
+                    rel = f"{dt:%Y}/{dt:%m}/{dt:%d}/{fname}"
+                else:
+                    rel = f"unknown_date/{fname}"
+                remote_files.add(rel)
             # Release memory every 50 photos (pyicloud batches 100 at a time)
             if processed % 50 == 0:
                 gc.collect()
@@ -535,6 +610,11 @@ def run_photos_backup(
         processed, stats["downloaded"], stats["skipped"], stats["errors"],
     )
 
+    # Apply sync policy for Mediathek (only if we successfully iterated)
+    if processed > 0 and sync_policy != SyncPolicy.KEEP:
+        archive_dest = settings.archive_path / destination / "photos" / "Mediathek"
+        _reconcile_photos(mediathek_dir, remote_files, sync_policy, archive_dest, stats, dry_run)
+
     # ---- Shared / family albums ----
     if include_family:
         try:
@@ -552,11 +632,19 @@ def run_photos_backup(
             album_dest = dest_path / _safe_dirname(album_name)
             album_dest.mkdir(parents=True, exist_ok=True)
 
+            album_remote_files: set[str] = set()
             try:
                 album = api.photos.albums[album_name]
                 for photo in album:
                     fname, was_skipped = _process_photo(photo, album_dest, excludes, stats, dry_run)
                     current_file = fname or current_file
+                    if fname:
+                        dt = _photo_date(photo)
+                        if dt:
+                            rel = f"{dt:%Y}/{dt:%m}/{dt:%d}/{fname}"
+                        else:
+                            rel = f"unknown_date/{fname}"
+                        album_remote_files.add(rel)
                     if config_id is not None:
                         _set_progress(config_id, {
                             "phase": "photos",
@@ -567,6 +655,11 @@ def run_photos_backup(
             except Exception as exc:
                 log.error("Fehler beim Album '%s': %s", album_name, exc)
                 stats["errors"] += 1
+
+            # Apply sync policy per album
+            if album_remote_files and sync_policy != SyncPolicy.KEEP:
+                archive_album = settings.archive_path / destination / "photos" / _safe_dirname(album_name)
+                _reconcile_photos(album_dest, album_remote_files, sync_policy, archive_album, stats, dry_run)
 
     stats["processed"] = processed
     return stats
@@ -621,6 +714,8 @@ def run_backup(
     exclusions: list[str] | None = None,
     dry_run: bool = False,
     config_id: str | None = None,
+    drive_sync_policy: str = SyncPolicy.DELETE,
+    photos_sync_policy: str = SyncPolicy.KEEP,
 ) -> dict:
     """Run a complete backup for one account based on its configuration."""
     result = {"drive_stats": None, "photos_stats": None, "success": True, "message": ""}
@@ -641,6 +736,7 @@ def run_backup(
             log.info("Starte iCloud Drive Backup für %s", apple_id)
             drive_stats = run_drive_backup(
                 apple_id, drive_folders, destination, exclusions, dry_run, config_id,
+                sync_policy=drive_sync_policy,
             )
             result["drive_stats"] = drive_stats
             if drive_stats["errors"] > 0:
@@ -650,6 +746,7 @@ def run_backup(
             log.info("Starte iCloud Fotos Backup für %s", apple_id)
             photos_stats = run_photos_backup(
                 apple_id, destination, photos_include_family, exclusions, dry_run, config_id,
+                sync_policy=photos_sync_policy,
             )
             result["photos_stats"] = photos_stats
             if photos_stats["errors"] > 0:
@@ -661,17 +758,22 @@ def run_backup(
     parts = []
     if result["drive_stats"]:
         d = result["drive_stats"]
-        parts.append(
-            f"Drive: {d['downloaded']} heruntergeladen, "
-            f"{d['deleted']} gelöscht, {d['skipped']} übersprungen, "
-            f"{d['errors']} Fehler"
-        )
+        summary = f"Drive: {d['downloaded']} heruntergeladen"
+        if d.get('deleted'):
+            summary += f", {d['deleted']} gelöscht"
+        if d.get('archived'):
+            summary += f", {d['archived']} archiviert"
+        summary += f", {d['skipped']} übersprungen, {d['errors']} Fehler"
+        parts.append(summary)
     if result["photos_stats"]:
         p = result["photos_stats"]
-        parts.append(
-            f"Fotos: {p['downloaded']} heruntergeladen, "
-            f"{p['skipped']} übersprungen, {p['errors']} Fehler"
-        )
+        summary = f"Fotos: {p['downloaded']} heruntergeladen"
+        if p.get('deleted'):
+            summary += f", {p['deleted']} gelöscht"
+        if p.get('archived'):
+            summary += f", {p['archived']} archiviert"
+        summary += f", {p['skipped']} übersprungen, {p['errors']} Fehler"
+        parts.append(summary)
 
     result["message"] = " | ".join(parts) if parts else "Nichts zu sichern."
     return result

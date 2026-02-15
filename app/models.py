@@ -20,3 +20,9 @@ class BackupStatus(str, enum.Enum):
 class DriveConfigMode(str, enum.Enum):
     SIMPLE = "simple"
     ADVANCED = "advanced"
+
+
+class SyncPolicy(str, enum.Enum):
+    KEEP = "keep"          # Lokal behalten, auch wenn remote gelöscht
+    DELETE = "delete"      # Lokal löschen, wenn remote gelöscht
+    ARCHIVE = "archive"   # In Archiv-Ordner verschieben

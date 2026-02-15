@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     auth_password: str = ""
     config_path: Path = Path("/config")
     backup_path: Path = Path("/backups")
+    archive_path: Path = Path("/archive")
     cookie_directory: Path = Path("/config/sessions")
     log_level: str = "INFO"
     dsm_notify: bool = False
@@ -18,6 +19,7 @@ class Settings(BaseSettings):
     def ensure_directories(self) -> None:
         self.config_path.mkdir(parents=True, exist_ok=True)
         self.backup_path.mkdir(parents=True, exist_ok=True)
+        self.archive_path.mkdir(parents=True, exist_ok=True)
         self.cookie_directory.mkdir(parents=True, exist_ok=True)
 
     def get_auth_password(self) -> str:

@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from app.models import AccountStatus, BackupStatus, DriveConfigMode
+from app.models import AccountStatus, BackupStatus, DriveConfigMode, SyncPolicy
 
 
 class AccountCreate(BaseModel):
@@ -33,6 +33,8 @@ class BackupConfigCreate(BaseModel):
     drive_folders_simple: list[str] | None = None
     drive_folders_advanced: str | None = None
     photos_include_family: bool = False
+    drive_sync_policy: SyncPolicy = SyncPolicy.DELETE
+    photos_sync_policy: SyncPolicy = SyncPolicy.KEEP
     exclusions: list[str] | None = None
     destination: str = ""
 
@@ -45,6 +47,8 @@ class BackupConfigResponse(BaseModel):
     drive_folders_simple: list[str] | None = None
     drive_folders_advanced: str | None = None
     photos_include_family: bool
+    drive_sync_policy: SyncPolicy = SyncPolicy.DELETE
+    photos_sync_policy: SyncPolicy = SyncPolicy.KEEP
     exclusions: list[str] | None = None
     destination: str
     last_backup_status: BackupStatus = BackupStatus.IDLE
