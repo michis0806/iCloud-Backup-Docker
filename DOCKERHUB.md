@@ -4,7 +4,7 @@ Back up your **iCloud Drive** and **iCloud Photos** automatically with a simple 
 
 ## Features
 
-- Multi-account support with 2FA
+- Multi-account support with 2FA (device push & SMS)
 - iCloud Drive backup (folder selection or manual paths)
 - iCloud Photos backup (including family library)
 - Scheduled backups via cron expressions
@@ -12,6 +12,7 @@ Back up your **iCloud Drive** and **iCloud Photos** automatically with a simple 
 - Exclusion patterns (glob, paths)
 - Etag caching for fast incremental backups
 - Live progress & built-in log viewer
+- Synology DSM notifications via `synodsmnotify`
 - Multi-arch: `linux/amd64` and `linux/arm64`
 
 ## Quick Start
@@ -49,6 +50,8 @@ Open **http://localhost:8080** and log in.
 |----------|---------|-------------|
 | `AUTH_PASSWORD` | *(random)* | Web UI password. Random if not set (check logs). |
 | `SECRET_KEY` | `change-me-in-production` | Secret for cookie signing. |
+| `LOG_LEVEL` | `INFO` | Log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`). |
+| `SYNOLOGY_NOTIFY` | `false` | Enable Synology DSM notifications (`true`/`false`). |
 | `TZ` | `Europe/Berlin` | Container timezone. |
 
 ## Volumes
@@ -60,7 +63,7 @@ Open **http://localhost:8080** and log in.
 
 ## How It Works
 
-1. **Add account** – Enter your Apple ID and app-specific password, confirm 2FA
+1. **Add account** – Enter your Apple ID and app-specific password, confirm 2FA (device push or SMS)
 2. **Configure** – Select folders/photos, set exclusions, choose schedule
 3. **Back up** – Run manually or let the scheduler handle it
 
