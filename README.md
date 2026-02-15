@@ -7,6 +7,7 @@ A Docker-based backup service for **iCloud Drive** and **iCloud Photos** with a 
 - **Multi-Account Support** – Manage and back up multiple iCloud accounts
 - **iCloud Drive Backup** – Simple mode (folder selection via checkboxes) or advanced mode (manual path configuration)
 - **iCloud Photos Backup** – Including optional family library
+- **Sync Policy** – Choose per backup type what happens to locally deleted files: keep, delete, or archive to a dedicated mount
 - **Exclusions** – Flexible exclusion patterns (glob patterns, paths)
 - **Scheduled Backups** – Configurable via cron expressions
 - **2FA Support** – Two-factor authentication directly through the web UI (device push & SMS)
@@ -48,6 +49,7 @@ To set a fixed password, add `AUTH_PASSWORD` to your environment (see [Configura
 | `SECRET_KEY` | `change-me-in-production` | Secret key for session cookie signing. Change this in production! |
 | `WEB_PORT` | `8080` | Web UI port |
 | `BACKUP_PATH` | `./backups` | Host path for backup files |
+| `ARCHIVE_PATH` | `./archive` | Host path for archived files (used when sync policy is set to "archive") |
 | `CONFIG_PATH` | `./config` | Host path for configuration & sessions |
 | `LOG_LEVEL` | `INFO` | Log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
 | `SYNOLOGY_NOTIFY` | `false` | Enable Synology DSM notifications via `synodsmnotify` (`true`/`false`) |
@@ -59,6 +61,7 @@ To set a fixed password, add `AUTH_PASSWORD` to your environment (see [Configura
 |----------------|-------------|
 | `/backups` | Backup destination directory |
 | `/config` | Configuration, session tokens, etag caches |
+| `/archive` | Archive directory for files removed from iCloud (when sync policy = "archive") |
 
 ### docker-compose.yml
 
@@ -76,6 +79,7 @@ services:
     volumes:
       - ./backups:/backups
       - ./config:/config
+      - ./archive:/archive
     environment:
       - TZ=Europe/Berlin
       - AUTH_PASSWORD=my-secure-password
@@ -98,6 +102,10 @@ services:
 - **Drive (Simple):** Select folders via checkboxes
 - **Drive (Advanced):** Enter paths manually (one path per line)
 - **Photos:** Optionally include family library
+- **Sync policy** (per Drive / Photos): Choose what happens when files are deleted in iCloud:
+  - **Keep** – local files stay untouched (default for Photos)
+  - **Delete** – local files are removed (default for Drive)
+  - **Archive** – files are moved to the `/archive` volume, preserving the folder structure
 - Define exclusions (e.g. `*.tmp`, `.DS_Store`, `node_modules`)
 
 ### 3. Run Backup
@@ -121,6 +129,7 @@ services:
    # Via SSH or File Station:
    mkdir -p /volume1/docker/icloud-backup/config
    mkdir -p /volume1/docker/icloud-backup/backups
+   mkdir -p /volume1/docker/icloud-backup/archive
    ```
 
 4. **Adjust docker-compose.yml** (paths for Synology):
@@ -137,6 +146,7 @@ services:
        volumes:
          - /volume1/docker/icloud-backup/backups:/backups
          - /volume1/docker/icloud-backup/config:/config
+         - /volume1/docker/icloud-backup/archive:/archive
        environment:
          - TZ=Europe/Berlin
          - AUTH_PASSWORD=my-secure-password
