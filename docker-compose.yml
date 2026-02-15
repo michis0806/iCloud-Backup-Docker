@@ -6,7 +6,7 @@ services:
     container_name: icloud-backup
     restart: unless-stopped
     mem_limit: 512m
-    cpus: 1.0
+    # cpus: 1.0  # Requires kernel CFS scheduler support (not available on all Synology models)
     ports:
       - "${WEB_PORT:-8080}:8080"
     volumes:

@@ -132,7 +132,6 @@ services:
        container_name: icloud-backup
        restart: unless-stopped
        mem_limit: 512m
-       cpus: 1.0
        ports:
          - "8080:8080"
        volumes:
