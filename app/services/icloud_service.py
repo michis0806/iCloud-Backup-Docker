@@ -100,11 +100,29 @@ def submit_2fa_code(apple_id: str, code: str) -> dict:
 
 
 def get_trusted_devices(apple_id: str) -> list[dict]:
-    """Return the list of trusted devices available for SMS verification."""
+    """Return the list of trusted devices/phone numbers available for SMS verification."""
     api = _sessions.get(apple_id)
     if api is None:
         return []
 
+    # 2FA (HSA2): phone numbers come from auth data, not the old listDevices API
+    if api.requires_2fa:
+        try:
+            phones = getattr(api, "_auth_data", {}).get("trustedPhoneNumbers", [])
+            _trusted_devices[apple_id] = phones
+            return [
+                {
+                    "index": i,
+                    "name": f"SMS an {p.get('numberWithDialCode', 'Unbekannt')}",
+                    "phone": p.get("numberWithDialCode", ""),
+                }
+                for i, p in enumerate(phones)
+            ]
+        except Exception as exc:
+            log.error("Fehler beim Abrufen der Telefonnummern für %s: %s", apple_id, exc)
+            return []
+
+    # 2SA (legacy): use traditional trusted devices API
     try:
         devices = api.trusted_devices
         _trusted_devices[apple_id] = devices
@@ -122,7 +140,7 @@ def get_trusted_devices(apple_id: str) -> list[dict]:
 
 
 def send_sms_code(apple_id: str, device_index: int) -> dict:
-    """Send an SMS verification code to the given trusted device."""
+    """Send an SMS verification code to the given trusted device/phone number."""
     api = _sessions.get(apple_id)
     if api is None:
         return {"success": False, "message": "Keine aktive Sitzung."}
@@ -131,6 +149,30 @@ def send_sms_code(apple_id: str, device_index: int) -> dict:
     if device_index < 0 or device_index >= len(devices):
         return {"success": False, "message": "Ungültiges Gerät."}
 
+    # 2FA (HSA2): request SMS via Apple auth endpoint
+    if api.requires_2fa:
+        phone = devices[device_index]
+        phone_id = phone.get("id")
+        try:
+            headers = api._get_auth_headers({"Accept": "application/json"})
+            data = {"phoneNumber": {"id": phone_id}, "mode": "sms"}
+            resp = api.session.put(
+                f"{api._auth_endpoint}/verify/phone",
+                json=data,
+                headers=headers,
+            )
+            # Update auth_data so validate_2fa_code() uses SMS mode
+            resp_json = resp.json()
+            api._auth_data.update(resp_json)
+            api._auth_data["mode"] = "sms"
+            # Ensure trustedPhoneNumber is set for _validate_sms_code()
+            if "trustedPhoneNumber" not in api._auth_data:
+                api._auth_data["trustedPhoneNumber"] = phone
+            return {"success": True, "message": "SMS-Code gesendet."}
+        except Exception as exc:
+            return {"success": False, "message": f"Fehler: {exc}"}
+
+    # 2SA (legacy): use traditional send_verification_code
     try:
         success = api.send_verification_code(devices[device_index])
         if success:
@@ -141,7 +183,7 @@ def send_sms_code(apple_id: str, device_index: int) -> dict:
 
 
 def submit_2sa_code(apple_id: str, device_index: int, code: str) -> dict:
-    """Submit a 2SA (SMS) verification code.
+    """Submit a 2SA/2FA SMS verification code.
 
     Returns a dict with:
         - status: "authenticated" | "error"
@@ -154,6 +196,23 @@ def submit_2sa_code(apple_id: str, device_index: int, code: str) -> dict:
             "message": "Keine aktive Sitzung. Bitte melden Sie sich erneut an.",
         }
 
+    # 2FA (HSA2): use validate_2fa_code which handles SMS mode internally
+    if api.requires_2fa:
+        try:
+            if not api.validate_2fa_code(code):
+                return {
+                    "status": "error",
+                    "message": "Ungültiger Code. Bitte versuchen Sie es erneut.",
+                }
+        except Exception as exc:
+            return {"status": "error", "message": f"2FA-Fehler: {exc}"}
+
+        return {
+            "status": "authenticated",
+            "message": "Zwei-Faktor-Authentifizierung erfolgreich.",
+        }
+
+    # 2SA (legacy): use traditional validation
     devices = _trusted_devices.get(apple_id, [])
     if device_index < 0 or device_index >= len(devices):
         return {"status": "error", "message": "Ungültiges Gerät."}

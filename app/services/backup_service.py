@@ -362,13 +362,13 @@ def _unique_path(path: Path) -> Path:
 def _download_photo(photo, local_path: Path, stats: dict) -> None:
     """Download a single photo asset to *local_path* with atomic write and timestamp."""
     try:
-        download = photo.download()
+        data = photo.download()
     except Exception as exc:
         log.error("Download-Fehler für %s: %s", getattr(photo, "filename", "?"), exc)
         stats["errors"] += 1
         return
 
-    if download is None:
+    if data is None:
         log.warning("Download fehlgeschlagen (None) für %s", getattr(photo, "filename", "?"))
         stats["errors"] += 1
         return
@@ -376,7 +376,7 @@ def _download_photo(photo, local_path: Path, stats: dict) -> None:
     tmp_path = local_path.with_suffix(local_path.suffix + ".tmp")
     try:
         with open(tmp_path, "wb") as fh:
-            copyfileobj(download.raw, fh)
+            fh.write(data)
         tmp_path.rename(local_path)
     except Exception as exc:
         log.error("Schreibfehler für %s: %s", local_path.name, exc)
