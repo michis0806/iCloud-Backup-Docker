@@ -60,17 +60,17 @@
                             <div class="mb-2">
                                 <div class="row g-2">
                                     <div class="col-6">
-                                        <div class="border rounded p-2 text-center bg-light">
-                                            <div class="text-muted small"><i class="bi bi-image me-1"></i>Fotos</div>
+                                        <div class="rounded p-2 text-center stat-box">
+                                            <div class="text-body-secondary small"><i class="bi bi-image me-1"></i>Fotos</div>
                                             <div class="fw-semibold" x-text="storageStats[account.apple_id].photos.count.toLocaleString('de-DE') + ' Objekte'"></div>
-                                            <div class="text-muted small" x-text="formatSize(storageStats[account.apple_id].photos.size_bytes)"></div>
+                                            <div class="text-body-secondary small" x-text="formatSize(storageStats[account.apple_id].photos.size_bytes)"></div>
                                         </div>
                                     </div>
                                     <div class="col-6">
-                                        <div class="border rounded p-2 text-center bg-light">
-                                            <div class="text-muted small"><i class="bi bi-cloud me-1"></i>Drive</div>
+                                        <div class="rounded p-2 text-center stat-box">
+                                            <div class="text-body-secondary small"><i class="bi bi-cloud me-1"></i>Drive</div>
                                             <div class="fw-semibold" x-text="storageStats[account.apple_id].drive.count.toLocaleString('de-DE') + ' Dateien'"></div>
-                                            <div class="text-muted small" x-text="formatSize(storageStats[account.apple_id].drive.size_bytes)"></div>
+                                            <div class="text-body-secondary small" x-text="formatSize(storageStats[account.apple_id].drive.size_bytes)"></div>
                                         </div>
                                     </div>
                                 </div>

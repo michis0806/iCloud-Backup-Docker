@@ -60,6 +60,12 @@ main {
     border-color: rgba(255, 255, 255, 0.2);
 }
 
+/* Storage stat boxes on dashboard */
+.stat-box {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
 /* Alert transitions */
 .alert {
     transition: opacity 0.3s ease;
