@@ -107,6 +107,15 @@ async def trigger_backup(apple_id: str):
     )
 
 
+@router.post("/cancel/{apple_id}")
+async def cancel_backup(apple_id: str):
+    """Cancel a running backup for the given account."""
+    cancelled = backup_service.request_cancel(apple_id)
+    if not cancelled:
+        raise HTTPException(status_code=400, detail="Kein laufendes Backup gefunden.")
+    return {"message": "Abbruch angefordert.", "apple_id": apple_id}
+
+
 @router.get("/status/{apple_id}")
 async def get_backup_status(apple_id: str):
     """Get current backup status for an account."""

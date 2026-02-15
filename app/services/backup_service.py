@@ -24,6 +24,7 @@ log = logging.getLogger("icloud-backup")
 
 _progress: dict[str, dict] = {}  # keyed by apple_id
 _progress_lock = threading.Lock()
+_cancel_events: dict[str, threading.Event] = {}
 
 
 def get_progress(config_id: str) -> dict | None:
@@ -39,6 +40,42 @@ def _set_progress(config_id: str, data: dict) -> None:
 def _clear_progress(config_id: str) -> None:
     with _progress_lock:
         _progress.pop(config_id, None)
+        _cancel_events.pop(config_id, None)
+
+
+def request_cancel(config_id: str) -> bool:
+    """Request cancellation of a running backup. Returns True if a backup was running."""
+    with _progress_lock:
+        ev = _cancel_events.get(config_id)
+        if ev is None:
+            return False
+        ev.set()
+        return True
+
+
+def _is_cancelled(config_id: str | None) -> bool:
+    """Check whether cancellation has been requested."""
+    if config_id is None:
+        return False
+    with _progress_lock:
+        ev = _cancel_events.get(config_id)
+        return ev is not None and ev.is_set()
+
+
+def _register_cancel_event(config_id: str) -> None:
+    """Register a fresh cancel event for the given backup run."""
+    with _progress_lock:
+        _cancel_events[config_id] = threading.Event()
+
+
+class BackupCancelled(Exception):
+    """Raised when a running backup is cancelled by the user."""
+
+
+def _check_cancel(config_id: str | None) -> None:
+    """Raise BackupCancelled if cancellation was requested."""
+    if _is_cancelled(config_id):
+        raise BackupCancelled()
 
 
 # ---------------------------------------------------------------------------
@@ -266,6 +303,8 @@ def sync_drive_folder(
     remote_files: set[str] = set()
 
     for rel_path, node, etag in _walk_remote(folder_node, excludes=adjusted_excludes, cache=cache):
+        _check_cancel(config_id)
+
         # Folder etag sentinel
         if node is None and etag:
             new_etags[rel_path] = etag
@@ -360,6 +399,7 @@ def run_drive_backup(
 
     total = {"downloaded": 0, "deleted": 0, "archived": 0, "skipped": 0, "errors": 0}
     for folder in folders:
+        _check_cancel(config_id)
         log.info("Synchronisiere Drive-Ordner: %s → %s", folder, dest_path)
         if config_id is not None:
             _set_progress(config_id, {
@@ -578,6 +618,7 @@ def run_photos_backup(
     remote_files: set[str] = set()
     try:
         for photo in api.photos.all:
+            _check_cancel(config_id)
             fname, was_skipped = _process_photo(photo, mediathek_dir, excludes, stats, dry_run)
             processed += 1
             current_file = fname or current_file
@@ -636,6 +677,7 @@ def run_photos_backup(
             try:
                 album = api.photos.albums[album_name]
                 for photo in album:
+                    _check_cancel(config_id)
                     fname, was_skipped = _process_photo(photo, album_dest, excludes, stats, dry_run)
                     current_file = fname or current_file
                     if fname:
@@ -724,6 +766,7 @@ def run_backup(
         destination = apple_id.replace("@", "_at_").replace(".", "_")
 
     if config_id is not None:
+        _register_cancel_event(config_id)
         _set_progress(config_id, {
             "phase": "starting",
             "folder": "",
@@ -731,6 +774,7 @@ def run_backup(
             "downloaded": 0, "skipped": 0, "errors": 0,
         })
 
+    cancelled = False
     try:
         if backup_drive and drive_folders:
             log.info("Starte iCloud Drive Backup für %s", apple_id)
@@ -751,11 +795,17 @@ def run_backup(
             result["photos_stats"] = photos_stats
             if photos_stats["errors"] > 0:
                 result["success"] = False
+    except BackupCancelled:
+        cancelled = True
+        log.info("Backup für %s wurde vom Benutzer abgebrochen.", apple_id)
+        result["success"] = False
     finally:
         if config_id is not None:
             _clear_progress(config_id)
 
     parts = []
+    if cancelled:
+        parts.append("Abgebrochen durch Benutzer")
     if result["drive_stats"]:
         d = result["drive_stats"]
         summary = f"Drive: {d['downloaded']} heruntergeladen"
