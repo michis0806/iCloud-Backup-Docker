@@ -87,12 +87,26 @@
                                 <span class="ms-2">Ordner werden geladen...</span>
                             </div>
                             <div x-show="!driveFoldersLoading">
+                                <div class="form-check mb-3 border-bottom pb-2">
+                                    <input class="form-check-input" type="checkbox"
+                                           id="folder-all"
+                                           :checked="selectAllDrive"
+                                           @change="toggleSelectAll()">
+                                    <label class="form-check-label fw-bold" for="folder-all">
+                                        <i class="bi bi-cloud-fill me-1 text-primary"></i>
+                                        Alle Ordner sichern
+                                    </label>
+                                    <div class="form-text">
+                                        Sichert das gesamte iCloud Drive, einschließlich zukünftiger Ordner.
+                                    </div>
+                                </div>
                                 <template x-for="folder in driveFolders" :key="folder.name">
-                                    <div class="form-check mb-2">
+                                    <div class="form-check mb-2" :class="{ 'opacity-50': selectAllDrive }">
                                         <input class="form-check-input" type="checkbox"
                                                :id="'folder-' + folder.name"
                                                :value="folder.name"
-                                               :checked="selectedFolders.includes(folder.name)"
+                                               :checked="selectAllDrive || selectedFolders.includes(folder.name)"
+                                               :disabled="selectAllDrive"
                                                @change="toggleFolder(folder.name)">
                                         <label class="form-check-label" :for="'folder-' + folder.name">
                                             <i class="bi me-1"
@@ -305,6 +319,7 @@ function accountConfig(appleId) {
         },
         exclusionsText: '',
         selectedFolders: [],
+        selectAllDrive: false,
         driveFolders: [],
         driveFoldersLoading: false,
         saving: false,
@@ -362,7 +377,9 @@ function accountConfig(appleId) {
                     photos_include_family: c.photos_include_family,
                     destination: c.destination || '',
                 };
-                this.selectedFolders = [...(c.drive_folders_simple || [])];
+                const simpleFolders = c.drive_folders_simple || [];
+                this.selectAllDrive = simpleFolders.includes('__ALL__');
+                this.selectedFolders = this.selectAllDrive ? [] : [...simpleFolders];
                 this.exclusionsText = (c.exclusions || []).join('\n');
             } catch (e) {
                 console.error(e);
@@ -431,6 +448,10 @@ function accountConfig(appleId) {
             }[phase] || phase || '';
         },
 
+        toggleSelectAll() {
+            this.selectAllDrive = !this.selectAllDrive;
+        },
+
         toggleFolder(name) {
             const idx = this.selectedFolders.indexOf(name);
             if (idx >= 0) {
@@ -452,7 +473,7 @@ function accountConfig(appleId) {
 
             const payload = {
                 ...this.config,
-                drive_folders_simple: this.selectedFolders,
+                drive_folders_simple: this.selectAllDrive ? ['__ALL__'] : this.selectedFolders,
                 exclusions: exclusions,
             };
 

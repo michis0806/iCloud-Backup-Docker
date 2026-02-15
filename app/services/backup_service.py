@@ -300,6 +300,14 @@ def sync_drive_folder(
     return stats
 
 
+def _resolve_drive_folders(apple_id: str, folders: list[str]) -> list[str]:
+    """Resolve the ``__ALL__`` marker to every top-level Drive folder."""
+    if "__ALL__" not in folders:
+        return folders
+    all_folders = icloud_service.get_drive_folders(apple_id)
+    return [f["name"] for f in all_folders if f["type"] == "folder"]
+
+
 def run_drive_backup(
     apple_id: str,
     folders: list[str],
@@ -309,6 +317,8 @@ def run_drive_backup(
     config_id: str | None = None,
 ) -> dict:
     """Run a full iCloud Drive backup for the given folders."""
+    folders = _resolve_drive_folders(apple_id, folders)
+
     dest_path = settings.backup_path / destination / "drive"
     dest_path.mkdir(parents=True, exist_ok=True)
 
@@ -471,6 +481,9 @@ def run_photos_backup(
     # Number of consecutive already-existing photos before we stop scanning.
     # The iCloud API returns photos in reverse-chronological order, so once we
     # see many consecutive skips we can safely assume the rest is unchanged.
+    # IMPORTANT: Only apply early-exit when NO new photos were downloaded in
+    # this run. If anything was downloaded the sync may be incomplete (e.g.
+    # first run or catch-up after a gap).
     UNTIL_FOUND = 100
 
     # ---- Personal library via api.photos.all ----
@@ -483,10 +496,11 @@ def run_photos_backup(
             current_file = fname or current_file
             if was_skipped:
                 consecutive_skips += 1
-                if consecutive_skips >= UNTIL_FOUND:
+                if stats["downloaded"] == 0 and consecutive_skips >= UNTIL_FOUND:
                     log.info(
-                        "Mediathek: %d aufeinanderfolgende Fotos bereits vorhanden – "
-                        "Rest wird übersprungen", UNTIL_FOUND,
+                        "Mediathek: %d aufeinanderfolgende Fotos bereits vorhanden "
+                        "und keine neuen Downloads – Rest wird übersprungen",
+                        UNTIL_FOUND,
                     )
                     break
             else:
@@ -510,6 +524,7 @@ def run_photos_backup(
             log.warning("Konnte Album-Liste nicht abrufen: %s", exc)
             album_keys = []
 
+        downloads_before_albums = stats["downloaded"]
         for album_name in album_keys:
             # Skip the default "All Photos" – already covered above
             if album_name in ("All Photos", "all"):
@@ -520,6 +535,7 @@ def run_photos_backup(
             album_dest.mkdir(parents=True, exist_ok=True)
 
             consecutive_skips = 0
+            downloads_before = stats["downloaded"]
             try:
                 album = api.photos.albums[album_name]
                 for photo in album:
@@ -527,10 +543,11 @@ def run_photos_backup(
                     current_file = fname or current_file
                     if was_skipped:
                         consecutive_skips += 1
-                        if consecutive_skips >= UNTIL_FOUND:
+                        if stats["downloaded"] == downloads_before and consecutive_skips >= UNTIL_FOUND:
                             log.info(
                                 "Album '%s': %d aufeinanderfolgende Fotos bereits "
-                                "vorhanden – Rest wird übersprungen",
+                                "vorhanden und keine neuen Downloads – "
+                                "Rest wird übersprungen",
                                 album_name, UNTIL_FOUND,
                             )
                             break
