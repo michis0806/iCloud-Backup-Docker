@@ -140,7 +140,7 @@ services:
          - TZ=Europe/Berlin
          - AUTH_PASSWORD=my-secure-password
          - SECRET_KEY=my-secret-key
-        - SYNOLOGY_NOTIFY=true
+         - SYNOLOGY_NOTIFY=true
    ```
 
 5. **Start the project** → Container Manager builds and starts the container
