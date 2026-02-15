@@ -9,7 +9,8 @@ A Docker-based backup service for **iCloud Drive** and **iCloud Photos** with a 
 - **iCloud Photos Backup** – Including optional family library
 - **Exclusions** – Flexible exclusion patterns (glob patterns, paths)
 - **Scheduled Backups** – Configurable via cron expressions
-- **2FA Support** – Two-factor authentication directly through the web UI
+- **2FA Support** – Two-factor authentication directly through the web UI (device push & SMS)
+- **Synology Notifications** – Optional notifications via `synodsmnotify` on Synology NAS
 - **Password Protection** – Web UI secured with password authentication
 - **Dark Mode UI** – Modern, responsive web interface
 - **Etag Caching** – Only changed folders are re-scanned
@@ -48,6 +49,8 @@ To set a fixed password, add `AUTH_PASSWORD` to your environment (see [Configura
 | `WEB_PORT` | `8080` | Web UI port |
 | `BACKUP_PATH` | `./backups` | Host path for backup files |
 | `CONFIG_PATH` | `./config` | Host path for configuration & sessions |
+| `LOG_LEVEL` | `INFO` | Log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
+| `SYNOLOGY_NOTIFY` | `false` | Enable Synology DSM notifications via `synodsmnotify` (`true`/`false`) |
 | `TZ` | `Europe/Berlin` | Timezone |
 
 ### Volumes
@@ -77,6 +80,8 @@ services:
       - TZ=Europe/Berlin
       - AUTH_PASSWORD=my-secure-password
       - SECRET_KEY=change-me-in-production
+      # - LOG_LEVEL=INFO
+      # - SYNOLOGY_NOTIFY=true  # Enable on Synology NAS
 ```
 
 ## Usage
@@ -85,7 +90,7 @@ services:
 - Open the web interface and log in
 - Click "Account hinzufügen" (Add Account)
 - Enter your Apple ID and password (app-specific password recommended)
-- Confirm the 2FA code from your Apple device
+- Confirm the 2FA code from your Apple device, or request an SMS code to a trusted phone number
 
 ### 2. Configure Backup
 - Click "Konfigurieren" (Configure) on the desired account
@@ -135,6 +140,7 @@ services:
          - TZ=Europe/Berlin
          - AUTH_PASSWORD=my-secure-password
          - SECRET_KEY=my-secret-key
+        - SYNOLOGY_NOTIFY=true
    ```
 
 5. **Start the project** → Container Manager builds and starts the container
