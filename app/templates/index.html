@@ -55,6 +55,28 @@
                         </div>
                         <p class="card-text text-muted small" x-text="account.status_message"></p>
 
+                        <!-- Storage stats -->
+                        <template x-if="storageStats[account.apple_id]">
+                            <div class="mb-2">
+                                <div class="row g-2">
+                                    <div class="col-6">
+                                        <div class="border rounded p-2 text-center bg-light">
+                                            <div class="text-muted small"><i class="bi bi-image me-1"></i>Fotos</div>
+                                            <div class="fw-semibold" x-text="storageStats[account.apple_id].photos.count.toLocaleString('de-DE') + ' Objekte'"></div>
+                                            <div class="text-muted small" x-text="formatSize(storageStats[account.apple_id].photos.size_bytes)"></div>
+                                        </div>
+                                    </div>
+                                    <div class="col-6">
+                                        <div class="border rounded p-2 text-center bg-light">
+                                            <div class="text-muted small"><i class="bi bi-cloud me-1"></i>Drive</div>
+                                            <div class="fw-semibold" x-text="storageStats[account.apple_id].drive.count.toLocaleString('de-DE') + ' Dateien'"></div>
+                                            <div class="text-muted small" x-text="formatSize(storageStats[account.apple_id].drive.size_bytes)"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+
                         <div class="d-flex gap-2 mt-3">
                             <!-- 2FA button -->
                             <template x-if="account.status === 'requires_2fa'">
@@ -258,6 +280,7 @@
 function dashboard() {
     return {
         accounts: [],
+        storageStats: {},
         loading: true,
 
         // Global schedule
@@ -287,6 +310,7 @@ function dashboard() {
             await Promise.all([
                 this.loadAccounts(),
                 this.loadSchedule(),
+                this.loadStorageStats(),
             ]);
         },
 
@@ -316,6 +340,25 @@ function dashboard() {
             } catch (e) {
                 console.error('Fehler beim Speichern des Zeitplans:', e);
             }
+        },
+
+        async loadStorageStats() {
+            try {
+                const res = await fetch('/api/accounts/storage-stats');
+                if (res.ok) {
+                    this.storageStats = await res.json();
+                }
+            } catch (e) {
+                console.error('Fehler beim Laden der Speicherstatistiken:', e);
+            }
+        },
+
+        formatSize(bytes) {
+            if (bytes === 0) return '0 B';
+            const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(1024));
+            const val = bytes / Math.pow(1024, i);
+            return val.toLocaleString('de-DE', { maximumFractionDigits: 1 }) + ' ' + units[i];
         },
 
         async loadAccounts() {

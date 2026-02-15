@@ -80,9 +80,13 @@ async def trigger_backup(apple_id: str):
             )
             status = "success" if result["success"] else "error"
             message = result["message"]
+            # Scan local backup dirs for file counts and sizes
+            dest = cfg.get("destination", "") or apple_id.replace("@", "_at_").replace(".", "_")
+            storage = backup_service.get_backup_storage_stats(dest)
             stats = {
                 "drive": result.get("drive_stats"),
                 "photos": result.get("photos_stats"),
+                "storage": storage,
             }
         except Exception as exc:
             log.error("Backup fehlgeschlagen für %s: %s", apple_id, exc)

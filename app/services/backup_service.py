@@ -568,6 +568,36 @@ def _safe_dirname(name: str) -> str:
     return "".join(c if c.isalnum() or c in (" ", "-", "_") else "_" for c in name).strip()
 
 
+def get_backup_storage_stats(destination: str) -> dict:
+    """Scan local backup directories and return file counts and sizes.
+
+    Returns::
+
+        {
+            "photos": {"count": 1234, "size_bytes": 567890},
+            "drive":  {"count": 56,   "size_bytes": 123456},
+        }
+    """
+    base = settings.backup_path / destination
+    result = {}
+    for subdir in ("photos", "drive"):
+        path = base / subdir
+        if not path.exists():
+            result[subdir] = {"count": 0, "size_bytes": 0}
+            continue
+        count = 0
+        total_size = 0
+        for f in path.rglob("*"):
+            if f.is_file():
+                count += 1
+                try:
+                    total_size += f.stat().st_size
+                except OSError:
+                    pass
+        result[subdir] = {"count": count, "size_bytes": total_size}
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Combined backup runner
 # ---------------------------------------------------------------------------
