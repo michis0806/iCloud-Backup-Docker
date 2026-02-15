@@ -1,5 +1,6 @@
 """Core backup logic for iCloud Drive and iCloud Photos."""
 
+import gc
 import json
 import logging
 import os
@@ -370,32 +371,46 @@ def _unique_path(path: Path) -> Path:
 
 
 def _download_photo(photo, local_path: Path, stats: dict) -> None:
-    """Download a single photo asset to *local_path* with streaming and atomic write."""
+    """Download a single photo asset to *local_path* with true streaming.
+
+    Bypasses photo.download() which reads the entire file into RAM.
+    Instead, we get the download URL and stream directly to disk in chunks.
+    """
+    fname = getattr(photo, "filename", "?")
+
+    # Get download URL from photo versions (avoids photo.download() which
+    # calls response.raw.read() and loads everything into memory).
     try:
-        response = photo.download()
+        versions = photo.versions
+        version_info = versions.get("original")
+        if not version_info or not version_info.get("url"):
+            log.warning("Keine Download-URL für %s", fname)
+            stats["errors"] += 1
+            return
+        url = version_info["url"]
     except Exception as exc:
-        log.error("Download-Fehler für %s: %s", getattr(photo, "filename", "?"), exc)
+        log.error("Fehler beim Abrufen der Version für %s: %s", fname, exc)
         stats["errors"] += 1
         return
 
-    if response is None:
-        log.warning("Download fehlgeschlagen (None) für %s", getattr(photo, "filename", "?"))
+    # Stream download via the iCloud session (handles auth cookies)
+    response = None
+    try:
+        response = photo._service.session.get(url, stream=True)
+        response.raise_for_status()
+    except Exception as exc:
+        log.error("Download-Fehler für %s: %s", fname, exc)
         stats["errors"] += 1
+        if response is not None:
+            response.close()
         return
 
     tmp_path = local_path.with_suffix(local_path.suffix + ".tmp")
     try:
         with open(tmp_path, "wb") as fh:
-            # Stream in 256 KB chunks to avoid loading entire files into RAM
-            if hasattr(response, "iter_content"):
-                for chunk in response.iter_content(chunk_size=256 * 1024):
-                    if chunk:
-                        fh.write(chunk)
-            elif hasattr(response, "read"):
-                copyfileobj(response, fh)
-            else:
-                # Fallback: response is raw bytes
-                fh.write(response)
+            for chunk in response.iter_content(chunk_size=256 * 1024):
+                if chunk:
+                    fh.write(chunk)
         tmp_path.rename(local_path)
     except Exception as exc:
         log.error("Schreibfehler für %s: %s", local_path.name, exc)
@@ -403,6 +418,8 @@ def _download_photo(photo, local_path: Path, stats: dict) -> None:
             tmp_path.unlink()
         stats["errors"] += 1
         return
+    finally:
+        response.close()
 
     # Preserve photo timestamp
     dt = _photo_date(photo)
@@ -497,6 +514,9 @@ def run_photos_backup(
             fname, was_skipped = _process_photo(photo, dest_path / "Mediathek", excludes, stats, dry_run)
             processed += 1
             current_file = fname or current_file
+            # Release memory every 50 photos (pyicloud batches 100 at a time)
+            if processed % 50 == 0:
+                gc.collect()
             if config_id is not None:
                 _set_progress(config_id, {
                     "phase": "photos",
