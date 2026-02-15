@@ -134,6 +134,26 @@
                                 Relative Pfade ab dem iCloud Drive Root-Verzeichnis.
                             </div>
                         </div>
+
+                        <!-- Drive Sync Policy -->
+                        <div class="mt-3 pt-3 border-top">
+                            <label for="driveSyncPolicy" class="form-label fw-semibold">
+                                <i class="bi bi-arrow-repeat me-1"></i>
+                                Remote gelöschte Dateien
+                            </label>
+                            <select class="form-select" id="driveSyncPolicy"
+                                    x-model="config.drive_sync_policy">
+                                <option value="delete">Lokal löschen</option>
+                                <option value="keep">Lokal behalten</option>
+                                <option value="archive">In Archiv verschieben</option>
+                            </select>
+                            <div class="form-text">
+                                Was passiert mit lokalen Dateien, die in iCloud Drive gelöscht wurden?
+                                <span x-show="config.drive_sync_policy === 'archive'" class="text-info">
+                                    Dateien werden nach <code>/archive/</code> verschoben.
+                                </span>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -154,6 +174,26 @@
                             </label>
                             <div class="form-text">
                                 Falls vorhanden, werden geteilte Familienfotos ebenfalls gesichert.
+                            </div>
+                        </div>
+
+                        <!-- Photos Sync Policy -->
+                        <div class="mt-3 pt-3 border-top">
+                            <label for="photosSyncPolicy" class="form-label fw-semibold">
+                                <i class="bi bi-arrow-repeat me-1"></i>
+                                Remote gelöschte Fotos
+                            </label>
+                            <select class="form-select" id="photosSyncPolicy"
+                                    x-model="config.photos_sync_policy">
+                                <option value="keep">Lokal behalten</option>
+                                <option value="delete">Lokal löschen</option>
+                                <option value="archive">In Archiv verschieben</option>
+                            </select>
+                            <div class="form-text">
+                                Was passiert mit lokalen Fotos, die aus der iCloud Mediathek gelöscht wurden?
+                                <span x-show="config.photos_sync_policy === 'archive'" class="text-info">
+                                    Fotos werden nach <code>/archive/</code> verschoben.
+                                </span>
                             </div>
                         </div>
                     </div>
@@ -280,6 +320,12 @@
                                 <div class="border-top pt-2 mt-2">
                                     <strong>Drive:</strong>
                                     <span x-text="backupStatus.stats.drive.downloaded"></span> heruntergeladen,
+                                    <template x-if="backupStatus.stats.drive.deleted">
+                                        <span><span x-text="backupStatus.stats.drive.deleted"></span> gelöscht, </span>
+                                    </template>
+                                    <template x-if="backupStatus.stats.drive.archived">
+                                        <span><span x-text="backupStatus.stats.drive.archived"></span> archiviert, </span>
+                                    </template>
                                     <span x-text="backupStatus.stats.drive.skipped"></span> übersprungen,
                                     <span x-text="backupStatus.stats.drive.errors"></span> Fehler
                                 </div>
@@ -288,6 +334,12 @@
                                 <div class="border-top pt-2 mt-2">
                                     <strong>Fotos:</strong>
                                     <span x-text="backupStatus.stats.photos.downloaded"></span> heruntergeladen,
+                                    <template x-if="backupStatus.stats.photos.deleted">
+                                        <span><span x-text="backupStatus.stats.photos.deleted"></span> gelöscht, </span>
+                                    </template>
+                                    <template x-if="backupStatus.stats.photos.archived">
+                                        <span><span x-text="backupStatus.stats.photos.archived"></span> archiviert, </span>
+                                    </template>
                                     <span x-text="backupStatus.stats.photos.skipped"></span> übersprungen,
                                     <span x-text="backupStatus.stats.photos.errors"></span> Fehler
                                 </div>
@@ -315,6 +367,8 @@ function accountConfig(appleId) {
             drive_folders_simple: [],
             drive_folders_advanced: '',
             photos_include_family: false,
+            drive_sync_policy: 'delete',
+            photos_sync_policy: 'keep',
             destination: '',
         },
         exclusionsText: '',
@@ -375,6 +429,8 @@ function accountConfig(appleId) {
                     drive_folders_simple: c.drive_folders_simple || [],
                     drive_folders_advanced: c.drive_folders_advanced || '',
                     photos_include_family: c.photos_include_family,
+                    drive_sync_policy: c.drive_sync_policy || 'delete',
+                    photos_sync_policy: c.photos_sync_policy || 'keep',
                     destination: c.destination || '',
                 };
                 const simpleFolders = c.drive_folders_simple || [];

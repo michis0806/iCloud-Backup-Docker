@@ -12,6 +12,7 @@ services:
     volumes:
       - ${BACKUP_PATH:-./backups}:/backups
       - ${CONFIG_PATH:-./config}:/config
+      - ${ARCHIVE_PATH:-./archive}:/archive
       # Synology DSM notifications (uncomment on Synology NAS)
       # - /usr/syno/bin/synodsmnotify:/usr/local/bin/synodsmnotify:ro
     environment:

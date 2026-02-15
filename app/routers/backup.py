@@ -77,6 +77,8 @@ async def trigger_backup(apple_id: str):
                 destination=cfg.get("destination", ""),
                 exclusions=cfg.get("exclusions"),
                 config_id=apple_id,
+                drive_sync_policy=cfg.get("drive_sync_policy", "delete"),
+                photos_sync_policy=cfg.get("photos_sync_policy", "keep"),
             )
             status = "success" if result["success"] else "error"
             message = result["message"]

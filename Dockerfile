@@ -11,7 +11,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app/ ./app/
 
-VOLUME ["/backups", "/config"]
+VOLUME ["/backups", "/config", "/archive"]
 
 EXPOSE 8080
 
