@@ -370,15 +370,15 @@ def _unique_path(path: Path) -> Path:
 
 
 def _download_photo(photo, local_path: Path, stats: dict) -> None:
-    """Download a single photo asset to *local_path* with atomic write and timestamp."""
+    """Download a single photo asset to *local_path* with streaming and atomic write."""
     try:
-        data = photo.download()
+        response = photo.download()
     except Exception as exc:
         log.error("Download-Fehler für %s: %s", getattr(photo, "filename", "?"), exc)
         stats["errors"] += 1
         return
 
-    if data is None:
+    if response is None:
         log.warning("Download fehlgeschlagen (None) für %s", getattr(photo, "filename", "?"))
         stats["errors"] += 1
         return
@@ -386,7 +386,16 @@ def _download_photo(photo, local_path: Path, stats: dict) -> None:
     tmp_path = local_path.with_suffix(local_path.suffix + ".tmp")
     try:
         with open(tmp_path, "wb") as fh:
-            fh.write(data)
+            # Stream in 256 KB chunks to avoid loading entire files into RAM
+            if hasattr(response, "iter_content"):
+                for chunk in response.iter_content(chunk_size=256 * 1024):
+                    if chunk:
+                        fh.write(chunk)
+            elif hasattr(response, "read"):
+                copyfileobj(response, fh)
+            else:
+                # Fallback: response is raw bytes
+                fh.write(response)
         tmp_path.rename(local_path)
     except Exception as exc:
         log.error("Schreibfehler für %s: %s", local_path.name, exc)
@@ -479,16 +488,7 @@ def run_photos_backup(
     dest_path.mkdir(parents=True, exist_ok=True)
 
     # ---- Personal library via api.photos.all ----
-    # Try to determine total photo count for progress tracking
-    total_in_library = None
-    try:
-        total_in_library = len(api.photos.all)
-        log.info(
-            "iCloud Mediathek für %s enthält %d Objekte",
-            apple_id, total_in_library,
-        )
-    except Exception:
-        log.info("Sichere iCloud Fotos (Mediathek) für %s (Gesamtanzahl unbekannt)", apple_id)
+    log.info("Sichere iCloud Fotos (Mediathek) für %s", apple_id)
 
     current_file = ""
     processed = 0
@@ -503,7 +503,6 @@ def run_photos_backup(
                     "folder": "Mediathek",
                     "current_file": current_file,
                     "processed": processed,
-                    "total": total_in_library,
                     **stats,
                 })
     except Exception as exc:
@@ -511,18 +510,10 @@ def run_photos_backup(
         stats["errors"] += 1
 
     log.info(
-        "Mediathek abgeschlossen: %d verarbeitet (von %s in iCloud), "
+        "Mediathek abgeschlossen: %d verarbeitet, "
         "%d heruntergeladen, %d übersprungen, %d Fehler",
-        processed,
-        str(total_in_library) if total_in_library is not None else "?",
-        stats["downloaded"], stats["skipped"], stats["errors"],
+        processed, stats["downloaded"], stats["skipped"], stats["errors"],
     )
-    if total_in_library is not None and processed < total_in_library:
-        log.warning(
-            "ACHTUNG: Nur %d von %d Objekten verarbeitet! "
-            "Möglicherweise unvollständiges Backup.",
-            processed, total_in_library,
-        )
 
     # ---- Shared / family albums ----
     if include_family:
@@ -558,14 +549,42 @@ def run_photos_backup(
                 stats["errors"] += 1
 
     stats["processed"] = processed
-    if total_in_library is not None:
-        stats["total_in_library"] = total_in_library
     return stats
 
 
 def _safe_dirname(name: str) -> str:
     """Create a filesystem-safe directory name."""
     return "".join(c if c.isalnum() or c in (" ", "-", "_") else "_" for c in name).strip()
+
+
+def get_backup_storage_stats(destination: str) -> dict:
+    """Scan local backup directories and return file counts and sizes.
+
+    Returns::
+
+        {
+            "photos": {"count": 1234, "size_bytes": 567890},
+            "drive":  {"count": 56,   "size_bytes": 123456},
+        }
+    """
+    base = settings.backup_path / destination
+    result = {}
+    for subdir in ("photos", "drive"):
+        path = base / subdir
+        if not path.exists():
+            result[subdir] = {"count": 0, "size_bytes": 0}
+            continue
+        count = 0
+        total_size = 0
+        for f in path.rglob("*"):
+            if f.is_file():
+                count += 1
+                try:
+                    total_size += f.stat().st_size
+                except OSError:
+                    pass
+        result[subdir] = {"count": count, "size_bytes": total_size}
+    return result
 
 
 # ---------------------------------------------------------------------------

@@ -17,6 +17,25 @@ async def list_accounts():
     return config_store.list_accounts()
 
 
+@router.get("/storage-stats")
+async def storage_stats():
+    """Return cached storage stats (file counts + sizes) per account, split by photos/drive.
+
+    Stats are computed after each successful backup and stored in the config.
+    """
+    result = {}
+    for acc_data in config_store.list_accounts():
+        apple_id = acc_data["apple_id"]
+        cfg = config_store.get_backup_config(apple_id)
+        if cfg is None:
+            continue
+        last_stats = cfg.get("last_backup_stats") or {}
+        storage = last_stats.get("storage")
+        if storage:
+            result[apple_id] = storage
+    return result
+
+
 @router.post("", response_model=AccountResponse)
 async def add_account(data: AccountCreate):
     # Check for duplicate
