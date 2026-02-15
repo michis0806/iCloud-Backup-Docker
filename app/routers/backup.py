@@ -7,7 +7,10 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException
 
 from app import config_store
-from app.schemas import BackupConfigCreate, BackupConfigResponse, BackupTriggerResponse
+from app.schemas import (
+    BackupConfigCreate, BackupConfigResponse, BackupTriggerResponse,
+    ScheduleUpdate, ScheduleResponse,
+)
 from app.services import backup_service, icloud_service
 from app.services.notification import notify_backup_result
 from app.services.scheduler import sync_scheduled_jobs
@@ -31,11 +34,6 @@ async def create_or_update_backup_config(apple_id: str, data: BackupConfigCreate
         raise HTTPException(status_code=404, detail="Account nicht gefunden.")
 
     cfg = config_store.save_backup_config(apple_id, data.model_dump())
-
-    # Sync scheduler if schedule changed
-    if data.schedule_enabled:
-        await sync_scheduled_jobs()
-
     return cfg
 
 
@@ -113,9 +111,38 @@ async def get_backup_status(apple_id: str):
             "message": "Keine Backup-Konfiguration vorhanden.",
         }
 
+    status = cfg.get("last_backup_status", "idle")
+
+    # Guard against phantom "running" state: if persisted status says running
+    # but no backup process is actually active, correct it.
+    if status == "running" and backup_service.get_progress(apple_id) is None:
+        status = "error"
+        config_store.update_backup_status(
+            apple_id, status="error",
+            message="Backup durch Neustart unterbrochen.",
+        )
+
     return {
-        "status": cfg.get("last_backup_status", "idle"),
+        "status": status,
         "message": cfg.get("last_backup_message"),
         "last_backup_at": cfg.get("last_backup_at"),
         "stats": cfg.get("last_backup_stats"),
     }
+
+
+# ---------------------------------------------------------------------------
+# Global schedule
+# ---------------------------------------------------------------------------
+
+@router.get("/schedule", response_model=ScheduleResponse)
+async def get_schedule():
+    """Return the global backup schedule."""
+    return config_store.get_schedule()
+
+
+@router.post("/schedule", response_model=ScheduleResponse)
+async def update_schedule(data: ScheduleUpdate):
+    """Update the global backup schedule."""
+    result = config_store.save_schedule(enabled=data.enabled, cron=data.cron)
+    await sync_scheduled_jobs()
+    return result

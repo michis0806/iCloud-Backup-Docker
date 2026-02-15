@@ -187,33 +187,6 @@
                     </div>
                 </div>
 
-                <!-- Schedule -->
-                <div class="card mb-4">
-                    <div class="card-header">
-                        <h5 class="mb-0">
-                            <i class="bi bi-clock me-1"></i> Zeitplan
-                        </h5>
-                    </div>
-                    <div class="card-body">
-                        <div class="form-check form-switch mb-3">
-                            <input class="form-check-input" type="checkbox" id="scheduleEnabled"
-                                   x-model="config.schedule_enabled">
-                            <label class="form-check-label" for="scheduleEnabled">
-                                Automatisches Backup aktivieren
-                            </label>
-                        </div>
-                        <div x-show="config.schedule_enabled" x-transition>
-                            <label class="form-label small">Cron-Ausdruck</label>
-                            <input type="text" class="form-control font-monospace"
-                                   x-model="config.schedule_cron"
-                                   placeholder="0 2 * * *">
-                            <div class="form-text">
-                                Standard: <code>0 2 * * *</code> (täglich um 2:00 Uhr)
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
                 <!-- Actions -->
                 <div class="card mb-4">
                     <div class="card-body d-grid gap-2">
@@ -329,8 +302,6 @@ function accountConfig(appleId) {
             drive_folders_advanced: '',
             photos_include_family: false,
             destination: '',
-            schedule_enabled: false,
-            schedule_cron: '0 2 * * *',
         },
         exclusionsText: '',
         selectedFolders: [],
@@ -390,8 +361,6 @@ function accountConfig(appleId) {
                     drive_folders_advanced: c.drive_folders_advanced || '',
                     photos_include_family: c.photos_include_family,
                     destination: c.destination || '',
-                    schedule_enabled: c.schedule_enabled,
-                    schedule_cron: c.schedule_cron || '0 2 * * *',
                 };
                 this.selectedFolders = [...(c.drive_folders_simple || [])];
                 this.exclusionsText = (c.exclusions || []).join('\n');

@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from app.auth import AuthMiddleware, _COOKIE_NAME, create_session_cookie
+from app import config_store
 from app.config import settings
 from app.routers import accounts, backup
 from app.services.log_handler import log_buffer
@@ -39,6 +40,13 @@ log = logging.getLogger("icloud-backup")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings.ensure_directories()
+    # Reset any backup statuses stuck on "running" from a previous crash
+    reset_count = config_store.reset_stale_running_states()
+    if reset_count:
+        log.warning(
+            "%d Backup(s) waren beim letzten Stopp noch aktiv und wurden zurückgesetzt.",
+            reset_count,
+        )
     start_scheduler()
     await sync_scheduled_jobs()
     # Log the password if it was auto-generated

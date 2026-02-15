@@ -35,8 +35,6 @@ class BackupConfigCreate(BaseModel):
     photos_include_family: bool = False
     exclusions: list[str] | None = None
     destination: str = ""
-    schedule_enabled: bool = False
-    schedule_cron: str | None = None
 
 
 class BackupConfigResponse(BaseModel):
@@ -49,12 +47,20 @@ class BackupConfigResponse(BaseModel):
     photos_include_family: bool
     exclusions: list[str] | None = None
     destination: str
-    schedule_enabled: bool
-    schedule_cron: str | None = None
     last_backup_status: BackupStatus = BackupStatus.IDLE
     last_backup_at: str | None = None
     last_backup_message: str | None = None
     last_backup_stats: dict | None = None
+
+
+class ScheduleUpdate(BaseModel):
+    enabled: bool = False
+    cron: str = "0 2 * * *"
+
+
+class ScheduleResponse(BaseModel):
+    enabled: bool
+    cron: str
 
 
 class BackupTriggerResponse(BaseModel):
