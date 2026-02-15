@@ -588,16 +588,78 @@ def _reconcile_photos(
             dirpath.rmdir()
 
 
+def _backup_photo_library(
+    api,
+    library_photos,
+    dest_dir: Path,
+    label: str,
+    excludes: list[str] | None,
+    stats: dict,
+    dry_run: bool,
+    config_id: str | None,
+    sync_policy: str,
+    archive_base: Path,
+) -> tuple[int, set[str]]:
+    """Download all photos from a library/album iterator to *dest_dir*.
+
+    Returns ``(processed_count, remote_files_set)``.
+    """
+    current_file = ""
+    processed = 0
+    remote_files: set[str] = set()
+
+    try:
+        for photo in library_photos:
+            _check_cancel(config_id)
+            fname, was_skipped = _process_photo(photo, dest_dir, excludes, stats, dry_run)
+            processed += 1
+            current_file = fname or current_file
+            if fname:
+                dt = _photo_date(photo)
+                if dt:
+                    rel = f"{dt:%Y}/{dt:%m}/{dt:%d}/{fname}"
+                else:
+                    rel = f"unknown_date/{fname}"
+                remote_files.add(rel)
+            if processed % 50 == 0:
+                gc.collect()
+            if config_id is not None:
+                _set_progress(config_id, {
+                    "phase": "photos",
+                    "folder": label,
+                    "current_file": current_file,
+                    "processed": processed,
+                    **stats,
+                })
+    except BackupCancelled:
+        raise
+    except Exception as exc:
+        log.error("Fehler beim Iterieren von %s: %s", label, exc)
+        stats["errors"] += 1
+
+    log.info(
+        "%s abgeschlossen: %d verarbeitet, %d heruntergeladen, "
+        "%d übersprungen, %d Fehler",
+        label, processed, stats["downloaded"], stats["skipped"], stats["errors"],
+    )
+
+    if processed > 0 and sync_policy != SyncPolicy.KEEP:
+        _reconcile_photos(dest_dir, remote_files, sync_policy, archive_base, stats, dry_run)
+
+    return processed, remote_files
+
+
 def run_photos_backup(
     apple_id: str,
     destination: str,
     include_family: bool = False,
+    shared_library_id: str | None = None,
     excludes: list[str] | None = None,
     dry_run: bool = False,
     config_id: str | None = None,
     sync_policy: str = SyncPolicy.KEEP,
 ) -> dict:
-    """Download iCloud Photos (and optionally family library) to *destination*."""
+    """Download iCloud Photos (and optionally shared/family library) to *destination*."""
     stats = {"downloaded": 0, "skipped": 0, "deleted": 0, "archived": 0, "errors": 0}
 
     api = icloud_service.get_session(apple_id)
@@ -608,100 +670,40 @@ def run_photos_backup(
     dest_path = settings.backup_path / destination / "photos"
     dest_path.mkdir(parents=True, exist_ok=True)
 
-    mediathek_dir = dest_path / "Mediathek"
-
     # ---- Personal library via api.photos.all ----
     log.info("Sichere iCloud Fotos (Mediathek) für %s", apple_id)
 
-    current_file = ""
-    processed = 0
-    remote_files: set[str] = set()
-    try:
-        for photo in api.photos.all:
-            _check_cancel(config_id)
-            fname, was_skipped = _process_photo(photo, mediathek_dir, excludes, stats, dry_run)
-            processed += 1
-            current_file = fname or current_file
-            # Track remote file paths for sync policy
-            if fname:
-                dt = _photo_date(photo)
-                if dt:
-                    rel = f"{dt:%Y}/{dt:%m}/{dt:%d}/{fname}"
-                else:
-                    rel = f"unknown_date/{fname}"
-                remote_files.add(rel)
-            # Release memory every 50 photos (pyicloud batches 100 at a time)
-            if processed % 50 == 0:
-                gc.collect()
-            if config_id is not None:
-                _set_progress(config_id, {
-                    "phase": "photos",
-                    "folder": "Mediathek",
-                    "current_file": current_file,
-                    "processed": processed,
-                    **stats,
-                })
-    except Exception as exc:
-        log.error("Fehler beim Iterieren der Mediathek: %s", exc)
-        stats["errors"] += 1
-
-    log.info(
-        "Mediathek abgeschlossen: %d verarbeitet, "
-        "%d heruntergeladen, %d übersprungen, %d Fehler",
-        processed, stats["downloaded"], stats["skipped"], stats["errors"],
+    mediathek_dir = dest_path / "Mediathek"
+    archive_mediathek = settings.archive_path / destination / "photos" / "Mediathek"
+    processed, _ = _backup_photo_library(
+        api, api.photos.all, mediathek_dir, "Mediathek",
+        excludes, stats, dry_run, config_id, sync_policy, archive_mediathek,
     )
 
-    # Apply sync policy for Mediathek (only if we successfully iterated)
-    if processed > 0 and sync_policy != SyncPolicy.KEEP:
-        archive_dest = settings.archive_path / destination / "photos" / "Mediathek"
-        _reconcile_photos(mediathek_dir, remote_files, sync_policy, archive_dest, stats, dry_run)
-
-    # ---- Shared / family albums ----
-    if include_family:
+    # ---- Shared / family library ----
+    if include_family and shared_library_id and shared_library_id.startswith("SharedSync-"):
+        log.info("Sichere geteilte Mediathek (%s) für %s", shared_library_id, apple_id)
         try:
-            album_keys = list(api.photos.albums.keys()) if hasattr(api.photos.albums, "keys") else list(api.photos.albums)
+            libraries = api.photos.libraries
+            shared_lib = libraries.get(shared_library_id)
+            if shared_lib is None:
+                log.warning(
+                    "Geteilte Bibliothek %s nicht gefunden für %s",
+                    shared_library_id, apple_id,
+                )
+            else:
+                shared_dir = dest_path / "Geteilte Mediathek"
+                archive_shared = settings.archive_path / destination / "photos" / "Geteilte Mediathek"
+                _backup_photo_library(
+                    api, shared_lib.all if hasattr(shared_lib, "all") else [],
+                    shared_dir, "Geteilte Mediathek",
+                    excludes, stats, dry_run, config_id, sync_policy, archive_shared,
+                )
+        except BackupCancelled:
+            raise
         except Exception as exc:
-            log.warning("Konnte Album-Liste nicht abrufen: %s", exc)
-            album_keys = []
-
-        for album_name in album_keys:
-            # Skip the default "All Photos" – already covered above
-            if album_name in ("All Photos", "all"):
-                continue
-
-            log.info("Sichere Album: %s", album_name)
-            album_dest = dest_path / _safe_dirname(album_name)
-            album_dest.mkdir(parents=True, exist_ok=True)
-
-            album_remote_files: set[str] = set()
-            try:
-                album = api.photos.albums[album_name]
-                for photo in album:
-                    _check_cancel(config_id)
-                    fname, was_skipped = _process_photo(photo, album_dest, excludes, stats, dry_run)
-                    current_file = fname or current_file
-                    if fname:
-                        dt = _photo_date(photo)
-                        if dt:
-                            rel = f"{dt:%Y}/{dt:%m}/{dt:%d}/{fname}"
-                        else:
-                            rel = f"unknown_date/{fname}"
-                        album_remote_files.add(rel)
-                    if config_id is not None:
-                        _set_progress(config_id, {
-                            "phase": "photos",
-                            "folder": album_name,
-                            "current_file": current_file,
-                            **stats,
-                        })
-            except Exception as exc:
-                log.error("Fehler beim Album '%s': %s", album_name, exc)
-                stats["errors"] += 1
-
-            # Apply sync policy per album
-            if album_remote_files and sync_policy != SyncPolicy.KEEP:
-                archive_album = settings.archive_path / destination / "photos" / _safe_dirname(album_name)
-                _reconcile_photos(album_dest, album_remote_files, sync_policy, archive_album, stats, dry_run)
+            log.error("Fehler bei geteilter Bibliothek für %s: %s", apple_id, exc)
+            stats["errors"] += 1
 
     stats["processed"] = processed
     return stats
@@ -752,6 +754,7 @@ def run_backup(
     backup_photos: bool = False,
     drive_folders: list[str] | None = None,
     photos_include_family: bool = False,
+    shared_library_id: str | None = None,
     destination: str = "",
     exclusions: list[str] | None = None,
     dry_run: bool = False,
@@ -789,7 +792,9 @@ def run_backup(
         if backup_photos:
             log.info("Starte iCloud Fotos Backup für %s", apple_id)
             photos_stats = run_photos_backup(
-                apple_id, destination, photos_include_family, exclusions, dry_run, config_id,
+                apple_id, destination, photos_include_family,
+                shared_library_id=shared_library_id,
+                excludes=exclusions, dry_run=dry_run, config_id=config_id,
                 sync_policy=photos_sync_policy,
             )
             result["photos_stats"] = photos_stats

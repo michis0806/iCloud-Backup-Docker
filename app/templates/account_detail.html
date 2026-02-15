@@ -165,17 +165,42 @@
                         </h5>
                     </div>
                     <div class="card-body">
-                        <div class="form-check form-switch">
-                            <input class="form-check-input" type="checkbox" id="includeFamily"
-                                   x-model="config.photos_include_family">
-                            <label class="form-check-label" for="includeFamily">
-                                <i class="bi bi-people me-1"></i>
-                                Familienbibliothek mitsichern
-                            </label>
-                            <div class="form-text">
-                                Falls vorhanden, werden geteilte Familienfotos ebenfalls gesichert.
+                        <!-- Shared / Family Library -->
+                        <template x-if="sharedLibrary">
+                            <div class="mb-3">
+                                <template x-if="!sharedLibrary.claimed_by">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" id="includeFamily"
+                                               x-model="config.photos_include_family"
+                                               @change="if (config.photos_include_family) { config.shared_library_id = sharedLibrary.id } else { config.shared_library_id = null }">
+                                        <label class="form-check-label" for="includeFamily">
+                                            <i class="bi bi-people me-1"></i>
+                                            Geteilte Mediathek mitsichern
+                                        </label>
+                                        <div class="form-text">
+                                            Geteilte iCloud-Fotomediathek
+                                            (<code class="small" x-text="sharedLibrary.id"></code>)
+                                        </div>
+                                    </div>
+                                </template>
+                                <template x-if="sharedLibrary.claimed_by">
+                                    <div class="d-flex align-items-start gap-2 p-2 rounded border border-info bg-info bg-opacity-10">
+                                        <i class="bi bi-info-circle text-info mt-1"></i>
+                                        <div class="small">
+                                            <strong>Geteilte Mediathek wird bereits gesichert</strong><br>
+                                            Die geteilte Mediathek wird bereits über den Account
+                                            <strong x-text="sharedLibrary.claimed_by"></strong> gesichert.
+                                        </div>
+                                    </div>
+                                </template>
                             </div>
-                        </div>
+                        </template>
+                        <template x-if="!sharedLibrary && photoLibrariesLoaded">
+                            <div class="small text-body-secondary mb-3">
+                                <i class="bi bi-info-circle me-1"></i>
+                                Keine geteilte Mediathek gefunden.
+                            </div>
+                        </template>
 
                         <!-- Photos Sync Policy -->
                         <div class="mt-3 pt-3 border-top">
@@ -408,6 +433,7 @@ function accountConfig(appleId) {
             drive_folders_simple: [],
             drive_folders_advanced: '',
             photos_include_family: false,
+            shared_library_id: null,
             drive_sync_policy: 'delete',
             photos_sync_policy: 'keep',
             destination: '',
@@ -417,6 +443,9 @@ function accountConfig(appleId) {
         selectAllDrive: false,
         driveFolders: [],
         driveFoldersLoading: false,
+        photoLibraries: [],
+        photoLibrariesLoaded: false,
+        sharedLibrary: null,
         saving: false,
         backupRunning: false,
         cancelRequested: false,
@@ -434,7 +463,10 @@ function accountConfig(appleId) {
                 this.loadBackupStatus(),
             ]);
             if (this.account.status === 'authenticated') {
-                await this.loadDriveFolders();
+                await Promise.all([
+                    this.loadDriveFolders(),
+                    this.loadPhotoLibraries(),
+                ]);
             }
             // Poll backup status every 10 seconds
             this.statusInterval = setInterval(() => this.loadBackupStatus(), 10000);
@@ -471,6 +503,7 @@ function accountConfig(appleId) {
                     drive_folders_simple: c.drive_folders_simple || [],
                     drive_folders_advanced: c.drive_folders_advanced || '',
                     photos_include_family: c.photos_include_family,
+                    shared_library_id: c.shared_library_id || null,
                     drive_sync_policy: c.drive_sync_policy || 'delete',
                     photos_sync_policy: c.photos_sync_policy || 'keep',
                     destination: c.destination || '',
@@ -493,6 +526,29 @@ function accountConfig(appleId) {
                 console.error(e);
             }
             this.driveFoldersLoading = false;
+        },
+
+        async loadPhotoLibraries() {
+            try {
+                const res = await fetch(`/api/accounts/${this.encodedId()}/photo-libraries`);
+                if (!res.ok) return;
+                this.photoLibraries = await res.json();
+                this.sharedLibrary = this.photoLibraries.find(l => l.type === 'shared') || null;
+                // If the saved shared_library_id no longer exists, reset
+                if (this.config.shared_library_id && this.sharedLibrary
+                    && this.config.shared_library_id !== this.sharedLibrary.id) {
+                    this.config.shared_library_id = null;
+                    this.config.photos_include_family = false;
+                }
+                // If shared library is claimed by another account, reset local config
+                if (this.sharedLibrary?.claimed_by) {
+                    this.config.photos_include_family = false;
+                    this.config.shared_library_id = null;
+                }
+            } catch (e) {
+                console.error(e);
+            }
+            this.photoLibrariesLoaded = true;
         },
 
         async loadBackupStatus() {

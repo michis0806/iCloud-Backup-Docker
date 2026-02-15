@@ -33,6 +33,7 @@ class BackupConfigCreate(BaseModel):
     drive_folders_simple: list[str] | None = None
     drive_folders_advanced: str | None = None
     photos_include_family: bool = False
+    shared_library_id: str | None = None
     drive_sync_policy: SyncPolicy = SyncPolicy.DELETE
     photos_sync_policy: SyncPolicy = SyncPolicy.KEEP
     exclusions: list[str] | None = None
@@ -47,6 +48,7 @@ class BackupConfigResponse(BaseModel):
     drive_folders_simple: list[str] | None = None
     drive_folders_advanced: str | None = None
     photos_include_family: bool
+    shared_library_id: str | None = None
     drive_sync_policy: SyncPolicy = SyncPolicy.DELETE
     photos_sync_policy: SyncPolicy = SyncPolicy.KEEP
     exclusions: list[str] | None = None

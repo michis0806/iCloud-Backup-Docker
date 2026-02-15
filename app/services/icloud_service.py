@@ -279,6 +279,57 @@ def get_drive_folders(apple_id: str) -> list[dict]:
     return sorted(folders, key=lambda f: f["name"].lower())
 
 
+def get_photo_libraries(apple_id: str) -> list[dict]:
+    """Return available photo libraries for the given account.
+
+    Returns a list of dicts::
+
+        [
+            {"id": "PrimarySync", "type": "primary", "name": "Eigene Mediathek"},
+            {"id": "SharedSync-XXXX-...", "type": "shared", "name": "Geteilte Mediathek"},
+        ]
+    """
+    api = get_session(apple_id)
+    if api is None:
+        return []
+
+    result = []
+    try:
+        libraries = api.photos.libraries
+        for zone_name in libraries:
+            if zone_name == "root":
+                # "root" is a pyicloud alias for PrimarySync – skip, always present
+                continue
+            if zone_name == "shared":
+                # "shared" is the SharedPhotoStreamLibrary (shared albums, not the
+                # iCloud Shared Library) – skip, handled separately
+                continue
+            if zone_name == "PrimarySync":
+                result.append({
+                    "id": "PrimarySync",
+                    "type": "primary",
+                    "name": "Eigene Mediathek",
+                })
+            elif zone_name.startswith("SharedSync-"):
+                result.append({
+                    "id": zone_name,
+                    "type": "shared",
+                    "name": "Geteilte Mediathek",
+                })
+    except Exception as exc:
+        log.error("Fehler beim Abrufen der Foto-Bibliotheken für %s: %s", apple_id, exc)
+
+    # If we couldn't enumerate, at least return the primary library
+    if not result:
+        result.append({
+            "id": "PrimarySync",
+            "type": "primary",
+            "name": "Eigene Mediathek",
+        })
+
+    return result
+
+
 def disconnect(apple_id: str) -> None:
     """Remove a session from the in-memory cache."""
     _sessions.pop(apple_id, None)

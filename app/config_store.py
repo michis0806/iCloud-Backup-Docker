@@ -79,6 +79,7 @@ def _default_backup() -> dict:
         "drive_folders_simple": None,
         "drive_folders_advanced": None,
         "photos_include_family": False,
+        "shared_library_id": None,
         "drive_sync_policy": "delete",
         "photos_sync_policy": "keep",
         "exclusions": None,
@@ -199,7 +200,8 @@ def save_backup_config(apple_id: str, config: dict) -> dict | None:
         for key in (
             "backup_drive", "backup_photos", "drive_config_mode",
             "drive_folders_simple", "drive_folders_advanced",
-            "photos_include_family", "drive_sync_policy", "photos_sync_policy",
+            "photos_include_family", "shared_library_id",
+            "drive_sync_policy", "photos_sync_policy",
             "exclusions", "destination",
         ):
             if key in config:
@@ -294,3 +296,23 @@ def list_configured_accounts() -> list[dict]:
                 **backup,
             })
     return result
+
+
+def get_shared_library_owner(shared_library_id: str, exclude_apple_id: str | None = None) -> str | None:
+    """Return the apple_id of the account that has *shared_library_id* configured.
+
+    Returns ``None`` if no other account claims this shared library.
+    *exclude_apple_id* is typically the account being edited (don't flag yourself).
+    """
+    with _lock:
+        data = _read()
+    for acc in data["accounts"]:
+        if acc["apple_id"] == exclude_apple_id:
+            continue
+        backup = acc.get("backup") or {}
+        if (
+            backup.get("photos_include_family")
+            and backup.get("shared_library_id") == shared_library_id
+        ):
+            return acc["apple_id"]
+    return None
