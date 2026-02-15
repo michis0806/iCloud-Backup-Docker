@@ -300,6 +300,14 @@ def sync_drive_folder(
     return stats
 
 
+def _resolve_drive_folders(apple_id: str, folders: list[str]) -> list[str]:
+    """Resolve the ``__ALL__`` marker to every top-level Drive folder."""
+    if "__ALL__" not in folders:
+        return folders
+    all_folders = icloud_service.get_drive_folders(apple_id)
+    return [f["name"] for f in all_folders if f["type"] == "folder"]
+
+
 def run_drive_backup(
     apple_id: str,
     folders: list[str],
@@ -309,6 +317,8 @@ def run_drive_backup(
     config_id: str | None = None,
 ) -> dict:
     """Run a full iCloud Drive backup for the given folders."""
+    folders = _resolve_drive_folders(apple_id, folders)
+
     dest_path = settings.backup_path / destination / "drive"
     dest_path.mkdir(parents=True, exist_ok=True)
 
