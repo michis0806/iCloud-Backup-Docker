@@ -478,43 +478,51 @@ def run_photos_backup(
     dest_path = settings.backup_path / destination / "photos"
     dest_path.mkdir(parents=True, exist_ok=True)
 
-    # Number of consecutive already-existing photos before we stop scanning.
-    # The iCloud API returns photos in reverse-chronological order, so once we
-    # see many consecutive skips we can safely assume the rest is unchanged.
-    # IMPORTANT: Only apply early-exit when NO new photos were downloaded in
-    # this run. If anything was downloaded the sync may be incomplete (e.g.
-    # first run or catch-up after a gap).
-    UNTIL_FOUND = 100
-
     # ---- Personal library via api.photos.all ----
-    log.info("Sichere iCloud Fotos (Mediathek) für %s", apple_id)
+    # Try to determine total photo count for progress tracking
+    total_in_library = None
+    try:
+        total_in_library = len(api.photos.all)
+        log.info(
+            "iCloud Mediathek für %s enthält %d Objekte",
+            apple_id, total_in_library,
+        )
+    except Exception:
+        log.info("Sichere iCloud Fotos (Mediathek) für %s (Gesamtanzahl unbekannt)", apple_id)
+
     current_file = ""
-    consecutive_skips = 0
+    processed = 0
     try:
         for photo in api.photos.all:
             fname, was_skipped = _process_photo(photo, dest_path / "Mediathek", excludes, stats, dry_run)
+            processed += 1
             current_file = fname or current_file
-            if was_skipped:
-                consecutive_skips += 1
-                if stats["downloaded"] == 0 and consecutive_skips >= UNTIL_FOUND:
-                    log.info(
-                        "Mediathek: %d aufeinanderfolgende Fotos bereits vorhanden "
-                        "und keine neuen Downloads – Rest wird übersprungen",
-                        UNTIL_FOUND,
-                    )
-                    break
-            else:
-                consecutive_skips = 0
             if config_id is not None:
                 _set_progress(config_id, {
                     "phase": "photos",
                     "folder": "Mediathek",
                     "current_file": current_file,
+                    "processed": processed,
+                    "total": total_in_library,
                     **stats,
                 })
     except Exception as exc:
         log.error("Fehler beim Iterieren der Mediathek: %s", exc)
         stats["errors"] += 1
+
+    log.info(
+        "Mediathek abgeschlossen: %d verarbeitet (von %s in iCloud), "
+        "%d heruntergeladen, %d übersprungen, %d Fehler",
+        processed,
+        str(total_in_library) if total_in_library is not None else "?",
+        stats["downloaded"], stats["skipped"], stats["errors"],
+    )
+    if total_in_library is not None and processed < total_in_library:
+        log.warning(
+            "ACHTUNG: Nur %d von %d Objekten verarbeitet! "
+            "Möglicherweise unvollständiges Backup.",
+            processed, total_in_library,
+        )
 
     # ---- Shared / family albums ----
     if include_family:
@@ -524,7 +532,6 @@ def run_photos_backup(
             log.warning("Konnte Album-Liste nicht abrufen: %s", exc)
             album_keys = []
 
-        downloads_before_albums = stats["downloaded"]
         for album_name in album_keys:
             # Skip the default "All Photos" – already covered above
             if album_name in ("All Photos", "all"):
@@ -534,25 +541,11 @@ def run_photos_backup(
             album_dest = dest_path / _safe_dirname(album_name)
             album_dest.mkdir(parents=True, exist_ok=True)
 
-            consecutive_skips = 0
-            downloads_before = stats["downloaded"]
             try:
                 album = api.photos.albums[album_name]
                 for photo in album:
                     fname, was_skipped = _process_photo(photo, album_dest, excludes, stats, dry_run)
                     current_file = fname or current_file
-                    if was_skipped:
-                        consecutive_skips += 1
-                        if stats["downloaded"] == downloads_before and consecutive_skips >= UNTIL_FOUND:
-                            log.info(
-                                "Album '%s': %d aufeinanderfolgende Fotos bereits "
-                                "vorhanden und keine neuen Downloads – "
-                                "Rest wird übersprungen",
-                                album_name, UNTIL_FOUND,
-                            )
-                            break
-                    else:
-                        consecutive_skips = 0
                     if config_id is not None:
                         _set_progress(config_id, {
                             "phase": "photos",
@@ -564,6 +557,9 @@ def run_photos_backup(
                 log.error("Fehler beim Album '%s': %s", album_name, exc)
                 stats["errors"] += 1
 
+    stats["processed"] = processed
+    if total_in_library is not None:
+        stats["total_in_library"] = total_in_library
     return stats
 
 
