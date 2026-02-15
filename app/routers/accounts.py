@@ -144,3 +144,23 @@ async def get_drive_folders(apple_id: str):
 
     folders = icloud_service.get_drive_folders(apple_id)
     return folders
+
+
+@router.get("/{apple_id}/photo-libraries")
+async def get_photo_libraries(apple_id: str):
+    """Return available photo libraries (primary + shared/family) for the account."""
+    account = config_store.get_account(apple_id)
+    if account is None:
+        raise HTTPException(status_code=404, detail="Account nicht gefunden.")
+    if account["status"] != "authenticated":
+        raise HTTPException(status_code=400, detail="Account nicht authentifiziert.")
+
+    libraries = icloud_service.get_photo_libraries(apple_id)
+
+    # For each shared library, check if another account already claims it
+    for lib in libraries:
+        if lib["type"] == "shared":
+            claimed_by = config_store.get_shared_library_owner(lib["id"], exclude_apple_id=apple_id)
+            lib["claimed_by"] = claimed_by  # None or the apple_id that already backs it up
+
+    return libraries

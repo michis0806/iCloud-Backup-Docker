@@ -74,6 +74,7 @@ async def trigger_backup(apple_id: str):
                 backup_photos=cfg.get("backup_photos", False),
                 drive_folders=folders,
                 photos_include_family=cfg.get("photos_include_family", False),
+                shared_library_id=cfg.get("shared_library_id"),
                 destination=cfg.get("destination", ""),
                 exclusions=cfg.get("exclusions"),
                 config_id=apple_id,
