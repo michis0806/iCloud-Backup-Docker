@@ -111,8 +111,19 @@ async def get_backup_status(apple_id: str):
             "message": "Keine Backup-Konfiguration vorhanden.",
         }
 
+    status = cfg.get("last_backup_status", "idle")
+
+    # Guard against phantom "running" state: if persisted status says running
+    # but no backup process is actually active, correct it.
+    if status == "running" and backup_service.get_progress(apple_id) is None:
+        status = "error"
+        config_store.update_backup_status(
+            apple_id, status="error",
+            message="Backup durch Neustart unterbrochen.",
+        )
+
     return {
-        "status": cfg.get("last_backup_status", "idle"),
+        "status": status,
         "message": cfg.get("last_backup_message"),
         "last_backup_at": cfg.get("last_backup_at"),
         "stats": cfg.get("last_backup_stats"),

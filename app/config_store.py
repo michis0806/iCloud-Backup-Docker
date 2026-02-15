@@ -233,6 +233,31 @@ def update_backup_status(
 
 
 # ---------------------------------------------------------------------------
+# Public API – startup cleanup
+# ---------------------------------------------------------------------------
+
+def reset_stale_running_states() -> int:
+    """Reset any 'running' backup statuses to 'interrupted'.
+
+    Called on startup to clean up after crashes/restarts.
+    Returns the number of accounts that were reset.
+    """
+    count = 0
+    with _lock:
+        data = _read()
+        for acc in data["accounts"]:
+            backup = acc.get("backup") or {}
+            if backup.get("last_backup_status") == "running":
+                backup["last_backup_status"] = "error"
+                backup["last_backup_message"] = "Backup durch Neustart unterbrochen."
+                acc["backup"] = backup
+                count += 1
+        if count:
+            _write(data)
+    return count
+
+
+# ---------------------------------------------------------------------------
 # Public API – global schedule
 # ---------------------------------------------------------------------------
 
