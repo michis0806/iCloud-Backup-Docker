@@ -21,6 +21,7 @@ app/
 ├── config.py            # Pydantic Settings (env vars → settings object)
 ├── config_store.py      # YAML-based persistent config (/config/config.yaml)
 ├── auth.py              # Session/cookie authentication middleware
+├── models.py            # Enums (AccountStatus, BackupStatus, DriveConfigMode, SyncPolicy)
 ├── schemas.py           # Pydantic request/response schemas
 ├── routers/
 │   ├── accounts.py      # /api/accounts – account CRUD, 2FA endpoints
@@ -60,8 +61,24 @@ The `icloud_service.py` handles both flows transparently.
 ### Backup Service
 
 - **Drive backup:** Recursively walks iCloud Drive folders, downloads files via `node.open(stream=True)`, uses etag caching to skip unchanged folders.
-- **Photos backup:** Iterates `api.photos.all`, organizes by date into `YYYY/MM/` directories, skips already-downloaded files by size comparison.
+- **Photos backup:** Iterates `api.photos.all`, organizes by date into `YYYY/MM/DD/` directories, skips already-downloaded files by size comparison.
 - Both support exclusion patterns (glob and path-based).
+
+### Sync Policy (SyncPolicy enum)
+
+Each backup type (Drive / Photos) has a configurable sync policy that determines what happens to local files when they are deleted in iCloud:
+
+| Policy | Drive Default | Photos Default | Behaviour |
+|--------|:---:|:---:|---|
+| `keep` | | **X** | Local files remain untouched |
+| `delete` | **X** | | Local files are removed |
+| `archive` | | | Files are moved to `/archive/{destination}/…`, preserving the folder structure |
+
+The shared helper `_apply_sync_policy()` in `backup_service.py` implements all three policies and is used by both Drive and Photos reconciliation.
+
+- **Drive:** After downloading, `sync_drive_folder()` compares the `remote_files` set against local files and applies the policy.
+- **Photos:** `run_photos_backup()` collects remote filenames during iteration, then `_reconcile_photos()` applies the policy per library/album.
+- **Archive mount:** `/archive` is a dedicated Docker volume (`ARCHIVE_PATH` env var). Files are moved via `shutil.move()` with the relative path preserved.
 
 ### Configuration
 
@@ -91,6 +108,7 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8080
 | `SECRET_KEY` | `change-me-in-production` | Session cookie signing |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
 | `SYNOLOGY_NOTIFY` | `false` | Enable Synology DSM notifications |
+| `ARCHIVE_PATH` | `./archive` | Host path for archived files (sync policy = "archive") |
 | `TZ` | `Europe/Berlin` | Container timezone |
 
 ## Common Pitfalls
