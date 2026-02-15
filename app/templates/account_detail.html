@@ -287,18 +287,18 @@
                             <span class="font-monospace" x-text="progress.current_file"
                                   style="word-break: break-all"></span>
                         </div>
-                        <div class="d-flex gap-3 mt-3">
+                        <div class="d-flex flex-wrap gap-3 mt-3">
                             <div>
                                 <span class="text-success" x-text="progress.downloaded || 0"></span>
-                                <span class="text-muted">heruntergeladen</span>
+                                <span class="text-body-secondary">heruntergeladen</span>
                             </div>
                             <div>
-                                <span class="text-muted" x-text="progress.skipped || 0"></span>
-                                <span class="text-muted">übersprungen</span>
+                                <span class="text-body-secondary" x-text="progress.skipped || 0"></span>
+                                <span class="text-body-secondary">übersprungen</span>
                             </div>
                             <div>
                                 <span class="text-danger" x-text="progress.errors || 0"></span>
-                                <span class="text-muted">Fehler</span>
+                                <span class="text-body-secondary">Fehler</span>
                             </div>
                         </div>
                     </div>
@@ -316,7 +316,7 @@
                                   x-text="backupStatusLabel(backupStatus.status)">
                             </span>
                         </div>
-                        <p class="small text-muted mb-1" x-show="backupStatus.last_backup_at">
+                        <p class="small text-body-secondary mb-1" x-show="backupStatus.last_backup_at">
                             Letztes Backup: <span x-text="formatDate(backupStatus.last_backup_at)"></span>
                         </p>
                         <p class="small mb-0" x-show="backupStatus.message" x-text="backupStatus.message"></p>
@@ -326,29 +326,63 @@
                             <template x-if="backupStatus.stats?.drive">
                                 <div class="border-top pt-2 mt-2">
                                     <strong>Drive:</strong>
-                                    <span x-text="backupStatus.stats.drive.downloaded"></span> heruntergeladen,
-                                    <template x-if="backupStatus.stats.drive.deleted">
-                                        <span><span x-text="backupStatus.stats.drive.deleted"></span> gelöscht, </span>
-                                    </template>
-                                    <template x-if="backupStatus.stats.drive.archived">
-                                        <span><span x-text="backupStatus.stats.drive.archived"></span> archiviert, </span>
-                                    </template>
-                                    <span x-text="backupStatus.stats.drive.skipped"></span> übersprungen,
-                                    <span x-text="backupStatus.stats.drive.errors"></span> Fehler
+                                    <div class="d-flex flex-wrap gap-3 mt-1">
+                                        <div>
+                                            <span class="text-success" x-text="backupStatus.stats.drive.downloaded"></span>
+                                            <span class="text-body-secondary">heruntergeladen</span>
+                                        </div>
+                                        <template x-if="backupStatus.stats.drive.deleted">
+                                            <div>
+                                                <span class="text-warning" x-text="backupStatus.stats.drive.deleted"></span>
+                                                <span class="text-body-secondary">gelöscht</span>
+                                            </div>
+                                        </template>
+                                        <template x-if="backupStatus.stats.drive.archived">
+                                            <div>
+                                                <span class="text-info" x-text="backupStatus.stats.drive.archived"></span>
+                                                <span class="text-body-secondary">archiviert</span>
+                                            </div>
+                                        </template>
+                                        <div>
+                                            <span class="text-body-secondary" x-text="backupStatus.stats.drive.skipped"></span>
+                                            <span class="text-body-secondary">übersprungen</span>
+                                        </div>
+                                        <div>
+                                            <span class="text-danger" x-text="backupStatus.stats.drive.errors"></span>
+                                            <span class="text-body-secondary">Fehler</span>
+                                        </div>
+                                    </div>
                                 </div>
                             </template>
                             <template x-if="backupStatus.stats?.photos">
                                 <div class="border-top pt-2 mt-2">
                                     <strong>Fotos:</strong>
-                                    <span x-text="backupStatus.stats.photos.downloaded"></span> heruntergeladen,
-                                    <template x-if="backupStatus.stats.photos.deleted">
-                                        <span><span x-text="backupStatus.stats.photos.deleted"></span> gelöscht, </span>
-                                    </template>
-                                    <template x-if="backupStatus.stats.photos.archived">
-                                        <span><span x-text="backupStatus.stats.photos.archived"></span> archiviert, </span>
-                                    </template>
-                                    <span x-text="backupStatus.stats.photos.skipped"></span> übersprungen,
-                                    <span x-text="backupStatus.stats.photos.errors"></span> Fehler
+                                    <div class="d-flex flex-wrap gap-3 mt-1">
+                                        <div>
+                                            <span class="text-success" x-text="backupStatus.stats.photos.downloaded"></span>
+                                            <span class="text-body-secondary">heruntergeladen</span>
+                                        </div>
+                                        <template x-if="backupStatus.stats.photos.deleted">
+                                            <div>
+                                                <span class="text-warning" x-text="backupStatus.stats.photos.deleted"></span>
+                                                <span class="text-body-secondary">gelöscht</span>
+                                            </div>
+                                        </template>
+                                        <template x-if="backupStatus.stats.photos.archived">
+                                            <div>
+                                                <span class="text-info" x-text="backupStatus.stats.photos.archived"></span>
+                                                <span class="text-body-secondary">archiviert</span>
+                                            </div>
+                                        </template>
+                                        <div>
+                                            <span class="text-body-secondary" x-text="backupStatus.stats.photos.skipped"></span>
+                                            <span class="text-body-secondary">übersprungen</span>
+                                        </div>
+                                        <div>
+                                            <span class="text-danger" x-text="backupStatus.stats.photos.errors"></span>
+                                            <span class="text-body-secondary">Fehler</span>
+                                        </div>
+                                    </div>
                                 </div>
                             </template>
                         </div>
