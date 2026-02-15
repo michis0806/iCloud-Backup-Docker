@@ -399,14 +399,18 @@ def _download_photo(photo, local_path: Path, stats: dict) -> None:
 
 
 def _process_photo(photo, dest_path: Path, excludes: list[str] | None,
-                   stats: dict, dry_run: bool) -> str | None:
-    """Process a single photo: check exclusions, skip/download. Returns filename or None."""
+                   stats: dict, dry_run: bool) -> tuple[str | None, bool]:
+    """Process a single photo: check exclusions, skip/download.
+
+    Returns ``(filename, was_skipped)`` – *was_skipped* is True when the
+    photo already existed locally and was not re-downloaded.
+    """
     filename = getattr(photo, "filename", None)
     if not filename:
-        return None
+        return None, False
 
     if excludes and is_excluded(filename, excludes):
-        return filename
+        return filename, False
 
     # Organise into date-based subfolders: YYYY/MM/DD
     dt = _photo_date(photo)
@@ -421,21 +425,28 @@ def _process_photo(photo, dest_path: Path, excludes: list[str] | None,
     # Skip if already downloaded with matching size
     if local_path.exists():
         remote_size = getattr(photo, "size", None)
-        if remote_size and local_path.stat().st_size == remote_size:
+        if remote_size is not None:
+            if local_path.stat().st_size == remote_size:
+                stats["skipped"] += 1
+                return filename, True
+            # Size mismatch → re-download (handled below)
+        else:
+            # No remote size available → trust file existence
+            log.debug("Kein remote_size für %s, überspringe (Datei existiert)", filename)
             stats["skipped"] += 1
-            return filename
+            return filename, True
 
     if dry_run:
         log.info("[DRY RUN] Würde herunterladen: %s", filename)
         stats["downloaded"] += 1
-        return filename
+        return filename, False
 
     # Handle filename collisions (different photo, same name)
     if local_path.exists():
         local_path = _unique_path(local_path)
 
     _download_photo(photo, local_path, stats)
-    return filename
+    return filename, False
 
 
 def run_photos_backup(
@@ -457,12 +468,29 @@ def run_photos_backup(
     dest_path = settings.backup_path / destination / "photos"
     dest_path.mkdir(parents=True, exist_ok=True)
 
+    # Number of consecutive already-existing photos before we stop scanning.
+    # The iCloud API returns photos in reverse-chronological order, so once we
+    # see many consecutive skips we can safely assume the rest is unchanged.
+    UNTIL_FOUND = 100
+
     # ---- Personal library via api.photos.all ----
     log.info("Sichere iCloud Fotos (Mediathek) für %s", apple_id)
     current_file = ""
+    consecutive_skips = 0
     try:
         for photo in api.photos.all:
-            current_file = _process_photo(photo, dest_path / "Mediathek", excludes, stats, dry_run) or current_file
+            fname, was_skipped = _process_photo(photo, dest_path / "Mediathek", excludes, stats, dry_run)
+            current_file = fname or current_file
+            if was_skipped:
+                consecutive_skips += 1
+                if consecutive_skips >= UNTIL_FOUND:
+                    log.info(
+                        "Mediathek: %d aufeinanderfolgende Fotos bereits vorhanden – "
+                        "Rest wird übersprungen", UNTIL_FOUND,
+                    )
+                    break
+            else:
+                consecutive_skips = 0
             if config_id is not None:
                 _set_progress(config_id, {
                     "phase": "photos",
@@ -491,10 +519,23 @@ def run_photos_backup(
             album_dest = dest_path / _safe_dirname(album_name)
             album_dest.mkdir(parents=True, exist_ok=True)
 
+            consecutive_skips = 0
             try:
                 album = api.photos.albums[album_name]
                 for photo in album:
-                    current_file = _process_photo(photo, album_dest, excludes, stats, dry_run) or current_file
+                    fname, was_skipped = _process_photo(photo, album_dest, excludes, stats, dry_run)
+                    current_file = fname or current_file
+                    if was_skipped:
+                        consecutive_skips += 1
+                        if consecutive_skips >= UNTIL_FOUND:
+                            log.info(
+                                "Album '%s': %d aufeinanderfolgende Fotos bereits "
+                                "vorhanden – Rest wird übersprungen",
+                                album_name, UNTIL_FOUND,
+                            )
+                            break
+                    else:
+                        consecutive_skips = 0
                     if config_id is not None:
                         _set_progress(config_id, {
                             "phase": "photos",
