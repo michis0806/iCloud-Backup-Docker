@@ -90,15 +90,21 @@
 
                         <!-- Last backup info -->
                         <template x-if="backupStatuses[account.apple_id] && (backupStatuses[account.apple_id].last_backup_at || backupStatuses[account.apple_id].status === 'running')">
-                            <div class="mt-2 d-flex align-items-center gap-2 small">
-                                <span class="badge"
-                                      :class="backupStatusBadge(backupStatuses[account.apple_id].status)"
-                                      x-text="backupStatusLabel(backupStatuses[account.apple_id].status)">
-                                </span>
-                                <span class="text-body-secondary" x-show="backupStatuses[account.apple_id]?.last_backup_at">
-                                    <i class="bi bi-clock-history me-1"></i>
-                                    <span x-text="formatDate(backupStatuses[account.apple_id]?.last_backup_at)"></span>
-                                </span>
+                            <div class="mt-2 small">
+                                <div class="d-flex align-items-center gap-2">
+                                    <span class="badge"
+                                          :class="backupStatusBadge(backupStatuses[account.apple_id].status)"
+                                          x-text="backupStatusLabel(backupStatuses[account.apple_id].status)">
+                                    </span>
+                                    <span class="text-body-secondary" x-show="backupStatuses[account.apple_id]?.last_backup_at">
+                                        <i class="bi bi-clock-history me-1"></i>
+                                        <span x-text="formatDate(backupStatuses[account.apple_id]?.last_backup_at)"></span>
+                                    </span>
+                                </div>
+                                <div class="text-body-secondary mt-1" x-show="backupStatuses[account.apple_id]?.last_backup_duration_seconds">
+                                    <i class="bi bi-hourglass-split me-1"></i>
+                                    Dauer: <span x-text="formatDuration(backupStatuses[account.apple_id]?.last_backup_duration_seconds)"></span>
+                                </div>
                             </div>
                         </template>
 
@@ -440,6 +446,16 @@ function dashboard() {
         formatDate(iso) {
             if (!iso) return '';
             return new Date(iso).toLocaleString('de-DE');
+        },
+
+        formatDuration(seconds) {
+            if (!seconds || seconds < 0) return '';
+            const h = Math.floor(seconds / 3600);
+            const m = Math.floor((seconds % 3600) / 60);
+            const s = seconds % 60;
+            if (h > 0) return `${h} Std. ${m} Min.`;
+            if (m > 0) return `${m} Min. ${s} Sek.`;
+            return `${s} Sek.`;
         },
 
         backupStatusLabel(status) {

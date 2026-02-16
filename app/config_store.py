@@ -86,6 +86,8 @@ def _default_backup() -> dict:
         "destination": "",
         "last_backup_status": "idle",
         "last_backup_at": None,
+        "last_backup_started_at": None,
+        "last_backup_duration_seconds": None,
         "last_backup_message": None,
         "last_backup_stats": None,
     }
@@ -219,6 +221,8 @@ def update_backup_status(
     message: str | None = None,
     stats: dict | None = None,
     at: str | None = None,
+    started_at: str | None = None,
+    duration_seconds: int | None = None,
 ) -> None:
     with _lock:
         data = _read()
@@ -234,6 +238,10 @@ def update_backup_status(
             acc["backup"]["last_backup_stats"] = stats
         if at is not None:
             acc["backup"]["last_backup_at"] = at
+        if started_at is not None:
+            acc["backup"]["last_backup_started_at"] = started_at
+        if duration_seconds is not None:
+            acc["backup"]["last_backup_duration_seconds"] = duration_seconds
         _write(data)
 
 
