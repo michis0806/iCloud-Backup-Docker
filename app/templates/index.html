@@ -88,6 +88,20 @@
                             </div>
                         </template>
 
+                        <!-- Last backup info -->
+                        <template x-if="backupStatuses[account.apple_id] && (backupStatuses[account.apple_id].last_backup_at || backupStatuses[account.apple_id].status === 'running')">
+                            <div class="mt-2 d-flex align-items-center gap-2 small">
+                                <span class="badge"
+                                      :class="backupStatusBadge(backupStatuses[account.apple_id].status)"
+                                      x-text="backupStatusLabel(backupStatuses[account.apple_id].status)">
+                                </span>
+                                <span class="text-body-secondary" x-show="backupStatuses[account.apple_id]?.last_backup_at">
+                                    <i class="bi bi-clock-history me-1"></i>
+                                    <span x-text="formatDate(backupStatuses[account.apple_id]?.last_backup_at)"></span>
+                                </span>
+                            </div>
+                        </template>
+
                         <div class="d-flex gap-2 mt-3">
                             <!-- 2FA button -->
                             <template x-if="account.status === 'requires_2fa'">
@@ -114,23 +128,23 @@
                             </template>
 
                             <div class="ms-auto d-flex gap-2">
-                                <!-- Run backup button -->
-                                <template x-if="account.status === 'authenticated'">
+                                <!-- Play button (when not running) -->
+                                <template x-if="account.status === 'authenticated' && !isRunning(account.apple_id)">
                                     <button class="btn btn-outline-success btn-sm"
-                                            :disabled="runningBackups[account.apple_id]"
                                             @click="runBackup(account.apple_id)"
-                                            :title="runningBackups[account.apple_id] ? 'Backup läuft...' : 'Backup starten'">
-                                        <span x-show="runningBackups[account.apple_id]"
-                                              class="spinner-border spinner-border-sm"></span>
-                                        <i class="bi bi-play-fill" x-show="!runningBackups[account.apple_id]"></i>
+                                            title="Backup starten">
+                                        <i class="bi bi-play-fill"></i>
                                     </button>
                                 </template>
 
-                                <!-- Delete button -->
-                                <button class="btn btn-outline-danger btn-sm"
-                                        @click="deleteAccount(account.apple_id)">
-                                    <i class="bi bi-trash"></i>
-                                </button>
+                                <!-- Stop button (when running) -->
+                                <template x-if="account.status === 'authenticated' && isRunning(account.apple_id)">
+                                    <button class="btn btn-outline-danger btn-sm"
+                                            @click="cancelBackup(account.apple_id)"
+                                            title="Backup abbrechen">
+                                        <i class="bi bi-stop-fill"></i>
+                                    </button>
+                                </template>
                             </div>
                         </div>
                     </div>
@@ -315,6 +329,8 @@ function dashboard() {
         // Backup triggers
         runningBackups: {},
         runAllLoading: false,
+        backupStatuses: {},
+        statusPollInterval: null,
 
         // Add account
         newAppleId: '',
@@ -341,6 +357,8 @@ function dashboard() {
                 this.loadSchedule(),
                 this.loadStorageStats(),
             ]);
+            await this.loadBackupStatuses();
+            this.statusPollInterval = setInterval(() => this.loadBackupStatuses(), 10000);
         },
 
         async loadSchedule() {
@@ -388,6 +406,60 @@ function dashboard() {
             const i = Math.floor(Math.log(bytes) / Math.log(1024));
             const val = bytes / Math.pow(1024, i);
             return val.toLocaleString('de-DE', { maximumFractionDigits: 1 }) + ' ' + units[i];
+        },
+
+        async loadBackupStatuses() {
+            const statuses = {};
+            for (const account of this.accounts) {
+                if (account.status !== 'authenticated') continue;
+                try {
+                    const res = await fetch(`/api/backup/status/${encodeURIComponent(account.apple_id)}`);
+                    if (res.ok) {
+                        statuses[account.apple_id] = await res.json();
+                    }
+                } catch (e) {
+                    console.error('Status-Fehler:', e);
+                }
+            }
+            this.backupStatuses = statuses;
+        },
+
+        isRunning(appleId) {
+            return this.backupStatuses[appleId]?.status === 'running' || this.runningBackups[appleId];
+        },
+
+        async cancelBackup(appleId) {
+            try {
+                await fetch(`/api/backup/cancel/${encodeURIComponent(appleId)}`, { method: 'POST' });
+            } catch (e) {
+                console.error('Cancel-Fehler:', e);
+            }
+            setTimeout(() => this.loadBackupStatuses(), 1000);
+        },
+
+        formatDate(iso) {
+            if (!iso) return '';
+            return new Date(iso).toLocaleString('de-DE');
+        },
+
+        backupStatusLabel(status) {
+            return {
+                'idle': 'Bereit',
+                'running': 'Läuft',
+                'success': 'Erfolgreich',
+                'error': 'Fehlerhaft',
+                'not_configured': 'Nicht konfiguriert',
+            }[status] || status;
+        },
+
+        backupStatusBadge(status) {
+            return {
+                'idle': 'bg-secondary',
+                'running': 'bg-info',
+                'success': 'bg-success',
+                'error': 'bg-danger',
+                'not_configured': 'bg-secondary',
+            }[status] || 'bg-secondary';
         },
 
         async loadAccounts() {
@@ -562,12 +634,19 @@ function dashboard() {
                 if (!res.ok) {
                     const err = await res.json();
                     alert(err.detail || 'Fehler beim Starten.');
+                    this.runningBackups[appleId] = false;
+                    return;
                 }
             } catch (e) {
                 console.error('Backup-Start-Fehler:', e);
+                this.runningBackups[appleId] = false;
+                return;
             }
-            // Keep spinner for a bit, then poll status
-            setTimeout(() => { this.runningBackups[appleId] = false; }, 3000);
+            // Reload statuses after short delay to pick up running state
+            setTimeout(async () => {
+                await this.loadBackupStatuses();
+                this.runningBackups[appleId] = false;
+            }, 2000);
         },
 
         async runAllBackups() {
@@ -577,9 +656,10 @@ function dashboard() {
                 if (res.ok) {
                     const data = await res.json();
                     (data.triggered || []).forEach(id => { this.runningBackups[id] = true; });
-                    setTimeout(() => {
+                    setTimeout(async () => {
+                        await this.loadBackupStatuses();
                         (data.triggered || []).forEach(id => { this.runningBackups[id] = false; });
-                    }, 3000);
+                    }, 2000);
                 } else {
                     const err = await res.json();
                     alert(err.detail || 'Fehler beim Starten.');

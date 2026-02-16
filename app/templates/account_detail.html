@@ -287,6 +287,12 @@
                             <span x-show="cancelRequested" class="spinner-border spinner-border-sm me-1"></span>
                             <span x-text="cancelRequested ? 'Wird abgebrochen...' : 'Backup abbrechen'"></span>
                         </button>
+                        <hr class="my-1">
+                        <button type="button" class="btn btn-outline-danger" @click="deleteAccount()"
+                                :disabled="backupRunning">
+                            <i class="bi bi-trash me-1"></i>
+                            Account löschen
+                        </button>
                     </div>
                 </div>
 
@@ -685,6 +691,21 @@ function accountConfig(appleId) {
             } catch (e) {
                 this.errorMsg = 'Netzwerkfehler: ' + e.message;
                 this.cancelRequested = false;
+            }
+        },
+
+        async deleteAccount() {
+            if (!confirm('Account wirklich löschen? Alle zugehörigen Konfigurationen werden ebenfalls entfernt.')) return;
+            try {
+                const res = await fetch(`/api/accounts/${this.encodedId()}`, { method: 'DELETE' });
+                if (res.ok) {
+                    window.location.href = '/';
+                } else {
+                    const err = await res.json();
+                    this.errorMsg = err.detail || 'Fehler beim Löschen.';
+                }
+            } catch (e) {
+                this.errorMsg = 'Fehler beim Löschen: ' + e.message;
             }
         },
 
