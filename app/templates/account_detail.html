@@ -287,6 +287,12 @@
                             <span x-show="cancelRequested" class="spinner-border spinner-border-sm me-1"></span>
                             <span x-text="cancelRequested ? 'Wird abgebrochen...' : 'Backup abbrechen'"></span>
                         </button>
+                        <hr class="my-1">
+                        <button type="button" class="btn btn-outline-danger" @click="deleteAccount()"
+                                :disabled="backupRunning">
+                            <i class="bi bi-trash me-1"></i>
+                            Account löschen
+                        </button>
                     </div>
                 </div>
 
@@ -343,6 +349,10 @@
                         </div>
                         <p class="small text-body-secondary mb-1" x-show="backupStatus.last_backup_at">
                             Letztes Backup: <span x-text="formatDate(backupStatus.last_backup_at)"></span>
+                        </p>
+                        <p class="small text-body-secondary mb-1" x-show="backupStatus.last_backup_duration_seconds">
+                            <i class="bi bi-hourglass-split me-1"></i>
+                            Dauer: <span x-text="formatDuration(backupStatus.last_backup_duration_seconds)"></span>
                         </p>
                         <p class="small mb-0" x-show="backupStatus.message" x-text="backupStatus.message"></p>
 
@@ -688,6 +698,21 @@ function accountConfig(appleId) {
             }
         },
 
+        async deleteAccount() {
+            if (!confirm('Account wirklich löschen? Alle zugehörigen Konfigurationen werden ebenfalls entfernt.')) return;
+            try {
+                const res = await fetch(`/api/accounts/${this.encodedId()}`, { method: 'DELETE' });
+                if (res.ok) {
+                    window.location.href = '/';
+                } else {
+                    const err = await res.json();
+                    this.errorMsg = err.detail || 'Fehler beim Löschen.';
+                }
+            } catch (e) {
+                this.errorMsg = 'Fehler beim Löschen: ' + e.message;
+            }
+        },
+
         backupStatusBadge(status) {
             return {
                 'idle': 'bg-secondary',
@@ -711,6 +736,16 @@ function accountConfig(appleId) {
         formatDate(iso) {
             if (!iso) return '';
             return new Date(iso).toLocaleString('de-DE');
+        },
+
+        formatDuration(seconds) {
+            if (!seconds || seconds < 0) return '';
+            const h = Math.floor(seconds / 3600);
+            const m = Math.floor((seconds % 3600) / 60);
+            const s = seconds % 60;
+            if (h > 0) return `${h} Std. ${m} Min.`;
+            if (m > 0) return `${m} Min. ${s} Sek.`;
+            return `${s} Sek.`;
         },
     };
 }

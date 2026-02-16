@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException
 
@@ -51,10 +51,11 @@ async def trigger_backup(apple_id: str):
         raise HTTPException(status_code=400, detail="Keine Backup-Konfiguration vorhanden.")
 
     # Mark as running
+    start_time = datetime.now(timezone.utc)
     config_store.update_backup_status(
         apple_id,
         status="running",
-        at=datetime.utcnow().isoformat(),
+        started_at=start_time.isoformat(),
     )
 
     # Parse folders
@@ -97,7 +98,12 @@ async def trigger_backup(apple_id: str):
             message = str(exc)
             stats = None
 
-        config_store.update_backup_status(apple_id, status=status, message=message, stats=stats)
+        end_time = datetime.now(timezone.utc)
+        duration = round((end_time - start_time).total_seconds())
+        config_store.update_backup_status(
+            apple_id, status=status, message=message, stats=stats,
+            at=end_time.isoformat(), duration_seconds=duration,
+        )
         notify_backup_result(apple_id, status, message)
 
     asyncio.create_task(_run())
@@ -126,8 +132,9 @@ async def trigger_all_backups():
         if backup_service.get_progress(apple_id) is not None:
             continue
 
+        run_start_time = datetime.now(timezone.utc)
         config_store.update_backup_status(
-            apple_id, status="running", at=datetime.utcnow().isoformat(),
+            apple_id, status="running", started_at=run_start_time.isoformat(),
         )
 
         if cfg.get("drive_config_mode", "simple") == "simple":
@@ -136,7 +143,7 @@ async def trigger_all_backups():
             text = cfg.get("drive_folders_advanced") or ""
             folders = [line.strip() for line in text.splitlines() if line.strip()]
 
-        async def _run(apple_id=apple_id, cfg=cfg, folders=folders):
+        async def _run(apple_id=apple_id, cfg=cfg, folders=folders, _start=run_start_time):
             try:
                 result = await asyncio.to_thread(
                     backup_service.run_backup,
@@ -167,7 +174,12 @@ async def trigger_all_backups():
                 message = str(exc)
                 stats = None
 
-            config_store.update_backup_status(apple_id, status=status, message=message, stats=stats)
+            end_time = datetime.now(timezone.utc)
+            duration = round((end_time - _start).total_seconds())
+            config_store.update_backup_status(
+                apple_id, status=status, message=message, stats=stats,
+                at=end_time.isoformat(), duration_seconds=duration,
+            )
             notify_backup_result(apple_id, status, message)
 
         asyncio.create_task(_run())
@@ -212,6 +224,8 @@ async def get_backup_status(apple_id: str):
         "status": status,
         "message": cfg.get("last_backup_message"),
         "last_backup_at": cfg.get("last_backup_at"),
+        "last_backup_started_at": cfg.get("last_backup_started_at"),
+        "last_backup_duration_seconds": cfg.get("last_backup_duration_seconds"),
         "stats": cfg.get("last_backup_stats"),
     }
 
