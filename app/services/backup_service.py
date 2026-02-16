@@ -107,6 +107,58 @@ def _save_cache(destination: str, folder_name: str, cache: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Photo fingerprint cache
+# ---------------------------------------------------------------------------
+
+def _photo_cache_path(destination: str, library_name: str) -> Path:
+    """Return the path to the photo fingerprint cache for a library."""
+    safe = library_name.replace("/", "_").replace(" ", "_")
+    return settings.config_path / f".icloud-photo-cache-{destination}-{safe}.json"
+
+
+def _load_photo_cache(destination: str, library_name: str) -> dict:
+    path = _photo_cache_path(destination, library_name)
+    if path.exists():
+        try:
+            return json.loads(path.read_text())
+        except Exception:
+            log.warning("Photo-Cache beschädigt, wird ignoriert: %s", path)
+    return {}
+
+
+def _save_photo_cache(destination: str, library_name: str, cache: dict) -> None:
+    path = _photo_cache_path(destination, library_name)
+    try:
+        path.write_text(json.dumps(cache, indent=2))
+    except Exception as exc:
+        log.warning("Photo-Cache konnte nicht gespeichert werden: %s", exc)
+
+
+def _photo_fingerprint(photo) -> str | None:
+    """Extract the best available fingerprint from a photo for change detection.
+
+    Checks (in order of preference):
+    1. resOriginalFingerprint – content hash of the original file
+    2. recordChangeTag – changes whenever the record is modified
+    Falls back to None when neither is available.
+    """
+    try:
+        master = getattr(photo, "_master_record", None) or {}
+        fields = master.get("fields", {})
+
+        fp = fields.get("resOriginalFingerprint", {}).get("value")
+        if fp:
+            return f"fp:{fp}"
+
+        ct = master.get("recordChangeTag")
+        if ct:
+            return f"ct:{ct}"
+    except Exception:
+        pass
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Exclusion helpers
 # ---------------------------------------------------------------------------
 
@@ -511,9 +563,12 @@ def _download_photo(photo, local_path: Path, stats: dict) -> None:
 
 
 def _process_photo(photo, dest_path: Path, excludes: list[str] | None,
-                   stats: dict, dry_run: bool) -> tuple[str | None, bool]:
+                   stats: dict, dry_run: bool,
+                   photo_cache: dict | None = None) -> tuple[str | None, bool]:
     """Process a single photo: check exclusions, skip/download.
 
+    When *photo_cache* is provided, fingerprints (resOriginalFingerprint or
+    recordChangeTag) are used for change detection in addition to file size.
     Returns ``(filename, was_skipped)`` – *was_skipped* is True when the
     photo already existed locally and was not re-downloaded.
     """
@@ -534,19 +589,35 @@ def _process_photo(photo, dest_path: Path, excludes: list[str] | None,
 
     local_path = sub / filename
 
-    # Skip if already downloaded with matching size
+    # --- Change detection ---
     if local_path.exists():
+        photo_id = getattr(photo, "id", None)
+        remote_fp = _photo_fingerprint(photo)
+
+        # 1) Fingerprint/ChangeTag cache check (most reliable)
+        if photo_cache is not None and photo_id and remote_fp:
+            cached_fp = photo_cache.get(str(photo_id))
+            if cached_fp and cached_fp == remote_fp:
+                log.debug("Photo-Cache-Hit (fingerprint unverändert): %s", filename)
+                stats["skipped"] += 1
+                return filename, True
+
+        # 2) Fallback: size comparison
         remote_size = getattr(photo, "size", None)
         if remote_size is not None:
             if local_path.stat().st_size == remote_size:
+                # Size matches – update cache entry and skip
+                if photo_cache is not None and photo_id and remote_fp:
+                    photo_cache[str(photo_id)] = remote_fp
                 stats["skipped"] += 1
                 return filename, True
             # Size mismatch → re-download (handled below)
         else:
-            # No remote size available → trust file existence
-            log.debug("Kein remote_size für %s, überspringe (Datei existiert)", filename)
-            stats["skipped"] += 1
-            return filename, True
+            # No remote size and no fingerprint match → trust file existence
+            if not remote_fp:
+                log.debug("Kein remote_size/fingerprint für %s, überspringe (Datei existiert)", filename)
+                stats["skipped"] += 1
+                return filename, True
 
     if dry_run:
         log.info("[DRY RUN] Würde herunterladen: %s", filename)
@@ -558,6 +629,14 @@ def _process_photo(photo, dest_path: Path, excludes: list[str] | None,
         local_path = _unique_path(local_path)
 
     _download_photo(photo, local_path, stats)
+
+    # Update cache after successful download
+    if photo_cache is not None:
+        photo_id = getattr(photo, "id", None)
+        remote_fp = _photo_fingerprint(photo)
+        if photo_id and remote_fp:
+            photo_cache[str(photo_id)] = remote_fp
+
     return filename, False
 
 
@@ -599,19 +678,31 @@ def _backup_photo_library(
     config_id: str | None,
     sync_policy: str,
     archive_base: Path,
+    destination: str = "",
 ) -> tuple[int, set[str]]:
     """Download all photos from a library/album iterator to *dest_dir*.
+
+    Uses a fingerprint cache (recordChangeTag / resOriginalFingerprint) to
+    avoid re-downloading photos that have not changed since the last run.
 
     Returns ``(processed_count, remote_files_set)``.
     """
     current_file = ""
     processed = 0
     remote_files: set[str] = set()
+    had_errors = False
+
+    # Load photo fingerprint cache
+    photo_cache = _load_photo_cache(destination, label) if destination else {}
+    cache_size_before = len(photo_cache)
 
     try:
         for photo in library_photos:
             _check_cancel(config_id)
-            fname, was_skipped = _process_photo(photo, dest_dir, excludes, stats, dry_run)
+            fname, was_skipped = _process_photo(
+                photo, dest_dir, excludes, stats, dry_run,
+                photo_cache=photo_cache,
+            )
             processed += 1
             current_file = fname or current_file
             if fname:
@@ -636,12 +727,21 @@ def _backup_photo_library(
     except Exception as exc:
         log.error("Fehler beim Iterieren von %s: %s", label, exc)
         stats["errors"] += 1
+        had_errors = True
 
     log.info(
         "%s abgeschlossen: %d verarbeitet, %d heruntergeladen, "
         "%d übersprungen, %d Fehler",
         label, processed, stats["downloaded"], stats["skipped"], stats["errors"],
     )
+
+    # Save photo cache (only when no errors occurred)
+    if destination and not had_errors and photo_cache:
+        _save_photo_cache(destination, label, photo_cache)
+        new_entries = len(photo_cache) - cache_size_before
+        if new_entries > 0:
+            log.info("Photo-Cache aktualisiert für %s: %d Einträge (+%d neu)",
+                     label, len(photo_cache), new_entries)
 
     if processed > 0 and sync_policy != SyncPolicy.KEEP:
         _reconcile_photos(dest_dir, remote_files, sync_policy, archive_base, stats, dry_run)
@@ -678,6 +778,7 @@ def run_photos_backup(
     processed, _ = _backup_photo_library(
         api, api.photos.all, mediathek_dir, "Mediathek",
         excludes, stats, dry_run, config_id, sync_policy, archive_mediathek,
+        destination=destination,
     )
 
     # ---- Shared / family library ----
@@ -698,6 +799,7 @@ def run_photos_backup(
                     api, shared_lib.all if hasattr(shared_lib, "all") else [],
                     shared_dir, "Geteilte Mediathek",
                     excludes, stats, dry_run, config_id, sync_policy, archive_shared,
+                    destination=destination,
                 )
         except BackupCancelled:
             raise
