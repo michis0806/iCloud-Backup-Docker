@@ -12,7 +12,7 @@ Back up your **iCloud Drive** and **iCloud Photos** automatically with a simple 
 - Password-protected web UI
 - Exclusion patterns (glob, paths)
 - Etag caching for fast incremental backups
-- Live progress & built-in log viewer
+- Live progress, backup duration & built-in log viewer
 - Synology DSM notifications via `synodsmnotify`
 - Multi-arch: `linux/amd64` and `linux/arm64`
 

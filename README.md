@@ -16,6 +16,7 @@ A Docker-based backup service for **iCloud Drive** and **iCloud Photos** with a 
 - **Dark Mode UI** – Modern, responsive web interface
 - **Etag Caching** – Only changed folders are re-scanned
 - **Live Progress** – Real-time progress display during running backups
+- **Backup Duration** – Shows end time (in your browser's timezone) and duration of the last backup
 - **Log Viewer** – Built-in log viewer in the web interface
 
 ## Quick Start
