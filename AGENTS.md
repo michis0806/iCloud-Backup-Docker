@@ -64,6 +64,21 @@ The `icloud_service.py` handles both flows transparently.
 - **Photos backup:** Iterates `api.photos.all`, organizes by date into `YYYY/MM/DD/` directories, skips already-downloaded files by size comparison.
 - Both support exclusion patterns (glob and path-based).
 
+### Backup Status & Timing
+
+`config_store.update_backup_status()` tracks backup lifecycle:
+
+| Field | Set when | Description |
+|-------|----------|-------------|
+| `last_backup_status` | start / end | `idle`, `running`, `success`, `error` |
+| `last_backup_started_at` | start | UTC ISO timestamp when backup began |
+| `last_backup_at` | end | UTC ISO timestamp when backup **finished** (not started!) |
+| `last_backup_duration_seconds` | end | Wall-clock duration in seconds |
+| `last_backup_message` | end | Human-readable result / error message |
+| `last_backup_stats` | end | Dict with `drive`, `photos`, `storage` sub-dicts |
+
+All timestamps use `datetime.now(timezone.utc).isoformat()` which produces an explicit `+00:00` suffix. This ensures JavaScript `new Date(iso)` correctly interprets them as UTC, and `toLocaleString('de-DE')` renders them in the browser's local timezone.
+
 ### Sync Policy (SyncPolicy enum)
 
 Each backup type (Drive / Photos) has a configurable sync policy that determines what happens to local files when they are deleted in iCloud:
