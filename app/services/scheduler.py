@@ -59,16 +59,22 @@ async def _run_backup_job(apple_id: str) -> None:
             backup_photos=cfg.get("backup_photos", False),
             drive_folders=folders,
             photos_include_family=cfg.get("photos_include_family", False),
+            shared_library_id=cfg.get("shared_library_id"),
             destination=cfg.get("destination", ""),
             exclusions=cfg.get("exclusions"),
             config_id=apple_id,
+            drive_sync_policy=cfg.get("drive_sync_policy", "delete"),
+            photos_sync_policy=cfg.get("photos_sync_policy", "keep"),
         )
 
         status = "success" if result["success"] else "error"
         message = result["message"]
+        dest = cfg.get("destination", "") or apple_id.replace("@", "_at_").replace(".", "_")
+        storage = backup_service.get_backup_storage_stats(dest)
         stats = {
             "drive": result.get("drive_stats"),
             "photos": result.get("photos_stats"),
+            "storage": storage,
         }
     except Exception as exc:
         log.error("Backup-Job für %s fehlgeschlagen: %s", apple_id, exc)
