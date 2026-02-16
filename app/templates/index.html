@@ -30,6 +30,17 @@
             <div x-show="scheduleSaved" x-transition class="text-success small">
                 <i class="bi bi-check-lg"></i> Gespeichert
             </div>
+            <div class="ms-auto">
+                <button class="btn btn-outline-success btn-sm"
+                        :disabled="runAllLoading"
+                        @click="runAllBackups()"
+                        title="Alle Backups jetzt starten">
+                    <span x-show="runAllLoading" class="spinner-border spinner-border-sm me-1"></span>
+                    <i class="bi bi-play-fill me-1" x-show="!runAllLoading"></i>
+                    <span x-show="!runAllLoading">Alle starten</span>
+                    <span x-show="runAllLoading">Wird gestartet...</span>
+                </button>
+            </div>
         </div>
     </div>
 
@@ -102,11 +113,25 @@
                                 </button>
                             </template>
 
-                            <!-- Delete button -->
-                            <button class="btn btn-outline-danger btn-sm"
-                                    @click="deleteAccount(account.apple_id)">
-                                <i class="bi bi-trash me-1"></i>
-                            </button>
+                            <div class="ms-auto d-flex gap-2">
+                                <!-- Run backup button -->
+                                <template x-if="account.status === 'authenticated'">
+                                    <button class="btn btn-outline-success btn-sm"
+                                            :disabled="runningBackups[account.apple_id]"
+                                            @click="runBackup(account.apple_id)"
+                                            :title="runningBackups[account.apple_id] ? 'Backup läuft...' : 'Backup starten'">
+                                        <span x-show="runningBackups[account.apple_id]"
+                                              class="spinner-border spinner-border-sm"></span>
+                                        <i class="bi bi-play-fill" x-show="!runningBackups[account.apple_id]"></i>
+                                    </button>
+                                </template>
+
+                                <!-- Delete button -->
+                                <button class="btn btn-outline-danger btn-sm"
+                                        @click="deleteAccount(account.apple_id)">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -286,6 +311,10 @@ function dashboard() {
         // Global schedule
         schedule: { enabled: false, cron: '0 2 * * *' },
         scheduleSaved: false,
+
+        // Backup triggers
+        runningBackups: {},
+        runAllLoading: false,
 
         // Add account
         newAppleId: '',
@@ -524,6 +553,41 @@ function dashboard() {
             } catch (e) {
                 console.error('Reconnect-Fehler:', e);
             }
+        },
+
+        async runBackup(appleId) {
+            this.runningBackups[appleId] = true;
+            try {
+                const res = await fetch(`/api/backup/run/${encodeURIComponent(appleId)}`, { method: 'POST' });
+                if (!res.ok) {
+                    const err = await res.json();
+                    alert(err.detail || 'Fehler beim Starten.');
+                }
+            } catch (e) {
+                console.error('Backup-Start-Fehler:', e);
+            }
+            // Keep spinner for a bit, then poll status
+            setTimeout(() => { this.runningBackups[appleId] = false; }, 3000);
+        },
+
+        async runAllBackups() {
+            this.runAllLoading = true;
+            try {
+                const res = await fetch('/api/backup/run-all', { method: 'POST' });
+                if (res.ok) {
+                    const data = await res.json();
+                    (data.triggered || []).forEach(id => { this.runningBackups[id] = true; });
+                    setTimeout(() => {
+                        (data.triggered || []).forEach(id => { this.runningBackups[id] = false; });
+                    }, 3000);
+                } else {
+                    const err = await res.json();
+                    alert(err.detail || 'Fehler beim Starten.');
+                }
+            } catch (e) {
+                console.error('Backup-Alle-Fehler:', e);
+            }
+            this.runAllLoading = false;
         },
 
         async deleteAccount(appleId) {

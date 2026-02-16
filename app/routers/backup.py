@@ -108,6 +108,76 @@ async def trigger_backup(apple_id: str):
     )
 
 
+@router.post("/run-all")
+async def trigger_all_backups():
+    """Manually trigger backups for all configured and authenticated accounts."""
+    accounts = config_store.list_configured_accounts()
+    triggered = []
+    for acc in accounts:
+        apple_id = acc["apple_id"]
+        account = config_store.get_account(apple_id)
+        if account is None or account["status"] != "authenticated":
+            continue
+        cfg = config_store.get_backup_config(apple_id)
+        if cfg is None or (not cfg.get("backup_drive") and not cfg.get("backup_photos")):
+            continue
+
+        # Check if already running
+        if backup_service.get_progress(apple_id) is not None:
+            continue
+
+        config_store.update_backup_status(
+            apple_id, status="running", at=datetime.utcnow().isoformat(),
+        )
+
+        if cfg.get("drive_config_mode", "simple") == "simple":
+            folders = cfg.get("drive_folders_simple") or []
+        else:
+            text = cfg.get("drive_folders_advanced") or ""
+            folders = [line.strip() for line in text.splitlines() if line.strip()]
+
+        async def _run(apple_id=apple_id, cfg=cfg, folders=folders):
+            try:
+                result = await asyncio.to_thread(
+                    backup_service.run_backup,
+                    apple_id=apple_id,
+                    backup_drive=cfg.get("backup_drive", False),
+                    backup_photos=cfg.get("backup_photos", False),
+                    drive_folders=folders,
+                    photos_include_family=cfg.get("photos_include_family", False),
+                    shared_library_id=cfg.get("shared_library_id"),
+                    destination=cfg.get("destination", ""),
+                    exclusions=cfg.get("exclusions"),
+                    config_id=apple_id,
+                    drive_sync_policy=cfg.get("drive_sync_policy", "delete"),
+                    photos_sync_policy=cfg.get("photos_sync_policy", "keep"),
+                )
+                status = "success" if result["success"] else "error"
+                message = result["message"]
+                dest = cfg.get("destination", "") or apple_id.replace("@", "_at_").replace(".", "_")
+                storage = backup_service.get_backup_storage_stats(dest)
+                stats = {
+                    "drive": result.get("drive_stats"),
+                    "photos": result.get("photos_stats"),
+                    "storage": storage,
+                }
+            except Exception as exc:
+                log.error("Backup fehlgeschlagen für %s: %s", apple_id, exc)
+                status = "error"
+                message = str(exc)
+                stats = None
+
+            config_store.update_backup_status(apple_id, status=status, message=message, stats=stats)
+            notify_backup_result(apple_id, status, message)
+
+        asyncio.create_task(_run())
+        triggered.append(apple_id)
+
+    if not triggered:
+        raise HTTPException(status_code=400, detail="Keine konfigurierten Accounts gefunden.")
+    return {"message": f"Backup gestartet für {len(triggered)} Account(s).", "triggered": triggered}
+
+
 @router.post("/cancel/{apple_id}")
 async def cancel_backup(apple_id: str):
     """Cancel a running backup for the given account."""
