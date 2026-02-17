@@ -231,6 +231,66 @@ def _adjust_excludes_for_folder(folder_name: str, excludes: list[str] | None) ->
 # iCloud Drive backup
 # ---------------------------------------------------------------------------
 
+# Characters that have special meaning in URLs and may cause issues with
+# the iCloud document service when they appear in folder/file names.
+_URL_SPECIAL_CHARS = set("#%?&+")
+
+
+def _has_url_special_chars(path: str) -> bool:
+    """Return True if *path* contains characters that are special in URLs."""
+    return bool(_URL_SPECIAL_CHARS.intersection(path))
+
+
+def _open_drive_node(node, rel_path: str, **kwargs):
+    """Open a drive node file with fallback for paths containing URL-special characters.
+
+    The iCloud document service may return 404 for files in folders whose
+    name contains '#', '%', '?', '&' or '+'.  When that happens we re-fetch
+    the node metadata and retry the download with the refreshed docwsid,
+    then fall back to using the drivewsid as document_id.
+    """
+    try:
+        return node.open(**kwargs)
+    except Exception as first_exc:
+        if not _has_url_special_chars(rel_path):
+            raise
+
+        docwsid = node.data.get("docwsid", "?")
+        drivewsid = node.data.get("drivewsid", "")
+        zone = node.data.get("zone", "com.apple.CloudDocs")
+
+        log.debug(
+            "Download via docwsid fehlgeschlagen für '%s' "
+            "(docwsid=%s, drivewsid=%s, zone=%s): %s",
+            rel_path, docwsid, drivewsid, zone, first_exc,
+        )
+
+        # Fallback 1: re-fetch node metadata to obtain a fresh docwsid
+        if drivewsid:
+            try:
+                fresh_data = node.connection.get_node_data(drivewsid)
+                fresh_docwsid = fresh_data.get("docwsid", "")
+                if fresh_docwsid and fresh_docwsid != docwsid:
+                    log.debug(
+                        "Neuer docwsid für '%s': %s (vorher %s)",
+                        rel_path, fresh_docwsid, docwsid,
+                    )
+                    return node.connection.get_file(
+                        fresh_docwsid, zone=zone, **kwargs,
+                    )
+            except Exception:
+                log.debug("Fallback 1 (fresh docwsid) fehlgeschlagen für %s", rel_path)
+
+        # Fallback 2: try using drivewsid as document_id
+        if drivewsid and drivewsid != docwsid:
+            try:
+                log.debug("Versuche Fallback mit drivewsid=%s", drivewsid)
+                return node.connection.get_file(drivewsid, zone=zone, **kwargs)
+            except Exception:
+                log.debug("Fallback 2 (drivewsid) fehlgeschlagen für %s", rel_path)
+
+        raise first_exc
+
 def _walk_remote(node, prefix: str = "", excludes: list[str] | None = None,
                  cache: dict | None = None):
     """Recursively yield ``(relative_path, node)`` for all files under *node*.
@@ -391,7 +451,7 @@ def sync_drive_folder(
 
         try:
             with open(tmp_path, "wb") as fh:
-                response = node.open(stream=True)
+                response = _open_drive_node(node, rel_path, stream=True)
                 copyfileobj(response.raw, fh)
             tmp_path.rename(local_path)
 
@@ -403,6 +463,14 @@ def sync_drive_folder(
             stats["downloaded"] += 1
         except Exception as exc:
             log.error("Fehler beim Herunterladen von %s: %s", rel_path, exc)
+            if _has_url_special_chars(rel_path):
+                log.warning(
+                    "Hinweis: Der Pfad '%s' enthält URL-Sonderzeichen "
+                    "(#, %%, ?, &, +). Dies kann Probleme mit der "
+                    "iCloud-API verursachen. Bitte den Ordner/die Datei "
+                    "in iCloud Drive umbenennen.",
+                    rel_path,
+                )
             if tmp_path.exists():
                 tmp_path.unlink()
             stats["errors"] += 1
