@@ -169,6 +169,7 @@ services:
          - /volume1/docker/icloud-backup/config:/config
          - /volume1/docker/icloud-backup/archive:/archive
          - /usr/syno/bin/synodsmnotify:/usr/local/bin/synodsmnotify:ro
+         - /usr/lib:/usr/syno/lib:ro
        environment:
          - TZ=Europe/Berlin
          - AUTH_PASSWORD=my-secure-password
