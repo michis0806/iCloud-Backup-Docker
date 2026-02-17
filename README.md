@@ -53,7 +53,7 @@ To set a fixed password, add `AUTH_PASSWORD` to your environment (see [Configura
 | `ARCHIVE_PATH` | `./archive` | Host path for archived files (used when sync policy is set to "archive") |
 | `CONFIG_PATH` | `./config` | Host path for configuration & sessions |
 | `LOG_LEVEL` | `INFO` | Log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
-| `SYNOLOGY_NOTIFY` | `false` | Enable Synology DSM notifications via `synodsmnotify` (`true`/`false`) |
+| `DSM_NOTIFY` | `false` | Enable Synology DSM notifications via `synodsmnotify` (`true`/`false`) |
 | `TZ` | `Europe/Berlin` | Timezone |
 
 ### Volumes
@@ -75,18 +75,19 @@ services:
     # image: michis0806/icloud-backup-docker:latest
     container_name: icloud-backup
     restart: unless-stopped
+    mem_limit: 512m
     ports:
-      - "8080:8080"
+      - "${WEB_PORT:-8080}:8080"
     volumes:
-      - ./backups:/backups
-      - ./config:/config
-      - ./archive:/archive
+      - ${BACKUP_PATH:-./backups}:/backups
+      - ${CONFIG_PATH:-./config}:/config
+      - ${ARCHIVE_PATH:-./archive}:/archive
     environment:
-      - TZ=Europe/Berlin
-      - AUTH_PASSWORD=my-secure-password
-      - SECRET_KEY=change-me-in-production
-      # - LOG_LEVEL=INFO
-      # - SYNOLOGY_NOTIFY=true  # Enable on Synology NAS
+      - TZ=${TZ:-Europe/Berlin}
+      - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - DSM_NOTIFY=${DSM_NOTIFY:-false}
+      # - AUTH_PASSWORD=my-secure-password
 ```
 
 ## Usage
@@ -148,11 +149,12 @@ services:
          - /volume1/docker/icloud-backup/backups:/backups
          - /volume1/docker/icloud-backup/config:/config
          - /volume1/docker/icloud-backup/archive:/archive
+         - /usr/syno/bin/synodsmnotify:/usr/local/bin/synodsmnotify:ro
        environment:
          - TZ=Europe/Berlin
          - AUTH_PASSWORD=my-secure-password
          - SECRET_KEY=my-secret-key
-         - SYNOLOGY_NOTIFY=true
+         - DSM_NOTIFY=true
    ```
 
 5. **Start the project** → Container Manager builds and starts the container
@@ -195,6 +197,8 @@ sudo docker compose up -d
 - It is recommended to use an **app-specific password** ([create one here](https://support.apple.com/en-us/102654))
 - The password is **not stored** – only pyicloud's session tokens in the `/config/sessions` directory
 - **Etag cache files** are stored in `/config/` and significantly speed up repeated backups
+- **Special characters in folder names:** Folders with `#`, `%`, `?`, `&` or `+` in their name may cause download errors. The backup service includes fallback strategies, but renaming the folder is the safest fix.
+- **Memory limit:** The container is configured with `mem_limit: 512m` by default. For very large photo libraries you may need to increase this.
 
 ## Tech Stack
 
