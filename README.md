@@ -47,7 +47,7 @@ To set a fixed password, add `AUTH_PASSWORD` to your environment (see [Configura
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `AUTH_PASSWORD` | *(random, logged)* | Password for the web UI. If not set, a random password is generated and printed to the log on startup. |
-| `SECRET_KEY` | `change-me-in-production` | Secret key for session cookie signing. Change this in production! |
+| `SECRET_KEY` | *(uses AUTH_PASSWORD)* | Secret for session cookie signing. Falls back to `AUTH_PASSWORD` if not set. |
 | `WEB_PORT` | `8080` | Web UI port |
 | `BACKUP_PATH` | `./backups` | Host path for backup files |
 | `ARCHIVE_PATH` | `./archive` | Host path for archived files (used when sync policy is set to "archive") |
@@ -84,10 +84,10 @@ services:
       - ${ARCHIVE_PATH:-./archive}:/archive
     environment:
       - TZ=${TZ:-Europe/Berlin}
-      - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - DSM_NOTIFY=${DSM_NOTIFY:-false}
       # - AUTH_PASSWORD=my-secure-password
+      # - SECRET_KEY=...  # Optional; falls back to AUTH_PASSWORD if not set
 ```
 
 ## Usage
@@ -153,7 +153,6 @@ services:
        environment:
          - TZ=Europe/Berlin
          - AUTH_PASSWORD=my-secure-password
-         - SECRET_KEY=my-secret-key
          - DSM_NOTIFY=true
    ```
 

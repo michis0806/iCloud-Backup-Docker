@@ -135,7 +135,7 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8080
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `AUTH_PASSWORD` | *(random)* | Web UI password |
-| `SECRET_KEY` | `change-me-in-production` | Session cookie signing |
+| `SECRET_KEY` | *(uses AUTH_PASSWORD)* | Session cookie HMAC signing; falls back to `AUTH_PASSWORD` if not set |
 | `BACKUP_PATH` | `./backups` | Host path for backup files |
 | `CONFIG_PATH` | `./config` | Host path for configuration & sessions |
 | `ARCHIVE_PATH` | `./archive` | Host path for archived files (sync policy = "archive") |

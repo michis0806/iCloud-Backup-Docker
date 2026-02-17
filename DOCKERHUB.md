@@ -51,7 +51,7 @@ Open **http://localhost:8080** and log in.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `AUTH_PASSWORD` | *(random)* | Web UI password. Random if not set (check logs). |
-| `SECRET_KEY` | `change-me-in-production` | Secret for cookie signing. |
+| `SECRET_KEY` | *(uses AUTH_PASSWORD)* | Secret for cookie signing. Falls back to `AUTH_PASSWORD` if not set. |
 | `LOG_LEVEL` | `INFO` | Log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`). |
 | `DSM_NOTIFY` | `false` | Enable Synology DSM notifications (`true`/`false`). |
 | `ARCHIVE_PATH` | `./archive` | Host path for archived files (sync policy "archive"). |
