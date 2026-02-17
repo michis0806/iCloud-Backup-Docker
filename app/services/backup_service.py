@@ -170,10 +170,13 @@ def is_excluded(rel_path: str, excludes: list[str]) -> bool:
     """Check whether *rel_path* matches any exclusion pattern.
 
     Supported patterns:
-      - Glob patterns on individual path components: ``*.tmp``, ``.git``
+      - Glob patterns without slash: ``*.tmp``, ``.git`` – matches any
+        individual path component
+      - Glob patterns with slash: ``Medien/*`` – matches the full relative
+        path (fnmatch treats ``*`` as matching any character including ``/``)
       - Simple names (no slash): matches any path component
-      - Path patterns (with slash): ``Ablage/gescannte Alben`` matches if
-        *rel_path* starts with or equals the pattern
+      - Path patterns (with slash, no globs): ``Ablage/gescannte Alben``
+        matches if *rel_path* starts with or equals the pattern
     """
     if not excludes:
         return False
@@ -181,8 +184,14 @@ def is_excluded(rel_path: str, excludes: list[str]) -> bool:
     parts = rel_path.split("/")
     for pattern in excludes:
         if _is_glob(pattern):
-            if any(fnmatch(p, pattern) for p in parts):
-                return True
+            if "/" in pattern:
+                # Path-based glob: match against the full relative path
+                if fnmatch(rel_path, pattern):
+                    return True
+            else:
+                # Component-level glob: match against individual parts
+                if any(fnmatch(p, pattern) for p in parts):
+                    return True
         elif "/" in pattern:
             if rel_path.startswith(pattern) or rel_path == pattern:
                 return True
@@ -199,13 +208,16 @@ def _adjust_excludes_for_folder(folder_name: str, excludes: list[str] | None) ->
     (e.g. "gescannte Alben/file.pdf").  If the user set an exclusion like
     "Ablage/gescannte Alben", we need to strip the "Ablage/" prefix so the
     pattern becomes "gescannte Alben" which will match the relative path.
+
+    This also handles glob patterns: "Medien/*" becomes "*" when syncing
+    the "Medien" folder.
     """
     if not excludes:
         return []
     prefix = folder_name + "/"
     adjusted = []
     for pattern in excludes:
-        if not _is_glob(pattern) and "/" in pattern and pattern.startswith(prefix):
+        if "/" in pattern and pattern.startswith(prefix):
             stripped = pattern[len(prefix):]
             if stripped:
                 adjusted.append(stripped)
@@ -434,6 +446,20 @@ def _resolve_drive_folders(apple_id: str, folders: list[str]) -> list[str]:
     return [f["name"] for f in all_folders if f["type"] == "folder"]
 
 
+def _is_folder_fully_excluded(folder_name: str, excludes: list[str] | None) -> bool:
+    """Check if a top-level folder is entirely excluded (e.g. ``Medien/*``)."""
+    if not excludes:
+        return False
+    for pattern in excludes:
+        # "Medien/*" excludes everything inside Medien
+        if pattern == f"{folder_name}/*":
+            return True
+        # Exact folder name as a path-based pattern (e.g. "Medien/")
+        if not _is_glob(pattern) and "/" in pattern and pattern.rstrip("/") == folder_name:
+            return True
+    return False
+
+
 def run_drive_backup(
     apple_id: str,
     folders: list[str],
@@ -452,6 +478,12 @@ def run_drive_backup(
     total = {"downloaded": 0, "deleted": 0, "archived": 0, "skipped": 0, "errors": 0}
     for folder in folders:
         _check_cancel(config_id)
+
+        # Skip folders that are entirely excluded
+        if _is_folder_fully_excluded(folder, excludes):
+            log.info("Ordner '%s' komplett ausgeschlossen, überspringe.", folder)
+            continue
+
         log.info("Synchronisiere Drive-Ordner: %s → %s", folder, dest_path)
         if config_id is not None:
             _set_progress(config_id, {
