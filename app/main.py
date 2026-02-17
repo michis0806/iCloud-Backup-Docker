@@ -2,6 +2,7 @@
 
 import hmac
 import logging
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -34,6 +35,14 @@ root_logger.addHandler(log_buffer)
 log = logging.getLogger("icloud-backup")
 
 
+def _build_info() -> dict[str, str]:
+    """Return build metadata injected at image build time."""
+    return {
+        "version": os.getenv("APP_VERSION", "dev"),
+        "commit": os.getenv("APP_COMMIT", "unknown"),
+        "build_date": os.getenv("APP_BUILD_DATE", "unknown"),
+    }
+
 # ---------------------------------------------------------------------------
 # Lifespan
 # ---------------------------------------------------------------------------
@@ -55,7 +64,13 @@ async def lifespan(app: FastAPI):
             "Kein AUTH_PASSWORD gesetzt. Generiertes Passwort: %s",
             settings.get_auth_password(),
         )
-    log.info("iCloud Backup Service gestartet")
+    build = _build_info()
+    log.info(
+        "iCloud Backup Service gestartet (version=%s, commit=%s, build_date=%s)",
+        build["version"],
+        build["commit"],
+        build["build_date"],
+    )
     yield
     stop_scheduler()
     log.info("iCloud Backup Service gestoppt")
@@ -93,7 +108,7 @@ app.include_router(backup.router)
 # ---------------------------------------------------------------------------
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    return {"status": "ok", "build": _build_info()}
 
 
 # ---------------------------------------------------------------------------
@@ -156,16 +171,19 @@ async def logout():
 # ---------------------------------------------------------------------------
 @app.get("/")
 async def index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse(
+        "index.html", {"request": request, "build": _build_info()}
+    )
 
 
 @app.get("/accounts/{apple_id}")
 async def account_detail(request: Request, apple_id: str):
     return templates.TemplateResponse(
-        "account_detail.html", {"request": request, "apple_id": apple_id}
+        "account_detail.html",
+        {"request": request, "apple_id": apple_id, "build": _build_info()},
     )
 
 
 @app.get("/logs")
 async def logs_page(request: Request):
-    return templates.TemplateResponse("logs.html", {"request": request})
+    return templates.TemplateResponse("logs.html", {"request": request, "build": _build_info()})
