@@ -304,12 +304,23 @@ def _download_with_share_context(connection, docwsid, zone, share_id, **kwargs):
     file_params = dict(connection.params)
     file_params["document_id"] = docwsid
 
-    # share_id is typically a dict with keys like "shareRecordName",
-    # "shareZoneName", etc.  Flatten scalar values into query params.
+    # share_id can contain nested dictionaries (e.g. zoneID). Flatten
+    # scalar values into query params so the request can carry the full
+    # shared-folder context expected by Apple's API.
     if isinstance(share_id, dict):
-        for key, value in share_id.items():
-            if isinstance(value, (str, int)):
-                file_params[key] = value
+        def _flatten_share_id(data: dict, prefix: str = "") -> None:
+            for key, value in data.items():
+                full_key = f"{prefix}.{key}" if prefix else key
+                if isinstance(value, dict):
+                    _flatten_share_id(value, full_key)
+                    continue
+                if isinstance(value, (str, int)):
+                    file_params[full_key] = value
+                    # Some backends accept nested members without prefix
+                    # (e.g. "zoneName" instead of "zoneID.zoneName").
+                    file_params.setdefault(key, value)
+
+        _flatten_share_id(share_id)
     elif isinstance(share_id, str):
         file_params["shareID"] = share_id
 
