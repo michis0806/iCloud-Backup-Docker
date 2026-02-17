@@ -1,5 +1,17 @@
 FROM python:3.12-slim
 
+ARG APP_VERSION=dev
+ARG APP_COMMIT=unknown
+ARG APP_BUILD_DATE=unknown
+
+LABEL org.opencontainers.image.version=$APP_VERSION \
+      org.opencontainers.image.revision=$APP_COMMIT \
+      org.opencontainers.image.created=$APP_BUILD_DATE
+
+ENV APP_VERSION=$APP_VERSION \
+    APP_COMMIT=$APP_COMMIT \
+    APP_BUILD_DATE=$APP_BUILD_DATE
+
 WORKDIR /app
 
 RUN apt-get update && \

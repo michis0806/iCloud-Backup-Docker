@@ -25,7 +25,10 @@ class TestHealthEndpoint:
     async def test_health(self, client):
         res = await client.get("/health")
         assert res.status_code == 200
-        assert res.json() == {"status": "ok"}
+        data = res.json()
+        assert data["status"] == "ok"
+        assert "build" in data
+        assert {"version", "commit", "build_date"}.issubset(data["build"].keys())
 
 
 class TestAccountsAPI:

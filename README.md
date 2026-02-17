@@ -40,6 +40,25 @@ docker logs icloud-backup
 
 To set a fixed password, add `AUTH_PASSWORD` to your environment (see [Configuration](#configuration)).
 
+
+## Version & Build prüfen
+
+Damit du auf der Synology sofort siehst, ob der richtige Build läuft:
+
+```bash
+# 1) Welche Image-Tags gibt es lokal?
+docker images michis0806/icloud-backup-docker
+
+# 2) Welche Build-Metadaten hat der laufende Container?
+docker inspect icloud-backup --format '{{ index .Config.Env }}' | tr ' ' '\n' | rg '^APP_'
+
+# 3) Was meldet die App selbst?
+curl -s http://<NAS-IP>:8080/health
+```
+
+Die `/health`-Antwort enthält `build.version`, `build.commit` und `build_date`.
+Zusätzlich wird die Version in der Web-UI im Footer angezeigt.
+
 ## Configuration
 
 ### Environment Variables

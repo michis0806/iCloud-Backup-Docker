@@ -38,7 +38,11 @@
 
     <footer class="border-top py-3 mt-auto">
         <div class="container text-center text-muted small">
-            iCloud Backup Service &mdash; basierend auf
+            iCloud Backup Service
+            {% if build is defined %}
+            &mdash; Version {{ build.version }} ({{ build.commit[:7] }})
+            {% endif %}
+            &mdash; basierend auf
             <a href="https://github.com/picklepete/pyicloud" class="text-muted">pyicloud</a>
         </div>
     </footer>
