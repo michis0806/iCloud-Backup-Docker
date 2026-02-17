@@ -239,7 +239,7 @@ def test_cloudkit_download_calls_records_lookup():
     )
     connection = SimpleNamespace(
         params={"dsid": "123"},
-        _service_root="https://p171-drivews.icloud.com:443",
+        service_root="https://p171-drivews.icloud.com:443",
         session=session,
     )
     share_id = {
@@ -272,7 +272,7 @@ def test_cloudkit_download_no_owner_raises():
     session = _CKSession()
     connection = SimpleNamespace(
         params={},
-        _service_root="https://p1-drivews.icloud.com:443",
+        service_root="https://p1-drivews.icloud.com:443",
         session=session,
     )
     share_id = {"zoneID": {"zoneName": "com.apple.CloudDocs"}}

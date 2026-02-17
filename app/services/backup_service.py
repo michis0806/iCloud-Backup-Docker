@@ -425,7 +425,8 @@ def _download_via_cloudkit(connection, docwsid: str, share_id: dict, **kwargs):
     """
     from pyicloud.exceptions import PyiCloudAPIResponseException
 
-    ck_base = _derive_ckdatabase_url(connection._service_root)
+    # DriveService stores the drivews URL as .service_root (public attribute)
+    ck_base = _derive_ckdatabase_url(connection.service_root)
     if not ck_base:
         raise RuntimeError("Could not derive ckdatabasews URL")
 
