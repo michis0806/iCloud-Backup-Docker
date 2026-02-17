@@ -237,17 +237,57 @@ _URL_SPECIAL_CHARS = set("#%?&+")
 
 
 def _has_url_special_chars(path: str) -> bool:
-    """Return True if *path* contains characters that are special in URLs."""
-    return bool(_URL_SPECIAL_CHARS.intersection(path))
+    """Return True if *path* contains characters problematic for the iCloud API.
+
+    Checks for URL-reserved characters (#, %, ?, &, +) as well as non-ASCII
+    characters (e.g. ®, ü, é) which can also cause 404 errors.
+    """
+    if _URL_SPECIAL_CHARS.intersection(path):
+        return True
+    # Non-ASCII characters can also cause issues with the iCloud document API
+    try:
+        path.encode("ascii")
+    except UnicodeEncodeError:
+        return True
+    return False
+
+
+def _retrieve_item_details(connection, drivewsid: str):
+    """Fetch fresh item details via retrieveItemDetailsInFolders.
+
+    Unlike ``connection.get_node_data()``, this passes *drivewsid* directly
+    without wrapping it in ``FOLDER::com.apple.CloudDocs::``, so it works
+    correctly for FILE nodes as well.
+    """
+    try:
+        response = connection.session.post(
+            connection._service_root + "/retrieveItemDetailsInFolders",
+            params=connection.params,
+            data=json.dumps(
+                [{"drivewsid": drivewsid, "partialData": False}]
+            ),
+        )
+        if response.ok:
+            items = response.json()
+            if items:
+                return items[0]
+    except Exception:
+        pass
+    return None
 
 
 def _open_drive_node(node, rel_path: str, **kwargs):
-    """Open a drive node file with fallback for paths containing URL-special characters.
+    """Open a drive node file with fallback for paths containing special characters.
 
-    The iCloud document service may return 404 for files in folders whose
-    name contains '#', '%', '?', '&' or '+'.  When that happens we re-fetch
-    the node metadata and retry the download with the refreshed docwsid,
-    then fall back to using the drivewsid as document_id.
+    The iCloud document service may return 404 for files whose path contains
+    URL-special characters (#, %, ?, &, +) or non-ASCII characters (®, ü, …).
+    When that happens we:
+
+    1. Re-fetch the node metadata via ``retrieveItemDetailsInFolders``
+       (POST with JSON body — avoids URL-encoding issues) and retry with
+       the fresh ``docwsid``.
+    2. Fall back to passing the ``drivewsid`` as ``document_id``.
+    3. Extract the raw UUID from ``drivewsid`` and try that.
     """
     try:
         return node.open(**kwargs)
@@ -260,24 +300,28 @@ def _open_drive_node(node, rel_path: str, **kwargs):
         zone = node.data.get("zone", "com.apple.CloudDocs")
 
         log.debug(
-            "Download via docwsid fehlgeschlagen für '%s' "
+            "Download via node.open() fehlgeschlagen für '%s' "
             "(docwsid=%s, drivewsid=%s, zone=%s): %s",
             rel_path, docwsid, drivewsid, zone, first_exc,
         )
 
-        # Fallback 1: re-fetch node metadata to obtain a fresh docwsid
+        # Fallback 1: re-fetch node metadata to obtain a fresh docwsid.
+        # We call the API directly instead of get_node_data() because the
+        # latter wraps every ID in "FOLDER::com.apple.CloudDocs::" which
+        # produces an invalid key for FILE nodes.
         if drivewsid:
             try:
-                fresh_data = node.connection.get_node_data(drivewsid)
-                fresh_docwsid = fresh_data.get("docwsid", "")
-                if fresh_docwsid and fresh_docwsid != docwsid:
-                    log.debug(
-                        "Neuer docwsid für '%s': %s (vorher %s)",
-                        rel_path, fresh_docwsid, docwsid,
-                    )
-                    return node.connection.get_file(
-                        fresh_docwsid, zone=zone, **kwargs,
-                    )
+                fresh_data = _retrieve_item_details(node.connection, drivewsid)
+                if fresh_data:
+                    fresh_docwsid = fresh_data.get("docwsid", "")
+                    if fresh_docwsid:
+                        log.debug(
+                            "Neuer docwsid für '%s': %s (vorher %s)",
+                            rel_path, fresh_docwsid, docwsid,
+                        )
+                        return node.connection.get_file(
+                            fresh_docwsid, **kwargs,
+                        )
             except Exception:
                 log.debug("Fallback 1 (fresh docwsid) fehlgeschlagen für %s", rel_path)
 
@@ -285,9 +329,20 @@ def _open_drive_node(node, rel_path: str, **kwargs):
         if drivewsid and drivewsid != docwsid:
             try:
                 log.debug("Versuche Fallback mit drivewsid=%s", drivewsid)
-                return node.connection.get_file(drivewsid, zone=zone, **kwargs)
+                return node.connection.get_file(drivewsid, **kwargs)
             except Exception:
                 log.debug("Fallback 2 (drivewsid) fehlgeschlagen für %s", rel_path)
+
+        # Fallback 3: extract the raw UUID from drivewsid
+        # (format is typically "FILE::com.apple.CloudDocs::uuid")
+        if drivewsid and "::" in drivewsid:
+            raw_id = drivewsid.rsplit("::", 1)[-1]
+            if raw_id and raw_id != docwsid and raw_id != drivewsid:
+                try:
+                    log.debug("Versuche Fallback mit raw_id=%s", raw_id)
+                    return node.connection.get_file(raw_id, **kwargs)
+                except Exception:
+                    log.debug("Fallback 3 (raw ID) fehlgeschlagen für %s", rel_path)
 
         raise first_exc
 
@@ -465,10 +520,11 @@ def sync_drive_folder(
             log.error("Fehler beim Herunterladen von %s: %s", rel_path, exc)
             if _has_url_special_chars(rel_path):
                 log.warning(
-                    "Hinweis: Der Pfad '%s' enthält URL-Sonderzeichen "
-                    "(#, %%, ?, &, +). Dies kann Probleme mit der "
-                    "iCloud-API verursachen. Bitte den Ordner/die Datei "
-                    "in iCloud Drive umbenennen.",
+                    "Hinweis: Der Pfad '%s' enthält Sonderzeichen "
+                    "(z.B. #, %%, ?, &, + oder Nicht-ASCII wie ®). "
+                    "Dies kann Probleme mit der iCloud-API verursachen. "
+                    "Bitte den Ordner/die Datei in iCloud Drive "
+                    "umbenennen.",
                     rel_path,
                 )
             if tmp_path.exists():
