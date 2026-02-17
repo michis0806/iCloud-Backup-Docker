@@ -1,5 +1,16 @@
 FROM python:3.12-slim
 
+WORKDIR /app
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY app/ ./app/
+
 ARG APP_VERSION=dev
 ARG APP_COMMIT=unknown
 ARG APP_BUILD_DATE=unknown
@@ -11,17 +22,6 @@ LABEL org.opencontainers.image.version=$APP_VERSION \
 ENV APP_VERSION=$APP_VERSION \
     APP_COMMIT=$APP_COMMIT \
     APP_BUILD_DATE=$APP_BUILD_DATE
-
-WORKDIR /app
-
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends curl && \
-    rm -rf /var/lib/apt/lists/*
-
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-COPY app/ ./app/
 
 VOLUME ["/backups", "/config", "/archive"]
 
