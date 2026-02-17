@@ -258,15 +258,18 @@ def get_session(apple_id: str) -> PyiCloudService | None:
 def _get_user_record_name(api) -> str | None:
     """Derive the current user's CloudKit ``ownerRecordName``.
 
-    Apple's auth response stores the user's anonymous DSID (``aDsID``)
-    as a UUID with dashes.  CloudKit represents the same identifier as
-    ``_<hex-without-dashes>``.
+    Apple's auth response stores the user's anonymous DSID in ``dsInfo``
+    (field name varies: ``aDsID``, ``altDSID``, …).  CloudKit represents
+    the same identifier as ``_<hex-without-dashes>``.
+
+    As a fallback we scan all string values in ``dsInfo`` for 32-hex-char
+    UUID patterns and return the first match.
     """
     ds_info = getattr(api, "data", {}).get("dsInfo", {})
     if not isinstance(ds_info, dict):
         return None
 
-    # Try known field names for the anonymous DSID
+    # ---- pass 1: try well-known field names ----
     for field in ("aDsID", "altDSID"):
         value = ds_info.get(field)
         if value and isinstance(value, str):
@@ -279,8 +282,27 @@ def _get_user_record_name(api) -> str | None:
             )
             return record_name
 
-    log.debug(
-        "Konnte ownerRecordName nicht ableiten. dsInfo-Schlüssel: %s",
+    # ---- pass 2: scan for UUID-shaped values ----
+    # The record name is _<32 hex chars>. Some Apple responses store the
+    # anonymous DSID under non-standard field names.
+    hex_chars = set("0123456789abcdef")
+    for key, value in ds_info.items():
+        if not isinstance(value, str):
+            continue
+        clean = value.replace("-", "")
+        if len(clean) == 32 and set(clean.lower()) <= hex_chars:
+            record_name = f"_{clean}"
+            log.info(
+                "User CloudKit ownerRecordName abgeleitet aus dsInfo.%s: %s",
+                key,
+                record_name,
+            )
+            return record_name
+
+    # ---- nothing found — log keys so user can report ----
+    log.info(
+        "Konnte ownerRecordName nicht aus dsInfo ableiten. "
+        "Vorhandene Schlüssel: %s",
         list(ds_info.keys()),
     )
     return None
@@ -323,6 +345,14 @@ def get_drive_folders(apple_id: str) -> list[dict]:
                         # Cannot determine our own record → flag all shared
                         # folders as potentially foreign (safe default)
                         shared_not_owned = True
+                    log.info(
+                        "Ordner '%s': shareID.ownerRecordName=%s, "
+                        "user_record=%s → %s",
+                        child,
+                        owner,
+                        user_record or "(unbekannt)",
+                        "Fremdfreigabe" if shared_not_owned else "eigene Freigabe",
+                    )
             folders.append(
                 {
                     "name": child,
