@@ -17,6 +17,10 @@ _sessions: dict[str, PyiCloudService] = {}
 # Cache of trusted devices retrieved for 2SA SMS flow
 _trusted_devices: dict[str, list[dict]] = {}
 
+# Cache of detected CloudKit ownerRecordName per apple_id.
+# Populated by get_drive_folders() and consumed by backup_service.
+_user_records: dict[str, str] = {}
+
 
 def _cookie_dir_for(apple_id: str) -> str:
     """Return a per-account cookie directory path."""
@@ -255,57 +259,10 @@ def get_session(apple_id: str) -> PyiCloudService | None:
     return None
 
 
-def _get_user_record_name(api) -> str | None:
-    """Derive the current user's CloudKit ``ownerRecordName``.
+def get_user_record(apple_id: str) -> str | None:
+    """Return the cached CloudKit ownerRecordName for *apple_id*, or None."""
+    return _user_records.get(apple_id)
 
-    Apple's auth response stores the user's anonymous DSID in ``dsInfo``
-    (field name varies: ``aDsID``, ``altDSID``, …).  CloudKit represents
-    the same identifier as ``_<hex-without-dashes>``.
-
-    As a fallback we scan all string values in ``dsInfo`` for 32-hex-char
-    UUID patterns and return the first match.
-    """
-    ds_info = getattr(api, "data", {}).get("dsInfo", {})
-    if not isinstance(ds_info, dict):
-        return None
-
-    # ---- pass 1: try well-known field names ----
-    for field in ("aDsID", "altDSID"):
-        value = ds_info.get(field)
-        if value and isinstance(value, str):
-            clean = value.replace("-", "")
-            record_name = f"_{clean}"
-            log.debug(
-                "User CloudKit ownerRecordName abgeleitet aus dsInfo.%s: %s",
-                field,
-                record_name,
-            )
-            return record_name
-
-    # ---- pass 2: scan for UUID-shaped values ----
-    # The record name is _<32 hex chars>. Some Apple responses store the
-    # anonymous DSID under non-standard field names.
-    hex_chars = set("0123456789abcdef")
-    for key, value in ds_info.items():
-        if not isinstance(value, str):
-            continue
-        clean = value.replace("-", "")
-        if len(clean) == 32 and set(clean.lower()) <= hex_chars:
-            record_name = f"_{clean}"
-            log.info(
-                "User CloudKit ownerRecordName abgeleitet aus dsInfo.%s: %s",
-                key,
-                record_name,
-            )
-            return record_name
-
-    # ---- nothing found — log keys so user can report ----
-    log.info(
-        "Konnte ownerRecordName nicht aus dsInfo ableiten. "
-        "Vorhandene Schlüssel: %s",
-        list(ds_info.keys()),
-    )
-    return None
 
 
 def get_drive_folders(apple_id: str) -> list[dict]:
@@ -322,40 +279,67 @@ def get_drive_folders(apple_id: str) -> list[dict]:
     if api is None:
         return []
 
-    # Determine the current user's CloudKit record name so we can
-    # distinguish "shared by me" from "shared with me".
-    user_record = _get_user_record_name(api)
-
     folders = []
     try:
         root = api.drive
-        for child in root.dir():
-            node = root[child]
-            # Detect shared-with-you folders: they have a shareID whose
-            # ownerRecordName differs from the current user.
-            share_id = node.data.get("shareID")
+        children_names = root.dir()
+
+        # ---- Collect shareID info from all children first ----
+        # so we can infer the user's own ownerRecordName via majority vote.
+        share_info: dict[str, dict] = {}  # child_name → {owner, share_id}
+        for child_name in children_names:
+            node = root[child_name]
+            sid = node.data.get("shareID")
+            if isinstance(sid, dict):
+                owner = sid.get("zoneID", {}).get("ownerRecordName", "")
+                share_info[child_name] = {"owner": owner, "share_id": sid}
+
+        # Infer user record from the collected ownerRecordNames
+        user_record = None
+        if share_info:
+            from collections import Counter
+            owner_counts: Counter = Counter(
+                info["owner"] for info in share_info.values() if info["owner"]
+            )
+            if owner_counts:
+                most_common, count = owner_counts.most_common(1)[0]
+                total = sum(owner_counts.values())
+                log.info(
+                    "User ownerRecordName per Mehrheitsentscheid: %s "
+                    "(%d von %d geteilten Ordnern; Verteilung: %s)",
+                    most_common,
+                    count,
+                    total,
+                    dict(owner_counts),
+                )
+                user_record = most_common
+                # Cache for use by backup_service
+                _user_records[apple_id] = most_common
+
+        # ---- Build folder list ----
+        for child_name in children_names:
+            node = root[child_name]
             shared_not_owned = False
-            if isinstance(share_id, dict):
-                owner = share_id.get("zoneID", {}).get("ownerRecordName", "")
-                if owner:
-                    if user_record:
-                        # We know who we are → only flag foreign owners
-                        shared_not_owned = owner != user_record
-                    else:
-                        # Cannot determine our own record → flag all shared
-                        # folders as potentially foreign (safe default)
-                        shared_not_owned = True
-                    log.info(
-                        "Ordner '%s': shareID.ownerRecordName=%s, "
-                        "user_record=%s → %s",
-                        child,
-                        owner,
-                        user_record or "(unbekannt)",
-                        "Fremdfreigabe" if shared_not_owned else "eigene Freigabe",
-                    )
+
+            info = share_info.get(child_name)
+            if info and info["owner"]:
+                owner = info["owner"]
+                if user_record:
+                    shared_not_owned = owner != user_record
+                else:
+                    # Only one unique owner across all shares → can't tell
+                    shared_not_owned = True
+                log.info(
+                    "Ordner '%s': ownerRecordName=%s, user_record=%s → %s",
+                    child_name,
+                    owner,
+                    user_record or "(unbekannt)",
+                    "Fremdfreigabe" if shared_not_owned else "eigene Freigabe",
+                )
+
             folders.append(
                 {
-                    "name": child,
+                    "name": child_name,
                     "type": "folder" if node.type == "folder" else "file",
                     "size": getattr(node, "size", None),
                     "shared_not_owned": shared_not_owned,

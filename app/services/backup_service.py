@@ -665,7 +665,7 @@ def sync_drive_folder(
     if isinstance(share_id, dict):
         owner = share_id.get("zoneID", {}).get("ownerRecordName", "")
         if owner:
-            user_record = icloud_service._get_user_record_name(api)
+            user_record = icloud_service.get_user_record(apple_id)
             if not user_record or owner != user_record:
                 log.warning(
                     "Überspringe '%s': Ordner gehört einem anderen Benutzer "
