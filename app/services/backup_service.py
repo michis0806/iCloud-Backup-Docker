@@ -276,23 +276,41 @@ def _retrieve_item_details(connection, drivewsid: str):
     return None
 
 
-def _open_drive_node(node, rel_path: str, **kwargs):
-    """Open a drive node file with fallback for paths containing special characters.
+def _is_not_found(exc: Exception) -> bool:
+    """Return True if *exc* represents an HTTP 404 / Not Found response."""
+    # pyicloud raises PyiCloudAPIResponseException with a .code attribute
+    code = getattr(exc, "code", None)
+    if code == 404:
+        return True
+    # Also match by message for robustness
+    msg = str(exc).lower()
+    return "not found" in msg or "404" in msg
 
-    The iCloud document service may return 404 for files whose path contains
-    URL-special characters (#, %, ?, &, +) or non-ASCII characters (®, ü, …).
-    When that happens we:
+
+def _open_drive_node(node, rel_path: str, **kwargs):
+    """Open a drive node file with fallback on 404 errors.
+
+    The iCloud document service may return 404 for files in folders whose
+    name contains special characters (e.g. ``#scanner``) or for files
+    with non-ASCII names (e.g. ``Allianz®.pdf``).  The 404 can occur
+    even when *rel_path* itself looks harmless — the parent folder's name
+    is not part of ``rel_path`` when the folder is synced as a top-level
+    target.
+
+    On any 404 we attempt three fallbacks:
 
     1. Re-fetch the node metadata via ``retrieveItemDetailsInFolders``
-       (POST with JSON body — avoids URL-encoding issues) and retry with
-       the fresh ``docwsid``.
-    2. Fall back to passing the ``drivewsid`` as ``document_id``.
+       (POST with JSON body — immune to URL-encoding issues) and retry
+       with the fresh ``docwsid``.
+    2. Pass the ``drivewsid`` as ``document_id``.
     3. Extract the raw UUID from ``drivewsid`` and try that.
     """
     try:
         return node.open(**kwargs)
     except Exception as first_exc:
-        if not _has_url_special_chars(rel_path):
+        # Only attempt fallbacks for "Not Found" errors; other failures
+        # (auth, network, …) should propagate immediately.
+        if not _is_not_found(first_exc):
             raise
 
         docwsid = node.data.get("docwsid", "?")
