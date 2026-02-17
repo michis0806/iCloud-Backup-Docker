@@ -53,7 +53,7 @@ Open **http://localhost:8080** and log in.
 | `AUTH_PASSWORD` | *(random)* | Web UI password. Random if not set (check logs). |
 | `SECRET_KEY` | `change-me-in-production` | Secret for cookie signing. |
 | `LOG_LEVEL` | `INFO` | Log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`). |
-| `SYNOLOGY_NOTIFY` | `false` | Enable Synology DSM notifications (`true`/`false`). |
+| `DSM_NOTIFY` | `false` | Enable Synology DSM notifications (`true`/`false`). |
 | `ARCHIVE_PATH` | `./archive` | Host path for archived files (sync policy "archive"). |
 | `TZ` | `Europe/Berlin` | Container timezone. |
 

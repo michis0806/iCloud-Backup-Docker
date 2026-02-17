@@ -56,13 +56,28 @@ The `icloud_service.py` handles both flows transparently.
 
 ### Photo Download
 
-`photo.download()` returns **`bytes`** (not a Response/stream). Write directly with `fh.write(data)`. Do **not** use `copyfileobj(download.raw, fh)` – that only works for Drive downloads (`node.open(stream=True)` returns a Response).
+`_download_photo()` bypasses `photo.download()` (which loads everything into RAM) and instead **streams** the file directly to disk:
+
+1. Fetch the download URL from `photo.versions["original"]["url"]`
+2. Use `photo._service.session.get(url, stream=True)` for an authenticated streaming GET
+3. Write to disk via `response.iter_content(chunk_size=256 * 1024)`
+
+Drive downloads use `node.open(stream=True)` which returns a `Response` and is read via `copyfileobj(response.raw, fh)`.
 
 ### Backup Service
 
-- **Drive backup:** Recursively walks iCloud Drive folders, downloads files via `node.open(stream=True)`, uses etag caching to skip unchanged folders.
-- **Photos backup:** Iterates `api.photos.all`, organizes by date into `YYYY/MM/DD/` directories, skips already-downloaded files by size comparison.
+- **Drive backup:** Recursively walks iCloud Drive folders, downloads files via `_open_drive_node()` (wraps `node.open(stream=True)` with fallback logic for special characters), uses etag caching to skip unchanged folders.
+- **Photos backup:** Iterates `api.photos.all`, organizes by date into `YYYY/MM/DD/` directories. Change detection uses a **multi-level approach**: (1) fingerprint cache (`resOriginalFingerprint` / `recordChangeTag`) as primary check, (2) file size comparison as fallback. The fingerprint cache is persisted per library in `/config/.icloud-photo-cache-*.json`.
 - Both support exclusion patterns (glob and path-based).
+
+### Special Characters in Folder/File Names
+
+Files in folders whose name contains URL-special characters (`#`, `%`, `?`, `&`, `+`) may fail to download because the iCloud document service returns 404 for their `docwsid`. The `_open_drive_node()` wrapper in `backup_service.py` handles this with two fallback strategies:
+
+1. Re-fetch node metadata via `get_node_data(drivewsid)` to obtain a fresh `docwsid`
+2. Try using the `drivewsid` as `document_id` for the download
+
+If all fallbacks fail, a warning is logged advising the user to rename the folder.
 
 ### Backup Status & Timing
 
@@ -121,14 +136,18 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8080
 |----------|---------|-------------|
 | `AUTH_PASSWORD` | *(random)* | Web UI password |
 | `SECRET_KEY` | `change-me-in-production` | Session cookie signing |
-| `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
-| `SYNOLOGY_NOTIFY` | `false` | Enable Synology DSM notifications |
+| `BACKUP_PATH` | `./backups` | Host path for backup files |
+| `CONFIG_PATH` | `./config` | Host path for configuration & sessions |
 | `ARCHIVE_PATH` | `./archive` | Host path for archived files (sync policy = "archive") |
+| `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
+| `DSM_NOTIFY` | `false` | Enable Synology DSM notifications (`synodsmnotify`) |
 | `TZ` | `Europe/Berlin` | Container timezone |
 
 ## Common Pitfalls
 
-- **pyicloud `photo.download()`** returns `bytes`, not a streaming Response.
+- **pyicloud `photo.download()`** loads the entire file into RAM. Use `_download_photo()` instead, which streams via `session.get(url, stream=True)` + `iter_content()`.
 - **2FA vs 2SA:** Modern accounts use HSA2 (2FA). The old `trusted_devices` / `listDevices` API returns nothing for HSA2 accounts – use `_auth_data["trustedPhoneNumbers"]` instead.
 - **Exclusion paths:** Must work for both top-level and subfolder paths (e.g. `Documents/subfolder`).
 - **Log level changes:** `LOG_LEVEL` env var is applied at startup via `config.py`. The log handler uses a ring buffer (`log_handler.py`) that captures all levels.
+- **Special characters in folder names:** `#`, `%`, `?`, `&`, `+` in iCloud Drive folder or file names can cause 404 errors during download. `_open_drive_node()` provides fallback strategies, but renaming the folder is the safest fix.
+- **Env var naming:** The Synology notification variable is `DSM_NOTIFY`, not `SYNOLOGY_NOTIFY`.
