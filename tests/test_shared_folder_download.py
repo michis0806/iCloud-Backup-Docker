@@ -2,7 +2,7 @@
 
 from types import SimpleNamespace
 
-from app.services.backup_service import _download_with_share_context
+from app.services.backup_service import _candidate_document_ids, _download_with_share_context
 
 
 class _DummyResponse:
@@ -65,3 +65,33 @@ def test_download_with_share_context_flattens_nested_share_id():
     # Compatibility aliases for services that expect flattened names
     assert first_params["zoneName"] == "com.apple.CloudDocs"
     assert first_params["ownerRecordName"] == "_owner"
+
+
+def test_candidate_document_ids_includes_shared_variants():
+    node_data = {
+        "docwsid": "DOC-UUID",
+        "item_id": "ITEM-UUID",
+        "drivewsid": "FILE_IN_SHARED_FOLDER::com.apple.CloudDocs::DOC-UUID",
+        "unifiedToken": "UTOKEN-1",
+    }
+    fresh_data = {"item_id": "ITEM-UUID-2"}
+
+    candidates = _candidate_document_ids(node_data, fresh_data)
+
+    assert candidates[0] == "DOC-UUID"
+    assert "ITEM-UUID" in candidates
+    assert "FILE_IN_SHARED_FOLDER::com.apple.CloudDocs::DOC-UUID" in candidates
+    assert "UTOKEN-1" in candidates
+    assert "ITEM-UUID-2" in candidates
+
+
+def test_candidate_document_ids_deduplicates_values():
+    data = {
+        "docwsid": "SAME-ID",
+        "item_id": "SAME-ID",
+        "drivewsid": "FILE_IN_SHARED_FOLDER::com.apple.CloudDocs::SAME-ID",
+    }
+
+    candidates = _candidate_document_ids(data)
+
+    assert candidates.count("SAME-ID") == 1

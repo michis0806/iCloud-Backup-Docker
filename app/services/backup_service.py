@@ -291,6 +291,30 @@ def _is_not_found(exc: Exception) -> bool:
     return "not found" in msg or "404" in msg
 
 
+def _candidate_document_ids(*items: dict | None) -> list[str]:
+    """Collect plausible document IDs from node metadata.
+
+    For shared-folder files, Apple sometimes accepts IDs other than ``docwsid``
+    (e.g. ``item_id``). This helper deduplicates candidates while preserving
+    order.
+    """
+    candidates: list[str] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        for key in ("docwsid", "item_id", "drivewsid", "unifiedToken"):
+            value = item.get(key)
+            if not isinstance(value, str) or not value:
+                continue
+            if value not in candidates:
+                candidates.append(value)
+            if "::" in value:
+                raw_value = value.rsplit("::", 1)[-1]
+                if raw_value and raw_value not in candidates:
+                    candidates.append(raw_value)
+    return candidates
+
+
 def _download_with_share_context(connection, docwsid, zone, share_id, **kwargs):
     """Download a file from a shared folder by including shareID context.
 
@@ -391,46 +415,57 @@ def _open_drive_node(node, rel_path: str, **kwargs):
                 sorted(node.data.keys()),
             )
 
-        # Fallback 1: re-fetch node metadata to obtain a fresh docwsid.
+        # Fallback 1: re-fetch node metadata to obtain fresh IDs.
         # We call the API directly instead of get_node_data() because the
         # latter wraps every ID in "FOLDER::com.apple.CloudDocs::" which
         # produces an invalid key for FILE nodes.
         # For shared-folder files we include the shareID in the POST body.
+        fresh_data = None
         if drivewsid:
             try:
                 fresh_data = _retrieve_item_details(
                     node.connection, drivewsid, share_id=share_id,
                 )
-                if fresh_data:
-                    fresh_docwsid = fresh_data.get("docwsid", "")
-                    fresh_zone = fresh_data.get("zone", zone)
-                    if fresh_docwsid:
-                        log.debug(
-                            "Neuer docwsid für '%s': %s (vorher %s), zone=%s",
-                            rel_path, fresh_docwsid, docwsid, fresh_zone,
-                        )
-                        return node.connection.get_file(
-                            fresh_docwsid, zone=fresh_zone, **kwargs,
-                        )
             except Exception:
-                log.debug("Fallback 1 (fresh docwsid) fehlgeschlagen für %s", rel_path)
+                log.debug("Fallback 1 (retrieve item details) fehlgeschlagen für %s", rel_path)
+
+        candidates = _candidate_document_ids(node.data, fresh_data)
+        if fresh_data:
+            zone = fresh_data.get("zone", zone)
+            log.debug(
+                "Fallback-Kandidaten für '%s' (zone=%s): %s",
+                rel_path,
+                zone,
+                candidates,
+            )
+
+            # Try normal get_file() for fresh docwsid first (fast path).
+            fresh_docwsid = fresh_data.get("docwsid", "")
+            if fresh_docwsid:
+                try:
+                    return node.connection.get_file(fresh_docwsid, zone=zone, **kwargs)
+                except Exception:
+                    log.debug("Fallback 1 (fresh docwsid) fehlgeschlagen für %s", rel_path)
 
         # Fallback 2: for shared-folder files, retry download with shareID
-        # context included in the query parameters.
+        # context included in the query parameters. Try multiple candidate IDs.
         if is_shared and share_id:
-            try:
-                log.debug(
-                    "Versuche Shared-Folder-Download mit shareID für '%s'",
-                    rel_path,
-                )
-                return _download_with_share_context(
-                    node.connection, docwsid, zone, share_id, **kwargs,
-                )
-            except Exception:
-                log.debug(
-                    "Fallback 2 (shared download) fehlgeschlagen für %s",
-                    rel_path,
-                )
+            for candidate_id in candidates or [docwsid]:
+                try:
+                    log.debug(
+                        "Versuche Shared-Folder-Download mit shareID für '%s' (document_id=%s)",
+                        rel_path,
+                        candidate_id,
+                    )
+                    return _download_with_share_context(
+                        node.connection, candidate_id, zone, share_id, **kwargs,
+                    )
+                except Exception:
+                    log.debug(
+                        "Fallback 2 (shared download) fehlgeschlagen für %s (document_id=%s)",
+                        rel_path,
+                        candidate_id,
+                    )
 
         # Fallback 3: try using drivewsid as document_id
         if drivewsid and drivewsid != docwsid:
