@@ -4,7 +4,6 @@ import gc
 import json
 import logging
 import os
-import re
 import shutil
 import threading
 from datetime import datetime
@@ -391,148 +390,6 @@ def _download_with_share_context(connection, docwsid, zone, share_id, **kwargs):
     raise KeyError("No data_token or package_token in response")
 
 
-# ---------------------------------------------------------------------------
-# CloudKit-based download for "shared with you" folders
-# ---------------------------------------------------------------------------
-
-def _derive_ckdatabase_url(service_root: str) -> str | None:
-    """Derive the ckdatabasews base URL from a drivews/docws service root.
-
-    The iCloud web-service URLs follow the pattern
-    ``https://p{N}-{service}.icloud.com:443``.  We replace the service name
-    with ``ckdatabasews`` to obtain the CloudKit Database Web Service URL.
-    """
-    m = re.match(r"(https://p\d+-)\w+(\.\w+\.com(?::\d+)?)", service_root)
-    if m:
-        return f"{m.group(1)}ckdatabasews{m.group(2)}"
-    return None
-
-
-def _download_via_cloudkit(connection, docwsid: str, share_id: dict, **kwargs):
-    """Download a file from a *shared-with-you* folder via the CloudKit API.
-
-    The standard ``docws`` download endpoint only works for files in the
-    user's own iCloud Drive.  Files that belong to another user (shared
-    folder whose owner is someone else) must be downloaded through the
-    **CloudKit Database Web Service** (``ckdatabasews``).
-
-    Steps:
-      1. Derive the ``ckdatabasews`` URL from the Drive service root.
-      2. POST a ``records/lookup`` request to the **shared** database
-         using the file's record name and the owner's zone ID.
-      3. Extract the asset download URL from the response.
-      4. Stream the file content.
-    """
-    from pyicloud.exceptions import PyiCloudAPIResponseException
-
-    # DriveService stores the drivews URL as .service_root (public attribute)
-    ck_base = _derive_ckdatabase_url(connection.service_root)
-    if not ck_base:
-        raise RuntimeError("Could not derive ckdatabasews URL")
-
-    zone_id = share_id.get("zoneID", {})
-    if not zone_id.get("ownerRecordName"):
-        raise ValueError("shareID has no ownerRecordName")
-
-    # Build the endpoint URL for the shared CloudKit database.
-    # Container for iCloud Drive is "com.apple.clouddocs".
-    ck_endpoint = (
-        f"{ck_base}/database/1/com.apple.clouddocs/production/private"
-    )
-    lookup_url = f"{ck_endpoint}/records/lookup"
-
-    # Try the docwsid (UUID) as the record name.
-    lookup_body = {
-        "records": [{"recordName": docwsid}],
-        "zoneID": zone_id,
-    }
-
-    log.debug(
-        "CloudKit records/lookup: url=%s, body=%s",
-        lookup_url,
-        json.dumps(lookup_body),
-    )
-
-    response = connection.session.post(
-        lookup_url,
-        params=connection.params,
-        json=lookup_body,
-    )
-
-    if not response.ok:
-        log.debug(
-            "CloudKit lookup fehlgeschlagen (private): %s %s",
-            response.status_code,
-            response.text[:300] if hasattr(response, 'text') else response.reason,
-        )
-        # Try the shared database as well
-        ck_endpoint_shared = (
-            f"{ck_base}/database/1/com.apple.clouddocs/production/shared"
-        )
-        lookup_url_shared = f"{ck_endpoint_shared}/records/lookup"
-        log.debug("Versuche CloudKit shared database: %s", lookup_url_shared)
-        response = connection.session.post(
-            lookup_url_shared,
-            params=connection.params,
-            json=lookup_body,
-        )
-        if not response.ok:
-            log.debug(
-                "CloudKit lookup fehlgeschlagen (shared): %s %s",
-                response.status_code,
-                response.text[:300] if hasattr(response, 'text') else response.reason,
-            )
-            raise PyiCloudAPIResponseException(response.reason, response.status_code)
-
-    result = response.json()
-    records = result.get("records", [])
-    if not records:
-        raise KeyError("CloudKit lookup returned no records")
-
-    record = records[0]
-
-    # Check for server errors in the record itself
-    if "serverErrorCode" in record:
-        log.debug(
-            "CloudKit record error: %s - %s",
-            record.get("serverErrorCode"),
-            record.get("reason", ""),
-        )
-        raise PyiCloudAPIResponseException(
-            record.get("reason", record["serverErrorCode"]),
-            404 if record["serverErrorCode"] == "NOT_FOUND" else 500,
-        )
-
-    # Extract download URL from the record's fields.
-    # iCloud Drive file records store the binary content as a CKAsset.
-    # Typical field names include "fileContent" or a reference field.
-    fields = record.get("fields", {})
-    log.debug(
-        "CloudKit record fields: %s",
-        list(fields.keys()),
-    )
-
-    # Look for asset fields that contain a download URL
-    download_url = None
-    for field_name, field_data in fields.items():
-        if isinstance(field_data, dict):
-            value = field_data.get("value", {})
-            if isinstance(value, dict) and value.get("downloadURL"):
-                download_url = value["downloadURL"]
-                log.debug(
-                    "CloudKit download URL gefunden in Feld '%s': %s",
-                    field_name,
-                    download_url[:80] + "..." if len(download_url) > 80 else download_url,
-                )
-                break
-
-    if not download_url:
-        log.debug("CloudKit record hat keine downloadURL. Vollständiger Record: %s",
-                  json.dumps(record, default=str)[:500])
-        raise KeyError("No downloadURL found in CloudKit record fields")
-
-    return connection.session.get(download_url, params=connection.params, **kwargs)
-
 
 def _open_drive_node(node, rel_path: str, **kwargs):
     """Open a drive node file with fallback on 404 errors.
@@ -544,7 +401,7 @@ def _open_drive_node(node, rel_path: str, **kwargs):
     in ``drivewsid``) because the standard download call is missing the
     ``shareID`` context that Apple's API needs to locate the document.
 
-    On any 404 we attempt five fallbacks:
+    On any 404 we attempt four fallbacks:
 
     0. For shared-folder files: retry with the owner-qualified zone.
     1. Re-fetch the node metadata via ``retrieveItemDetailsInFolders``
@@ -555,9 +412,6 @@ def _open_drive_node(node, rel_path: str, **kwargs):
        fields included as query parameters.
     3. Pass the ``drivewsid`` as ``document_id``.
     4. Extract the raw UUID from ``drivewsid`` and try that.
-    5. For shared-with-you folders: download via the CloudKit Database
-       Web Service (``ckdatabasews``) which can access files in another
-       user's shared zone.
     """
     try:
         return node.open(**kwargs)
@@ -681,29 +535,6 @@ def _open_drive_node(node, rel_path: str, **kwargs):
                     return node.connection.get_file(raw_id, zone=download_zone, **kwargs)
                 except Exception:
                     log.debug("Fallback 4 (raw ID) fehlgeschlagen für %s", rel_path)
-
-        # Fallback 5 (CloudKit): for shared-with-you folders the docws
-        # download API cannot resolve the file at all because it lives in
-        # another user's zone.  Use the CloudKit Database Web Service
-        # (ckdatabasews) to look up the record and obtain a download URL.
-        if is_shared and share_id:
-            for candidate_id in candidates or [docwsid]:
-                try:
-                    log.debug(
-                        "Versuche CloudKit-Download für '%s' (record=%s)",
-                        rel_path,
-                        candidate_id,
-                    )
-                    return _download_via_cloudkit(
-                        node.connection, candidate_id, share_id, **kwargs,
-                    )
-                except Exception as ck_exc:
-                    log.debug(
-                        "Fallback 5 (CloudKit) fehlgeschlagen für %s (record=%s): %s",
-                        rel_path,
-                        candidate_id,
-                        ck_exc,
-                    )
 
         raise first_exc
 
@@ -829,6 +660,19 @@ def sync_drive_folder(
         log.error("Ordner '%s' nicht gefunden: %s", folder_name, exc)
         return {**stats, "errors": 1}
 
+    # Skip folders shared *with* this user by another Apple-ID.
+    share_id = folder_node.data.get("shareID")
+    if isinstance(share_id, dict):
+        owner = share_id.get("zoneID", {}).get("ownerRecordName", "")
+        if owner:
+            log.warning(
+                "Überspringe '%s': Ordner gehört einem anderen Benutzer "
+                "(Fremdfreigabe) und kann nicht über die iCloud-API "
+                "heruntergeladen werden.",
+                folder_name,
+            )
+            return stats
+
     dest = destination_path / folder_name
     dest.mkdir(parents=True, exist_ok=True)
 
@@ -934,11 +778,20 @@ def sync_drive_folder(
 
 
 def _resolve_drive_folders(apple_id: str, folders: list[str]) -> list[str]:
-    """Resolve the ``__ALL__`` marker to every top-level Drive folder."""
+    """Resolve the ``__ALL__`` marker to every top-level Drive folder.
+
+    Folders shared *with* this user by another Apple-ID
+    (``shared_not_owned``) are excluded because Apple's download API
+    cannot access files in another user's zone.
+    """
     if "__ALL__" not in folders:
         return folders
     all_folders = icloud_service.get_drive_folders(apple_id)
-    return [f["name"] for f in all_folders if f["type"] == "folder"]
+    return [
+        f["name"]
+        for f in all_folders
+        if f["type"] == "folder" and not f.get("shared_not_owned")
+    ]
 
 
 def _is_folder_fully_excluded(folder_name: str, excludes: list[str] | None) -> bool:

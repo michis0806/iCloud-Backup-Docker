@@ -101,17 +101,23 @@
                                     </div>
                                 </div>
                                 <template x-for="folder in driveFolders" :key="folder.name">
-                                    <div class="form-check mb-2" :class="{ 'opacity-50': selectAllDrive }">
+                                    <div class="form-check mb-2"
+                                         :class="{ 'opacity-50': selectAllDrive || folder.shared_not_owned }">
                                         <input class="form-check-input" type="checkbox"
                                                :id="'folder-' + folder.name"
                                                :value="folder.name"
-                                               :checked="selectAllDrive || selectedFolders.includes(folder.name)"
-                                               :disabled="selectAllDrive"
+                                               :checked="!folder.shared_not_owned && (selectAllDrive || selectedFolders.includes(folder.name))"
+                                               :disabled="selectAllDrive || folder.shared_not_owned"
                                                @change="toggleFolder(folder.name)">
                                         <label class="form-check-label" :for="'folder-' + folder.name">
                                             <i class="bi me-1"
-                                               :class="folder.type === 'folder' ? 'bi-folder-fill text-warning' : 'bi-file-earmark'"></i>
+                                               :class="folder.shared_not_owned ? 'bi-folder-symlink text-muted' : (folder.type === 'folder' ? 'bi-folder-fill text-warning' : 'bi-file-earmark')"></i>
                                             <span x-text="folder.name"></span>
+                                            <span x-show="folder.shared_not_owned"
+                                                  class="badge bg-secondary ms-1"
+                                                  title="Dieser Ordner gehört einem anderen Benutzer und kann nicht über die iCloud-API heruntergeladen werden.">
+                                                Fremdfreigabe
+                                            </span>
                                         </label>
                                     </div>
                                 </template>

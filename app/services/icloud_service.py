@@ -256,7 +256,15 @@ def get_session(apple_id: str) -> PyiCloudService | None:
 
 
 def get_drive_folders(apple_id: str) -> list[dict]:
-    """List top-level iCloud Drive folders for simple mode selection."""
+    """List top-level iCloud Drive folders for simple mode selection.
+
+    Each dict contains:
+      - name: folder/file name
+      - type: "folder" or "file"
+      - size: file size or None
+      - shared_not_owned: True if folder is shared *with* this user by
+        someone else (cannot be downloaded via the standard API)
+    """
     api = get_session(apple_id)
     if api is None:
         return []
@@ -266,11 +274,20 @@ def get_drive_folders(apple_id: str) -> list[dict]:
         root = api.drive
         for child in root.dir():
             node = root[child]
+            # Detect shared-with-you folders: they have a shareID whose
+            # ownerRecordName starts with '_' (another user's record).
+            share_id = node.data.get("shareID")
+            shared_not_owned = False
+            if isinstance(share_id, dict):
+                owner = share_id.get("zoneID", {}).get("ownerRecordName", "")
+                if owner:
+                    shared_not_owned = True
             folders.append(
                 {
                     "name": child,
                     "type": "folder" if node.type == "folder" else "file",
                     "size": getattr(node, "size", None),
+                    "shared_not_owned": shared_not_owned,
                 }
             )
     except Exception as exc:
