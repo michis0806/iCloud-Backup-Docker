@@ -665,13 +665,15 @@ def sync_drive_folder(
     if isinstance(share_id, dict):
         owner = share_id.get("zoneID", {}).get("ownerRecordName", "")
         if owner:
-            log.warning(
-                "Überspringe '%s': Ordner gehört einem anderen Benutzer "
-                "(Fremdfreigabe) und kann nicht über die iCloud-API "
-                "heruntergeladen werden.",
-                folder_name,
-            )
-            return stats
+            user_record = icloud_service._get_user_record_name(api)
+            if not user_record or owner != user_record:
+                log.warning(
+                    "Überspringe '%s': Ordner gehört einem anderen Benutzer "
+                    "(Fremdfreigabe) und kann nicht über die iCloud-API "
+                    "heruntergeladen werden.",
+                    folder_name,
+                )
+                return stats
 
     dest = destination_path / folder_name
     dest.mkdir(parents=True, exist_ok=True)

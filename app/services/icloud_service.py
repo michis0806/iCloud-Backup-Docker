@@ -255,6 +255,37 @@ def get_session(apple_id: str) -> PyiCloudService | None:
     return None
 
 
+def _get_user_record_name(api) -> str | None:
+    """Derive the current user's CloudKit ``ownerRecordName``.
+
+    Apple's auth response stores the user's anonymous DSID (``aDsID``)
+    as a UUID with dashes.  CloudKit represents the same identifier as
+    ``_<hex-without-dashes>``.
+    """
+    ds_info = getattr(api, "data", {}).get("dsInfo", {})
+    if not isinstance(ds_info, dict):
+        return None
+
+    # Try known field names for the anonymous DSID
+    for field in ("aDsID", "altDSID"):
+        value = ds_info.get(field)
+        if value and isinstance(value, str):
+            clean = value.replace("-", "")
+            record_name = f"_{clean}"
+            log.debug(
+                "User CloudKit ownerRecordName abgeleitet aus dsInfo.%s: %s",
+                field,
+                record_name,
+            )
+            return record_name
+
+    log.debug(
+        "Konnte ownerRecordName nicht ableiten. dsInfo-Schlüssel: %s",
+        list(ds_info.keys()),
+    )
+    return None
+
+
 def get_drive_folders(apple_id: str) -> list[dict]:
     """List top-level iCloud Drive folders for simple mode selection.
 
@@ -269,19 +300,29 @@ def get_drive_folders(apple_id: str) -> list[dict]:
     if api is None:
         return []
 
+    # Determine the current user's CloudKit record name so we can
+    # distinguish "shared by me" from "shared with me".
+    user_record = _get_user_record_name(api)
+
     folders = []
     try:
         root = api.drive
         for child in root.dir():
             node = root[child]
             # Detect shared-with-you folders: they have a shareID whose
-            # ownerRecordName starts with '_' (another user's record).
+            # ownerRecordName differs from the current user.
             share_id = node.data.get("shareID")
             shared_not_owned = False
             if isinstance(share_id, dict):
                 owner = share_id.get("zoneID", {}).get("ownerRecordName", "")
                 if owner:
-                    shared_not_owned = True
+                    if user_record:
+                        # We know who we are → only flag foreign owners
+                        shared_not_owned = owner != user_record
+                    else:
+                        # Cannot determine our own record → flag all shared
+                        # folders as potentially foreign (safe default)
+                        shared_not_owned = True
             folders.append(
                 {
                     "name": child,
