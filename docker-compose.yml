@@ -15,6 +15,7 @@ services:
       - ${ARCHIVE_PATH:-./archive}:/archive
       # Synology DSM notifications (uncomment on Synology NAS)
       # - /usr/syno/bin/synodsmnotify:/usr/local/bin/synodsmnotify:ro
+      # - /usr/lib:/usr/syno/lib:ro
     environment:
       - TZ=${TZ:-Europe/Berlin}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}

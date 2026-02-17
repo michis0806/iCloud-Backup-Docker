@@ -1,6 +1,7 @@
 """DSM notification service using synodsmnotify."""
 
 import logging
+import os
 import shutil
 import subprocess
 
@@ -9,6 +10,7 @@ from app.config import settings
 log = logging.getLogger("icloud-backup")
 
 _SYNODSMNOTIFY = "/usr/local/bin/synodsmnotify"
+_SYNO_LIB_DIR = "/usr/syno/lib"
 
 
 def _binary_available() -> bool:
@@ -27,12 +29,16 @@ def send_dsm_notification(title: str, message: str) -> None:
     if not _binary_available():
         log.warning(
             "DSM_NOTIFY ist aktiviert, aber %s wurde nicht gefunden. "
-            "Bitte das Volume /usr/syno/bin/synodsmnotify:%s:ro in "
-            "docker-compose.yml einbinden.",
+            "Bitte die Volumes /usr/syno/bin/synodsmnotify:%s:ro und "
+            "/usr/lib:%s:ro in docker-compose.yml einbinden.",
             _SYNODSMNOTIFY,
             _SYNODSMNOTIFY,
+            _SYNO_LIB_DIR,
         )
         return
+
+    env = os.environ.copy()
+    env["LD_LIBRARY_PATH"] = _SYNO_LIB_DIR + ":" + env.get("LD_LIBRARY_PATH", "")
 
     try:
         subprocess.run(
@@ -40,10 +46,20 @@ def send_dsm_notification(title: str, message: str) -> None:
             timeout=10,
             check=True,
             capture_output=True,
+            env=env,
         )
         log.info("DSM-Benachrichtigung gesendet: %s", title)
     except subprocess.CalledProcessError as exc:
-        log.warning("synodsmnotify fehlgeschlagen (rc=%d): %s", exc.returncode, exc.stderr.decode(errors="replace"))
+        stderr = exc.stderr.decode(errors="replace")
+        if exc.returncode == 127 and "shared librar" in stderr:
+            log.warning(
+                "synodsmnotify fehlgeschlagen (rc=127): Shared Libraries fehlen. "
+                "Bitte /usr/lib:%s:ro als Volume einbinden. Detail: %s",
+                _SYNO_LIB_DIR,
+                stderr,
+            )
+        else:
+            log.warning("synodsmnotify fehlgeschlagen (rc=%d): %s", exc.returncode, stderr)
     except FileNotFoundError:
         log.warning("synodsmnotify nicht gefunden")
     except Exception as exc:
