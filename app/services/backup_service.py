@@ -252,20 +252,24 @@ def _has_url_special_chars(path: str) -> bool:
     return False
 
 
-def _retrieve_item_details(connection, drivewsid: str):
+def _retrieve_item_details(connection, drivewsid: str, share_id=None):
     """Fetch fresh item details via retrieveItemDetailsInFolders.
 
     Unlike ``connection.get_node_data()``, this passes *drivewsid* directly
     without wrapping it in ``FOLDER::com.apple.CloudDocs::``, so it works
     correctly for FILE nodes as well.
+
+    When *share_id* is provided (a dict from the node's ``shareID`` field),
+    it is included in the payload — required for files inside shared folders.
     """
     try:
+        payload = {"drivewsid": drivewsid, "partialData": False}
+        if share_id:
+            payload["shareID"] = share_id
         response = connection.session.post(
             connection._service_root + "/retrieveItemDetailsInFolders",
             params=connection.params,
-            data=json.dumps(
-                [{"drivewsid": drivewsid, "partialData": False}]
-            ),
+            data=json.dumps([payload]),
         )
         if response.ok:
             items = response.json()
@@ -287,23 +291,65 @@ def _is_not_found(exc: Exception) -> bool:
     return "not found" in msg or "404" in msg
 
 
+def _download_with_share_context(connection, docwsid, zone, share_id, **kwargs):
+    """Download a file from a shared folder by including shareID context.
+
+    Apple's ``/download/by_id`` endpoint may require shareID information
+    for files that live inside shared folders.  We build the same request
+    that ``DriveService.get_file()`` would, but additionally flatten the
+    *share_id* dict into the query parameters.
+    """
+    from pyicloud.exceptions import PyiCloudAPIResponseException
+
+    file_params = dict(connection.params)
+    file_params["document_id"] = docwsid
+
+    # share_id is typically a dict with keys like "shareRecordName",
+    # "shareZoneName", etc.  Flatten scalar values into query params.
+    if isinstance(share_id, dict):
+        for key, value in share_id.items():
+            if isinstance(value, (str, int)):
+                file_params[key] = value
+    elif isinstance(share_id, str):
+        file_params["shareID"] = share_id
+
+    response = connection.session.get(
+        connection._document_root + f"/ws/{zone}/download/by_id",
+        params=file_params,
+    )
+    if not response.ok:
+        raise PyiCloudAPIResponseException(response.reason, response.status_code)
+
+    response_json = response.json()
+    data_token = response_json.get("data_token")
+    package_token = response_json.get("package_token")
+    if data_token and data_token.get("url"):
+        return connection.session.get(data_token["url"], params=connection.params, **kwargs)
+    if package_token and package_token.get("url"):
+        return connection.session.get(package_token["url"], params=connection.params, **kwargs)
+    raise KeyError("No data_token or package_token in response")
+
+
 def _open_drive_node(node, rel_path: str, **kwargs):
     """Open a drive node file with fallback on 404 errors.
 
     The iCloud document service may return 404 for files in folders whose
     name contains special characters (e.g. ``#scanner``) or for files
-    with non-ASCII names (e.g. ``Allianz®.pdf``).  The 404 can occur
-    even when *rel_path* itself looks harmless — the parent folder's name
-    is not part of ``rel_path`` when the folder is synced as a top-level
-    target.
+    with non-ASCII names (e.g. ``Allianz®.pdf``).  The 404 can also occur
+    for files inside **shared folders** (``FILE_IN_SHARED_FOLDER`` prefix
+    in ``drivewsid``) because the standard download call is missing the
+    ``shareID`` context that Apple's API needs to locate the document.
 
-    On any 404 we attempt three fallbacks:
+    On any 404 we attempt four fallbacks:
 
     1. Re-fetch the node metadata via ``retrieveItemDetailsInFolders``
-       (POST with JSON body — immune to URL-encoding issues) and retry
-       with the fresh ``docwsid``.
-    2. Pass the ``drivewsid`` as ``document_id``.
-    3. Extract the raw UUID from ``drivewsid`` and try that.
+       (POST with JSON body — immune to URL-encoding issues, includes
+       ``shareID`` for shared folders) and retry with the fresh
+       ``docwsid`` and ``zone``.
+    2. For shared-folder files: retry the download with the ``shareID``
+       fields included as query parameters.
+    3. Pass the ``drivewsid`` as ``document_id``.
+    4. Extract the raw UUID from ``drivewsid`` and try that.
     """
     try:
         return node.open(**kwargs)
@@ -316,51 +362,83 @@ def _open_drive_node(node, rel_path: str, **kwargs):
         docwsid = node.data.get("docwsid", "?")
         drivewsid = node.data.get("drivewsid", "")
         zone = node.data.get("zone", "com.apple.CloudDocs")
+        share_id = node.data.get("shareID")
+        is_shared = drivewsid.startswith("FILE_IN_SHARED_FOLDER")
 
         log.debug(
             "Download via node.open() fehlgeschlagen für '%s' "
-            "(docwsid=%s, drivewsid=%s, zone=%s): %s",
-            rel_path, docwsid, drivewsid, zone, first_exc,
+            "(docwsid=%s, drivewsid=%s, zone=%s, shareID=%s): %s",
+            rel_path, docwsid, drivewsid, zone,
+            json.dumps(share_id) if share_id else "None",
+            first_exc,
         )
+
+        # Dump full node data keys for shared-folder files (diagnostic)
+        if is_shared:
+            log.debug(
+                "Shared-Folder-Datei erkannt. Node-data keys: %s",
+                sorted(node.data.keys()),
+            )
 
         # Fallback 1: re-fetch node metadata to obtain a fresh docwsid.
         # We call the API directly instead of get_node_data() because the
         # latter wraps every ID in "FOLDER::com.apple.CloudDocs::" which
         # produces an invalid key for FILE nodes.
+        # For shared-folder files we include the shareID in the POST body.
         if drivewsid:
             try:
-                fresh_data = _retrieve_item_details(node.connection, drivewsid)
+                fresh_data = _retrieve_item_details(
+                    node.connection, drivewsid, share_id=share_id,
+                )
                 if fresh_data:
                     fresh_docwsid = fresh_data.get("docwsid", "")
+                    fresh_zone = fresh_data.get("zone", zone)
                     if fresh_docwsid:
                         log.debug(
-                            "Neuer docwsid für '%s': %s (vorher %s)",
-                            rel_path, fresh_docwsid, docwsid,
+                            "Neuer docwsid für '%s': %s (vorher %s), zone=%s",
+                            rel_path, fresh_docwsid, docwsid, fresh_zone,
                         )
                         return node.connection.get_file(
-                            fresh_docwsid, **kwargs,
+                            fresh_docwsid, zone=fresh_zone, **kwargs,
                         )
             except Exception:
                 log.debug("Fallback 1 (fresh docwsid) fehlgeschlagen für %s", rel_path)
 
-        # Fallback 2: try using drivewsid as document_id
+        # Fallback 2: for shared-folder files, retry download with shareID
+        # context included in the query parameters.
+        if is_shared and share_id:
+            try:
+                log.debug(
+                    "Versuche Shared-Folder-Download mit shareID für '%s'",
+                    rel_path,
+                )
+                return _download_with_share_context(
+                    node.connection, docwsid, zone, share_id, **kwargs,
+                )
+            except Exception:
+                log.debug(
+                    "Fallback 2 (shared download) fehlgeschlagen für %s",
+                    rel_path,
+                )
+
+        # Fallback 3: try using drivewsid as document_id
         if drivewsid and drivewsid != docwsid:
             try:
                 log.debug("Versuche Fallback mit drivewsid=%s", drivewsid)
-                return node.connection.get_file(drivewsid, **kwargs)
+                return node.connection.get_file(drivewsid, zone=zone, **kwargs)
             except Exception:
-                log.debug("Fallback 2 (drivewsid) fehlgeschlagen für %s", rel_path)
+                log.debug("Fallback 3 (drivewsid) fehlgeschlagen für %s", rel_path)
 
-        # Fallback 3: extract the raw UUID from drivewsid
+        # Fallback 4: extract the raw UUID from drivewsid
         # (format is typically "FILE::com.apple.CloudDocs::uuid")
         if drivewsid and "::" in drivewsid:
             raw_id = drivewsid.rsplit("::", 1)[-1]
             if raw_id and raw_id != docwsid and raw_id != drivewsid:
                 try:
                     log.debug("Versuche Fallback mit raw_id=%s", raw_id)
-                    return node.connection.get_file(raw_id, **kwargs)
+                    return node.connection.get_file(raw_id, zone=zone, **kwargs)
                 except Exception:
-                    log.debug("Fallback 3 (raw ID) fehlgeschlagen für %s", rel_path)
+                    log.debug("Fallback 4 (raw ID) fehlgeschlagen für %s", rel_path)
 
         raise first_exc
 
@@ -536,7 +614,17 @@ def sync_drive_folder(
             stats["downloaded"] += 1
         except Exception as exc:
             log.error("Fehler beim Herunterladen von %s: %s", rel_path, exc)
-            if _has_url_special_chars(rel_path):
+            _drivewsid = node.data.get("drivewsid", "")
+            if _drivewsid.startswith("FILE_IN_SHARED_FOLDER"):
+                log.warning(
+                    "Hinweis: '%s' ist eine Datei in einem geteilten Ordner "
+                    "(Shared Folder). Apple's Download-API unterstützt "
+                    "geteilte Ordner nur eingeschränkt. "
+                    "Mögliche Lösung: Den Ordnerinhalt in einen eigenen, "
+                    "nicht geteilten Ordner kopieren.",
+                    rel_path,
+                )
+            elif _has_url_special_chars(rel_path):
                 log.warning(
                     "Hinweis: Der Pfad '%s' enthält Sonderzeichen "
                     "(z.B. #, %%, ?, &, + oder Nicht-ASCII wie ®). "
