@@ -2,7 +2,11 @@
 
 from types import SimpleNamespace
 
-from app.services.backup_service import _candidate_document_ids, _download_with_share_context
+from app.services.backup_service import (
+    _candidate_document_ids,
+    _download_with_share_context,
+    _shared_zone,
+)
 
 
 class _DummyResponse:
@@ -95,3 +99,81 @@ def test_candidate_document_ids_deduplicates_values():
     candidates = _candidate_document_ids(data)
 
     assert candidates.count("SAME-ID") == 1
+
+
+# ---- _shared_zone tests ----
+
+def test_shared_zone_with_owner_record_name():
+    share_id = {
+        "shareName": "SHARE-UUID",
+        "recordName": "SHARE-UUID",
+        "zoneID": {
+            "zoneName": "com.apple.CloudDocs",
+            "ownerRecordName": "_abc123",
+        },
+    }
+    assert _shared_zone(share_id) == "com.apple.CloudDocs:_abc123"
+
+
+def test_shared_zone_without_owner_returns_default():
+    share_id = {
+        "shareName": "SHARE-UUID",
+        "zoneID": {"zoneName": "com.apple.CloudDocs"},
+    }
+    assert _shared_zone(share_id) == "com.apple.CloudDocs"
+
+
+def test_shared_zone_with_string_returns_default():
+    assert _shared_zone("some-string") == "com.apple.CloudDocs"
+
+
+def test_shared_zone_with_none_returns_default():
+    assert _shared_zone(None) == "com.apple.CloudDocs"
+
+
+def test_shared_zone_respects_custom_default():
+    assert _shared_zone(None, "custom.zone") == "custom.zone"
+
+
+def test_shared_zone_uses_zone_name_from_share_id():
+    share_id = {
+        "zoneID": {
+            "zoneName": "custom.zone",
+            "ownerRecordName": "_owner",
+        },
+    }
+    assert _shared_zone(share_id, "fallback") == "custom.zone:_owner"
+
+
+# ---- owner-qualified zone in _download_with_share_context ----
+
+def test_download_with_share_context_uses_owner_zone_in_url():
+    """The download URL must contain the owner-qualified zone."""
+    session = _DummySession()
+    connection = SimpleNamespace(
+        params={"base": "1"},
+        _document_root="https://docws.example",
+        session=session,
+    )
+
+    share_id = {
+        "shareName": "SHARE",
+        "recordName": "RECORD",
+        "zoneID": {
+            "zoneName": "com.apple.CloudDocs",
+            "ownerRecordName": "_owner123",
+        },
+    }
+
+    _download_with_share_context(
+        connection,
+        docwsid="DOC-1",
+        zone="com.apple.CloudDocs",
+        share_id=share_id,
+        stream=True,
+    )
+
+    # The first call should go to the owner-qualified zone URL
+    url, _, _ = session.calls[0]
+    assert "com.apple.CloudDocs:_owner123" in url
+    assert url == "https://docws.example/ws/com.apple.CloudDocs:_owner123/download/by_id"

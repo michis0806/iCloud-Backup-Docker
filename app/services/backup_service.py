@@ -315,6 +315,23 @@ def _candidate_document_ids(*items: dict | None) -> list[str]:
     return candidates
 
 
+def _shared_zone(share_id, default_zone: str = "com.apple.CloudDocs") -> str:
+    """Derive the owner-qualified zone for shared folder downloads.
+
+    Apple's download endpoint requires the zone in the URL path to include
+    the owner's record name for files that live inside shared folders, e.g.
+    ``com.apple.CloudDocs:_5396900b742748a42abcde5a45fcaff8``.
+    """
+    if not isinstance(share_id, dict):
+        return default_zone
+    zone_id = share_id.get("zoneID", {})
+    owner = zone_id.get("ownerRecordName", "")
+    zone_name = zone_id.get("zoneName", default_zone)
+    if owner:
+        return f"{zone_name}:{owner}"
+    return default_zone
+
+
 def _download_with_share_context(connection, docwsid, zone, share_id, **kwargs):
     """Download a file from a shared folder by including shareID context.
 
@@ -322,6 +339,10 @@ def _download_with_share_context(connection, docwsid, zone, share_id, **kwargs):
     for files that live inside shared folders.  We build the same request
     that ``DriveService.get_file()`` would, but additionally flatten the
     *share_id* dict into the query parameters.
+
+    The *zone* embedded in the URL path is automatically upgraded to the
+    owner-qualified form (e.g. ``com.apple.CloudDocs:<ownerRecordName>``)
+    when *share_id* contains a ``zoneID`` with an ``ownerRecordName``.
     """
     from pyicloud.exceptions import PyiCloudAPIResponseException
 
@@ -348,8 +369,12 @@ def _download_with_share_context(connection, docwsid, zone, share_id, **kwargs):
     elif isinstance(share_id, str):
         file_params["shareID"] = share_id
 
+    # Use the owner-qualified zone for the URL path so the request is
+    # routed to the correct CloudKit zone that actually owns the file.
+    effective_zone = _shared_zone(share_id, zone)
+
     response = connection.session.get(
-        connection._document_root + f"/ws/{zone}/download/by_id",
+        connection._document_root + f"/ws/{effective_zone}/download/by_id",
         params=file_params,
     )
     if not response.ok:
@@ -400,10 +425,15 @@ def _open_drive_node(node, rel_path: str, **kwargs):
         share_id = node.data.get("shareID")
         is_shared = drivewsid.startswith("FILE_IN_SHARED_FOLDER")
 
+        # For shared-folder files the download zone must include the
+        # owner's record name so the request is routed to the correct
+        # CloudKit zone (e.g. "com.apple.CloudDocs:<ownerRecordName>").
+        download_zone = _shared_zone(share_id, zone) if is_shared and share_id else zone
+
         log.debug(
             "Download via node.open() fehlgeschlagen für '%s' "
-            "(docwsid=%s, drivewsid=%s, zone=%s, shareID=%s): %s",
-            rel_path, docwsid, drivewsid, zone,
+            "(docwsid=%s, drivewsid=%s, zone=%s, download_zone=%s, shareID=%s): %s",
+            rel_path, docwsid, drivewsid, zone, download_zone,
             json.dumps(share_id) if share_id else "None",
             first_exc,
         )
@@ -414,6 +444,19 @@ def _open_drive_node(node, rel_path: str, **kwargs):
                 "Shared-Folder-Datei erkannt. Node-data keys: %s",
                 sorted(node.data.keys()),
             )
+
+        # Fallback 0 (shared zone): the initial node.open() used the plain
+        # zone (e.g. "com.apple.CloudDocs") but shared-folder files live in
+        # the owner's zone.  Retry with the owner-qualified zone immediately.
+        if is_shared and share_id and download_zone != zone:
+            try:
+                log.debug(
+                    "Versuche Download mit Owner-Zone '%s' für '%s' (docwsid=%s)",
+                    download_zone, rel_path, docwsid,
+                )
+                return node.connection.get_file(docwsid, zone=download_zone, **kwargs)
+            except Exception:
+                log.debug("Fallback 0 (owner zone) fehlgeschlagen für %s", rel_path)
 
         # Fallback 1: re-fetch node metadata to obtain fresh IDs.
         # We call the API directly instead of get_node_data() because the
@@ -432,10 +475,13 @@ def _open_drive_node(node, rel_path: str, **kwargs):
         candidates = _candidate_document_ids(node.data, fresh_data)
         if fresh_data:
             zone = fresh_data.get("zone", zone)
+            # Recompute download_zone in case fresh metadata changed the zone
+            download_zone = _shared_zone(share_id, zone) if is_shared and share_id else zone
             log.debug(
-                "Fallback-Kandidaten für '%s' (zone=%s): %s",
+                "Fallback-Kandidaten für '%s' (zone=%s, download_zone=%s): %s",
                 rel_path,
                 zone,
+                download_zone,
                 candidates,
             )
 
@@ -443,7 +489,7 @@ def _open_drive_node(node, rel_path: str, **kwargs):
             fresh_docwsid = fresh_data.get("docwsid", "")
             if fresh_docwsid:
                 try:
-                    return node.connection.get_file(fresh_docwsid, zone=zone, **kwargs)
+                    return node.connection.get_file(fresh_docwsid, zone=download_zone, **kwargs)
                 except Exception:
                     log.debug("Fallback 1 (fresh docwsid) fehlgeschlagen für %s", rel_path)
 
@@ -453,12 +499,14 @@ def _open_drive_node(node, rel_path: str, **kwargs):
             for candidate_id in candidates or [docwsid]:
                 try:
                     log.debug(
-                        "Versuche Shared-Folder-Download mit shareID für '%s' (document_id=%s)",
+                        "Versuche Shared-Folder-Download mit shareID für '%s' "
+                        "(document_id=%s, download_zone=%s)",
                         rel_path,
                         candidate_id,
+                        download_zone,
                     )
                     return _download_with_share_context(
-                        node.connection, candidate_id, zone, share_id, **kwargs,
+                        node.connection, candidate_id, download_zone, share_id, **kwargs,
                     )
                 except Exception:
                     log.debug(
@@ -470,8 +518,8 @@ def _open_drive_node(node, rel_path: str, **kwargs):
         # Fallback 3: try using drivewsid as document_id
         if drivewsid and drivewsid != docwsid:
             try:
-                log.debug("Versuche Fallback mit drivewsid=%s", drivewsid)
-                return node.connection.get_file(drivewsid, zone=zone, **kwargs)
+                log.debug("Versuche Fallback mit drivewsid=%s (zone=%s)", drivewsid, download_zone)
+                return node.connection.get_file(drivewsid, zone=download_zone, **kwargs)
             except Exception:
                 log.debug("Fallback 3 (drivewsid) fehlgeschlagen für %s", rel_path)
 
@@ -481,8 +529,8 @@ def _open_drive_node(node, rel_path: str, **kwargs):
             raw_id = drivewsid.rsplit("::", 1)[-1]
             if raw_id and raw_id != docwsid and raw_id != drivewsid:
                 try:
-                    log.debug("Versuche Fallback mit raw_id=%s", raw_id)
-                    return node.connection.get_file(raw_id, zone=zone, **kwargs)
+                    log.debug("Versuche Fallback mit raw_id=%s (zone=%s)", raw_id, download_zone)
+                    return node.connection.get_file(raw_id, zone=download_zone, **kwargs)
                 except Exception:
                     log.debug("Fallback 4 (raw ID) fehlgeschlagen für %s", rel_path)
 
