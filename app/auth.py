@@ -20,7 +20,7 @@ _SESSION_MAX_AGE = 86400 * 7  # 7 days
 def _sign(value: str) -> str:
     """Create an HMAC signature for the given value."""
     return hmac.new(
-        settings.secret_key.encode(), value.encode(), hashlib.sha256
+        settings.get_secret_key().encode(), value.encode(), hashlib.sha256
     ).hexdigest()
 
 
