@@ -485,6 +485,58 @@ def check_connection(apple_id: str) -> dict:
     }
 
 
+def get_storage_usage(apple_id: str) -> dict | None:
+    """Fetch iCloud storage quota and per-media usage for *apple_id*.
+
+    Returns a dict like::
+
+        {
+            "used_bytes": 123456789,
+            "total_bytes": 5368709120,
+            "available_bytes": 5245252331,
+            "used_percent": 2.3,
+            "quota_over": False,
+            "media": [
+                {"key": "photos", "label": "Fotos", "color": "#...", "usage_bytes": 100000},
+                ...
+            ]
+        }
+
+    Returns None when no session is available or the API call fails.
+    """
+    api = get_session(apple_id)
+    if api is None:
+        return None
+
+    try:
+        storage = api.account.storage
+        usage = storage.usage
+
+        media = []
+        for _key, m in (storage.usages_by_media or {}).items():
+            media.append({
+                "key": m.key,
+                "label": m.label,
+                "color": m.color,
+                "usage_bytes": m.usage_in_bytes,
+            })
+
+        # Sort by usage descending so the bar renders large segments first
+        media.sort(key=lambda m: m["usage_bytes"], reverse=True)
+
+        return {
+            "used_bytes": usage.used_storage_in_bytes,
+            "total_bytes": usage.total_storage_in_bytes,
+            "available_bytes": usage.available_storage_in_bytes,
+            "used_percent": usage.used_storage_in_percent,
+            "quota_over": usage.quota_over,
+            "media": media,
+        }
+    except Exception as exc:
+        log.warning("iCloud-Speicherinfo für %s nicht abrufbar: %s", apple_id, exc)
+        return None
+
+
 def disconnect(apple_id: str) -> None:
     """Remove a session from the in-memory cache."""
     _sessions.pop(apple_id, None)

@@ -170,6 +170,21 @@ async def check_connection(apple_id: str):
     return result
 
 
+@router.get("/{apple_id}/icloud-storage")
+async def get_icloud_storage(apple_id: str):
+    """Return iCloud storage quota and per-media usage."""
+    account = config_store.get_account(apple_id)
+    if account is None:
+        raise HTTPException(status_code=404, detail="Account nicht gefunden.")
+    if account["status"] != "authenticated":
+        raise HTTPException(status_code=400, detail="Account nicht authentifiziert.")
+
+    data = icloud_service.get_storage_usage(apple_id)
+    if data is None:
+        raise HTTPException(status_code=503, detail="Speicherinfo nicht verfügbar.")
+    return data
+
+
 @router.delete("/{apple_id}")
 async def delete_account(apple_id: str):
     if not config_store.delete_account(apple_id):

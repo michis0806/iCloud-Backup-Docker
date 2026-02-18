@@ -66,6 +66,37 @@ main {
     border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
+/* iCloud storage bar (Apple-style) */
+.icloud-storage-bar {
+    display: flex;
+    height: 12px;
+    border-radius: 6px;
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.08);
+    gap: 1px;
+}
+
+.icloud-storage-segment {
+    min-width: 3px;
+    border-radius: 1px;
+    transition: width 0.4s ease;
+}
+
+.icloud-legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.7rem;
+}
+
+.icloud-legend-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
 /* Alert transitions */
 .alert {
     transition: opacity 0.3s ease;
