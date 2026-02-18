@@ -512,12 +512,16 @@ def get_storage_usage(apple_id: str) -> dict | None:
         storage = api.account.storage
         usage = storage.usage
 
+        _fallback_colors = [
+            "#5EB0EF", "#F9C74F", "#F77F72", "#90BE6D",
+            "#B497D6", "#F9844A", "#4ECDC4", "#AAB7B8",
+        ]
         media = []
-        for _key, m in (storage.usages_by_media or {}).items():
+        for idx, (_key, m) in enumerate((storage.usages_by_media or {}).items()):
             media.append({
                 "key": m.key,
                 "label": m.label,
-                "color": m.color,
+                "color": m.color or _fallback_colors[idx % len(_fallback_colors)],
                 "usage_bytes": m.usage_in_bytes,
             })
 
