@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.1] 2026-02-18
+
 ### Added
 - iCloud storage usage display with Apple-style bar on dashboard
 - Apple token refresh tracking and connection check feature
