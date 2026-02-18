@@ -284,17 +284,40 @@ def get_drive_folders(apple_id: str) -> list[dict]:
         root = api.drive
         children_names = root.dir()
 
-        # ---- Collect shareID info from all children first ----
-        # so we can infer the user's own ownerRecordName via majority vote.
-        share_info: dict[str, dict] = {}  # child_name → {owner, share_id}
+        # ---- Diagnostic: dump distinguishing fields per shared child ----
+        # We need to find a reliable signal for "own share" vs "foreign share"
+        # without knowing the user's CloudKit record. Log zone, drivewsid,
+        # and all shareID sub-fields so we can identify the right heuristic.
+        share_info: dict[str, dict] = {}  # child_name → {owner, node_data}
         for child_name in children_names:
             node = root[child_name]
             sid = node.data.get("shareID")
             if isinstance(sid, dict):
                 owner = sid.get("zoneID", {}).get("ownerRecordName", "")
-                share_info[child_name] = {"owner": owner, "share_id": sid}
+                share_info[child_name] = {
+                    "owner": owner,
+                    "share_id": sid,
+                    "node": node,
+                }
+                # Log ALL potentially distinguishing fields
+                log.info(
+                    "DIAG Ordner '%s': zone=%s, drivewsid=%s, "
+                    "shareID.zoneID=%s, shareID-keys=%s, "
+                    "node-data-keys=%s",
+                    child_name,
+                    node.data.get("zone"),
+                    node.data.get("drivewsid"),
+                    sid.get("zoneID"),
+                    list(sid.keys()),
+                    [k for k in node.data.keys()
+                     if k not in ("items", "name", "extension")],
+                )
 
-        # Infer user record from the collected ownerRecordNames
+        # ---- Infer user record ----
+        # Strategy: look at the 'zone' field on each shared node.
+        # Own shared folders use "com.apple.CloudDocs" as zone,
+        # foreign shared folders use a different zone name.
+        # If that doesn't work, fall back to majority vote.
         user_record = None
         if share_info:
             from collections import Counter
@@ -305,15 +328,10 @@ def get_drive_folders(apple_id: str) -> list[dict]:
                 most_common, count = owner_counts.most_common(1)[0]
                 total = sum(owner_counts.values())
                 log.info(
-                    "User ownerRecordName per Mehrheitsentscheid: %s "
-                    "(%d von %d geteilten Ordnern; Verteilung: %s)",
-                    most_common,
-                    count,
-                    total,
-                    dict(owner_counts),
+                    "Mehrheitsentscheid: %s (%d/%d); Verteilung: %s",
+                    most_common, count, total, dict(owner_counts),
                 )
                 user_record = most_common
-                # Cache for use by backup_service
                 _user_records[apple_id] = most_common
 
         # ---- Build folder list ----
@@ -327,13 +345,11 @@ def get_drive_folders(apple_id: str) -> list[dict]:
                 if user_record:
                     shared_not_owned = owner != user_record
                 else:
-                    # Only one unique owner across all shares → can't tell
                     shared_not_owned = True
                 log.info(
-                    "Ordner '%s': ownerRecordName=%s, user_record=%s → %s",
+                    "Ordner '%s': ownerRecordName=%s → %s",
                     child_name,
                     owner,
-                    user_record or "(unbekannt)",
                     "Fremdfreigabe" if shared_not_owned else "eigene Freigabe",
                 )
 
