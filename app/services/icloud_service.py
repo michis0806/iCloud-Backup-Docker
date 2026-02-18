@@ -259,6 +259,52 @@ def get_session(apple_id: str) -> PyiCloudService | None:
     return None
 
 
+def _fetch_cloudkit_owner(api) -> str | None:
+    """Query the CloudKit Drive container for the current user's ``ownerRecordName``.
+
+    Makes a lightweight ``/changes/database`` call against the
+    ``com.apple.clouddocs`` container (the same technique that the Photos
+    service uses for ``com.apple.photos.cloud``).  The response contains
+    the user's zones, and each zone's ``zoneID`` includes the canonical
+    ``ownerRecordName`` (format: ``_<32 hex chars>``).
+    """
+    try:
+        ck_root = api.get_webservice_url("ckdatabasews")
+    except Exception:
+        log.debug("ckdatabasews URL nicht verfügbar")
+        return None
+
+    endpoint = f"{ck_root}/database/1/com.apple.clouddocs/production/private"
+    url = f"{endpoint}/changes/database"
+    try:
+        resp = api.session.post(url, data="{}", headers={
+            "Content-Type": "text/plain",
+        })
+        if not resp.ok:
+            log.debug("CloudKit /changes/database Fehler: %s", resp.status_code)
+            return None
+        zones = resp.json().get("zones", [])
+    except Exception as exc:
+        log.debug("CloudKit /changes/database Aufruf fehlgeschlagen: %s", exc)
+        return None
+
+    # Look for the default zone or any non-deleted zone with an ownerRecordName
+    for zone in zones:
+        if zone.get("deleted"):
+            continue
+        owner = zone.get("zoneID", {}).get("ownerRecordName")
+        if owner:
+            log.info(
+                "CloudKit ownerRecordName aus %s-Zone: %s",
+                zone["zoneID"].get("zoneName", "?"),
+                owner,
+            )
+            return owner
+
+    log.debug("Keine Zone mit ownerRecordName in /changes/database Antwort")
+    return None
+
+
 def get_user_record(apple_id: str) -> str | None:
     """Return the cached CloudKit ownerRecordName for *apple_id*, or None."""
     return _user_records.get(apple_id)
@@ -279,83 +325,42 @@ def get_drive_folders(apple_id: str) -> list[dict]:
     if api is None:
         return []
 
+    # Determine the current user's CloudKit ownerRecordName via the
+    # ckdatabasews /changes/database endpoint — the only reliable source.
+    user_record = _user_records.get(apple_id) or _fetch_cloudkit_owner(api)
+    if user_record:
+        _user_records[apple_id] = user_record
+        log.info("CloudKit ownerRecordName für %s: %s", apple_id, user_record)
+    else:
+        log.warning(
+            "Konnte CloudKit ownerRecordName für %s nicht ermitteln. "
+            "Alle geteilten Ordner werden als Fremdfreigabe behandelt.",
+            apple_id,
+        )
+
     folders = []
     try:
         root = api.drive
-        children_names = root.dir()
-
-        # ---- Diagnostic: dump distinguishing fields per shared child ----
-        # We need to find a reliable signal for "own share" vs "foreign share"
-        # without knowing the user's CloudKit record. Log zone, drivewsid,
-        # and all shareID sub-fields so we can identify the right heuristic.
-        share_info: dict[str, dict] = {}  # child_name → {owner, node_data}
-        for child_name in children_names:
-            node = root[child_name]
-            sid = node.data.get("shareID")
-            if isinstance(sid, dict):
-                owner = sid.get("zoneID", {}).get("ownerRecordName", "")
-                share_info[child_name] = {
-                    "owner": owner,
-                    "share_id": sid,
-                    "node": node,
-                }
-                # Log ALL potentially distinguishing fields
-                log.info(
-                    "DIAG Ordner '%s': zone=%s, drivewsid=%s, "
-                    "shareID.zoneID=%s, shareID-keys=%s, "
-                    "node-data-keys=%s",
-                    child_name,
-                    node.data.get("zone"),
-                    node.data.get("drivewsid"),
-                    sid.get("zoneID"),
-                    list(sid.keys()),
-                    [k for k in node.data.keys()
-                     if k not in ("items", "name", "extension")],
-                )
-
-        # ---- Infer user record ----
-        # Strategy: look at the 'zone' field on each shared node.
-        # Own shared folders use "com.apple.CloudDocs" as zone,
-        # foreign shared folders use a different zone name.
-        # If that doesn't work, fall back to majority vote.
-        user_record = None
-        if share_info:
-            from collections import Counter
-            owner_counts: Counter = Counter(
-                info["owner"] for info in share_info.values() if info["owner"]
-            )
-            if owner_counts:
-                most_common, count = owner_counts.most_common(1)[0]
-                total = sum(owner_counts.values())
-                log.info(
-                    "Mehrheitsentscheid: %s (%d/%d); Verteilung: %s",
-                    most_common, count, total, dict(owner_counts),
-                )
-                user_record = most_common
-                _user_records[apple_id] = most_common
-
-        # ---- Build folder list ----
-        for child_name in children_names:
-            node = root[child_name]
+        for child in root.dir():
+            node = root[child]
+            share_id = node.data.get("shareID")
             shared_not_owned = False
-
-            info = share_info.get(child_name)
-            if info and info["owner"]:
-                owner = info["owner"]
-                if user_record:
-                    shared_not_owned = owner != user_record
-                else:
-                    shared_not_owned = True
-                log.info(
-                    "Ordner '%s': ownerRecordName=%s → %s",
-                    child_name,
-                    owner,
-                    "Fremdfreigabe" if shared_not_owned else "eigene Freigabe",
-                )
-
+            if isinstance(share_id, dict):
+                owner = share_id.get("zoneID", {}).get("ownerRecordName", "")
+                if owner:
+                    if user_record:
+                        shared_not_owned = owner != user_record
+                    else:
+                        shared_not_owned = True
+                    log.info(
+                        "Ordner '%s': owner=%s → %s",
+                        child,
+                        owner,
+                        "Fremdfreigabe" if shared_not_owned else "eigene Freigabe",
+                    )
             folders.append(
                 {
-                    "name": child_name,
+                    "name": child,
                     "type": "folder" if node.type == "folder" else "file",
                     "size": getattr(node, "size", None),
                     "shared_not_owned": shared_not_owned,
