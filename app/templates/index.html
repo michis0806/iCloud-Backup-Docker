@@ -79,7 +79,7 @@
                                 <div class="icloud-storage-bar">
                                     <template x-for="(seg, i) in icloudStorage[account.apple_id].media" :key="seg.key">
                                         <div class="icloud-storage-segment"
-                                             :style="`width:${Math.max(seg.usage_bytes / icloudStorage[account.apple_id].total_bytes * 100, 0.4)}%;background:${seg.color}`"
+                                             :style="`width:${Math.max(seg.usage_bytes / icloudStorage[account.apple_id].total_bytes * 100, 0.4)}%; background-color:${seg.color || '#888'}`"
                                              :title="seg.label + ': ' + formatSize(seg.usage_bytes)">
                                         </div>
                                     </template>
@@ -88,7 +88,7 @@
                                 <div class="d-flex flex-wrap gap-2 mt-1">
                                     <template x-for="seg in icloudStorage[account.apple_id].media.filter(s => s.usage_bytes > 0)" :key="'l-'+seg.key">
                                         <span class="icloud-legend-item">
-                                            <span class="icloud-legend-dot" :style="`background:${seg.color}`"></span>
+                                            <span class="icloud-legend-dot" :style="`background-color:${seg.color || '#888'}`"></span>
                                             <span x-text="seg.label"></span>
                                             <span class="text-body-secondary" x-text="formatSize(seg.usage_bytes)"></span>
                                         </span>
@@ -452,17 +452,19 @@ function dashboard() {
         },
 
         async loadIcloudStorage() {
+            const updated = { ...this.icloudStorage };
             for (const account of this.accounts) {
                 if (account.status !== 'authenticated') continue;
                 try {
                     const res = await fetch(`/api/accounts/${encodeURIComponent(account.apple_id)}/icloud-storage`);
                     if (res.ok) {
-                        this.icloudStorage[account.apple_id] = await res.json();
+                        updated[account.apple_id] = await res.json();
                     }
                 } catch (e) {
                     console.error('iCloud-Speicher-Fehler:', e);
                 }
             }
+            this.icloudStorage = updated;
         },
 
         formatSize(bytes) {
