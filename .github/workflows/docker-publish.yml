@@ -62,6 +62,23 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Build Docker Hub README with changelog
+        run: |
+          {
+            cat DOCKERHUB.md
+            echo ""
+            echo "---"
+            echo ""
+            # Extract the two most recent version sections (or Unreleased)
+            # from CHANGELOG.md and append them to the Docker Hub description
+            awk '
+              /^## \[/ { count++; if (count > 2) exit }
+              count >= 1 { print }
+            ' CHANGELOG.md
+            echo ""
+            echo "> [Full Changelog](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md)"
+          } > DOCKERHUB_FULL.md
+
       - name: Update Docker Hub description
         if: github.event_name != 'pull_request'
         uses: peter-evans/dockerhub-description@v4
@@ -69,4 +86,4 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
           repository: ${{ env.IMAGE_NAME }}
-          readme-filepath: ./DOCKERHUB.md
+          readme-filepath: ./DOCKERHUB_FULL.md

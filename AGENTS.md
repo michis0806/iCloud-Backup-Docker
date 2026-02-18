@@ -143,6 +143,14 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8080
 | `DSM_NOTIFY` | `false` | Enable Synology DSM notifications (`synodsmnotify`) |
 | `TZ` | `Europe/Berlin` | Container timezone |
 
+## Changelog & Release Process
+
+- **CHANGELOG.md** follows the [Keep a Changelog](https://keepachangelog.com/) format.
+- New features and fixes go under `## [Unreleased]` until a version tag is created.
+- When tagging a release (`git tag v1.0.0`), rename `[Unreleased]` to `[1.0.0] - YYYY-MM-DD` and add a new empty `[Unreleased]` section above.
+- The CI workflow (`docker-publish.yml`) automatically combines `DOCKERHUB.md` + the two most recent changelog sections into the Docker Hub description. The full changelog links back to GitHub.
+- Docker Hub has a 25,000 character limit for the full description.
+
 ## Common Pitfalls
 
 - **pyicloud `photo.download()`** loads the entire file into RAM. Use `_download_photo()` instead, which streams via `session.get(url, stream=True)` + `iter_content()`.
