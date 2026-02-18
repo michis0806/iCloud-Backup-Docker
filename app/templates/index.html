@@ -66,7 +66,38 @@
                         </div>
                         <p class="card-text text-muted small" x-text="account.status_message"></p>
 
-                        <!-- Storage stats -->
+                        <!-- iCloud Storage (Apple-style bar) -->
+                        <template x-if="icloudStorage[account.apple_id]">
+                            <div class="mb-2">
+                                <div class="d-flex justify-content-between align-items-baseline mb-1">
+                                    <span class="small fw-semibold">iCloud</span>
+                                    <span class="text-body-secondary small"
+                                          x-text="formatSize(icloudStorage[account.apple_id].used_bytes) + ' von ' + formatSize(icloudStorage[account.apple_id].total_bytes)">
+                                    </span>
+                                </div>
+                                <!-- Stacked bar -->
+                                <div class="icloud-storage-bar">
+                                    <template x-for="(seg, i) in icloudStorage[account.apple_id].media" :key="seg.key">
+                                        <div class="icloud-storage-segment"
+                                             :style="`width:${Math.max(seg.usage_bytes / icloudStorage[account.apple_id].total_bytes * 100, 0.4)}%;background:${seg.color}`"
+                                             :title="seg.label + ': ' + formatSize(seg.usage_bytes)">
+                                        </div>
+                                    </template>
+                                </div>
+                                <!-- Legend -->
+                                <div class="d-flex flex-wrap gap-2 mt-1">
+                                    <template x-for="seg in icloudStorage[account.apple_id].media.filter(s => s.usage_bytes > 0)" :key="'l-'+seg.key">
+                                        <span class="icloud-legend-item">
+                                            <span class="icloud-legend-dot" :style="`background:${seg.color}`"></span>
+                                            <span x-text="seg.label"></span>
+                                            <span class="text-body-secondary" x-text="formatSize(seg.usage_bytes)"></span>
+                                        </span>
+                                    </template>
+                                </div>
+                            </div>
+                        </template>
+
+                        <!-- Local storage stats -->
                         <template x-if="storageStats[account.apple_id]">
                             <div class="mb-2">
                                 <div class="row g-2">
@@ -338,6 +369,7 @@ function dashboard() {
     return {
         accounts: [],
         storageStats: {},
+        icloudStorage: {},
         loading: true,
 
         // Global schedule
@@ -376,6 +408,7 @@ function dashboard() {
                 this.loadStorageStats(),
             ]);
             await this.loadBackupStatuses();
+            this.loadIcloudStorage();
             this.statusPollInterval = setInterval(() => this.loadBackupStatuses(), 10000);
         },
 
@@ -415,6 +448,20 @@ function dashboard() {
                 }
             } catch (e) {
                 console.error('Fehler beim Laden der Speicherstatistiken:', e);
+            }
+        },
+
+        async loadIcloudStorage() {
+            for (const account of this.accounts) {
+                if (account.status !== 'authenticated') continue;
+                try {
+                    const res = await fetch(`/api/accounts/${encodeURIComponent(account.apple_id)}/icloud-storage`);
+                    if (res.ok) {
+                        this.icloudStorage[account.apple_id] = await res.json();
+                    }
+                } catch (e) {
+                    console.error('iCloud-Speicher-Fehler:', e);
+                }
             }
         },
 
