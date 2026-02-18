@@ -67,11 +67,29 @@ def send_dsm_notification(title: str, message: str) -> None:
 
 
 def notify_backup_result(apple_id: str, status: str, message: str) -> None:
-    """Send a DSM notification summarising a backup result."""
-    if status == "success":
-        title = "iCloud Backup erfolgreich"
-    else:
-        title = "iCloud Backup fehlgeschlagen"
+    """Send a DSM notification summarising a backup result.
 
-    body = f"{apple_id}: {message}"
-    send_dsm_notification(title, body)
+    Only sends for errors – successful backups are silent.
+    """
+    if status == "success":
+        return
+
+    send_dsm_notification("iCloud Backup fehlgeschlagen", f"{apple_id}: {message}")
+
+
+def notify_token_expiring(apple_id: str, days_remaining: int) -> None:
+    """Warn that an iCloud token is about to expire."""
+    send_dsm_notification(
+        "iCloud Token läuft bald ab",
+        f"{apple_id}: Token läuft in ca. {days_remaining} Tagen ab. "
+        "Bitte erneuern Sie die Verbindung.",
+    )
+
+
+def notify_token_expired(apple_id: str) -> None:
+    """Notify that an iCloud token has expired and 2FA is required."""
+    send_dsm_notification(
+        "iCloud Token abgelaufen",
+        f"{apple_id}: Token ist abgelaufen. "
+        "Zwei-Faktor-Authentifizierung erforderlich.",
+    )
