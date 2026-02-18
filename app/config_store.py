@@ -112,6 +112,7 @@ def list_accounts() -> list[dict]:
             "apple_id": acc["apple_id"],
             "status": acc.get("status", "pending"),
             "status_message": acc.get("status_message"),
+            "last_token_refresh_at": acc.get("last_token_refresh_at"),
         }
         for acc in data["accounts"]
     ]
@@ -127,10 +128,16 @@ def get_account(apple_id: str) -> dict | None:
         "apple_id": acc["apple_id"],
         "status": acc.get("status", "pending"),
         "status_message": acc.get("status_message"),
+        "last_token_refresh_at": acc.get("last_token_refresh_at"),
     }
 
 
-def add_account(apple_id: str, status: str = "pending", status_message: str | None = None) -> dict:
+def add_account(
+    apple_id: str,
+    status: str = "pending",
+    status_message: str | None = None,
+    token_refreshed: bool = False,
+) -> dict:
     with _lock:
         data = _read()
         if _find_account(data, apple_id) is not None:
@@ -139,6 +146,7 @@ def add_account(apple_id: str, status: str = "pending", status_message: str | No
             "apple_id": apple_id,
             "status": status,
             "status_message": status_message,
+            "last_token_refresh_at": datetime.now().isoformat() if token_refreshed else None,
             "backup": _default_backup(),
         }
         data["accounts"].append(acc)
@@ -147,10 +155,16 @@ def add_account(apple_id: str, status: str = "pending", status_message: str | No
         "apple_id": acc["apple_id"],
         "status": acc["status"],
         "status_message": acc["status_message"],
+        "last_token_refresh_at": acc.get("last_token_refresh_at"),
     }
 
 
-def update_account_status(apple_id: str, status: str, status_message: str | None = None) -> dict | None:
+def update_account_status(
+    apple_id: str,
+    status: str,
+    status_message: str | None = None,
+    token_refreshed: bool = False,
+) -> dict | None:
     with _lock:
         data = _read()
         acc = _find_account(data, apple_id)
@@ -158,11 +172,14 @@ def update_account_status(apple_id: str, status: str, status_message: str | None
             return None
         acc["status"] = status
         acc["status_message"] = status_message
+        if token_refreshed:
+            acc["last_token_refresh_at"] = datetime.now().isoformat()
         _write(data)
     return {
         "apple_id": acc["apple_id"],
         "status": acc["status"],
         "status_message": acc["status_message"],
+        "last_token_refresh_at": acc.get("last_token_refresh_at"),
     }
 
 

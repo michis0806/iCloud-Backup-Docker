@@ -49,7 +49,12 @@ async def add_account(data: AccountCreate):
     message = auth_result["message"]
 
     try:
-        account = config_store.add_account(data.apple_id, status=status, status_message=message)
+        account = config_store.add_account(
+            data.apple_id,
+            status=status,
+            status_message=message,
+            token_refreshed=(status == "authenticated"),
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -68,6 +73,7 @@ async def submit_2fa(apple_id: str, data: TwoFactorSubmit):
         apple_id,
         status=result["status"],
         status_message=result["message"],
+        token_refreshed=(result["status"] == "authenticated"),
     )
     return updated
 
@@ -104,6 +110,7 @@ async def submit_2sa(apple_id: str, data: TwoStepSubmit):
         apple_id,
         status=result["status"],
         status_message=result["message"],
+        token_refreshed=(result["status"] == "authenticated"),
     )
     return updated
 
@@ -121,8 +128,44 @@ async def reconnect_account(apple_id: str):
         apple_id,
         status=auth_result["status"],
         status_message=auth_result["message"],
+        token_refreshed=(auth_result["status"] == "authenticated"),
     )
     return updated
+
+
+@router.post("/{apple_id}/check-connection")
+async def check_connection(apple_id: str):
+    """Check whether the iCloud session token is still valid.
+
+    Performs a lightweight reconnect + API call to verify the session.
+    Updates the account status accordingly.
+    """
+    account = config_store.get_account(apple_id)
+    if account is None:
+        raise HTTPException(status_code=404, detail="Account nicht gefunden.")
+
+    result = icloud_service.check_connection(apple_id)
+
+    if result["valid"]:
+        config_store.update_account_status(
+            apple_id,
+            status="authenticated",
+            status_message=result["message"],
+        )
+    elif result["requires_2fa"]:
+        config_store.update_account_status(
+            apple_id,
+            status="requires_2fa",
+            status_message=result["message"],
+        )
+    else:
+        config_store.update_account_status(
+            apple_id,
+            status="error",
+            status_message=result["message"],
+        )
+
+    return result
 
 
 @router.delete("/{apple_id}")

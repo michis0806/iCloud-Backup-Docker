@@ -88,6 +88,18 @@
                             </div>
                         </template>
 
+                        <!-- Token status -->
+                        <template x-if="account.last_token_refresh_at && account.status === 'authenticated'">
+                            <div class="mt-2 small d-flex align-items-center gap-2">
+                                <i class="bi bi-key"
+                                   :class="tokenDaysOld(account.last_token_refresh_at) < 40 ? 'text-success' : tokenDaysOld(account.last_token_refresh_at) < 55 ? 'text-warning' : 'text-danger'"></i>
+                                <span>Token: <span x-text="tokenAgeLabel(account.last_token_refresh_at)"></span></span>
+                                <span class="text-body-secondary">
+                                    (<span x-text="tokenRemainingLabel(account.last_token_refresh_at)"></span>)
+                                </span>
+                            </div>
+                        </template>
+
                         <!-- Last backup info -->
                         <template x-if="backupStatuses[account.apple_id] && (backupStatuses[account.apple_id].last_backup_at || backupStatuses[account.apple_id].status === 'running')">
                             <div class="mt-2 small">
@@ -694,6 +706,26 @@ function dashboard() {
             } catch (e) {
                 console.error('Lösch-Fehler:', e);
             }
+        },
+
+        tokenDaysOld(iso) {
+            if (!iso) return 0;
+            return Math.floor(Math.max(0, (Date.now() - new Date(iso).getTime()) / (1000 * 60 * 60 * 24)));
+        },
+
+        tokenAgeLabel(iso) {
+            const days = this.tokenDaysOld(iso);
+            if (days === 0) return 'heute erneuert';
+            if (days === 1) return '1 Tag alt';
+            return `${days} Tage alt`;
+        },
+
+        tokenRemainingLabel(iso) {
+            const days = this.tokenDaysOld(iso);
+            const remaining = 60 - days;
+            if (remaining <= 0) return 'wahrscheinlich abgelaufen';
+            if (remaining === 1) return '~1 Tag verbleibend';
+            return `~${remaining} Tage verbleibend`;
         },
 
         statusBadge(status) {

@@ -11,6 +11,7 @@ class AccountResponse(BaseModel):
     apple_id: str
     status: AccountStatus
     status_message: str | None = None
+    last_token_refresh_at: str | None = None
 
 
 class TwoFactorSubmit(BaseModel):

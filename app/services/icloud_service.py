@@ -423,6 +423,68 @@ def get_photo_libraries(apple_id: str) -> list[dict]:
     return result
 
 
+def check_connection(apple_id: str) -> dict:
+    """Check whether the iCloud session for *apple_id* is still valid.
+
+    Attempts to reconnect using saved session tokens and performs a
+    lightweight API call (listing Drive root) to verify the session
+    actually works.
+
+    Returns a dict with:
+        - valid: bool – whether the session is usable
+        - message: human-readable status
+        - requires_2fa: bool – whether re-authentication with 2FA is needed
+    """
+    # Drop cached session to force a fresh reconnect from saved tokens
+    _sessions.pop(apple_id, None)
+
+    cookie_dir = _cookie_dir_for(apple_id)
+    try:
+        api = PyiCloudService(
+            apple_id=apple_id,
+            cookie_directory=cookie_dir,
+            verify=True,
+        )
+    except PyiCloudFailedLoginException as exc:
+        return {
+            "valid": False,
+            "message": f"Login fehlgeschlagen: {exc}",
+            "requires_2fa": False,
+        }
+    except Exception as exc:
+        return {
+            "valid": False,
+            "message": f"Verbindungsfehler: {exc}",
+            "requires_2fa": False,
+        }
+
+    if api.requires_2fa or api.requires_2sa:
+        _sessions[apple_id] = api
+        return {
+            "valid": False,
+            "message": "Token abgelaufen – Zwei-Faktor-Authentifizierung erforderlich.",
+            "requires_2fa": True,
+        }
+
+    # Verify the session with a lightweight API call
+    try:
+        api.drive.dir()
+    except Exception as exc:
+        log.warning("Verbindungscheck für %s: Drive-Zugriff fehlgeschlagen: %s", apple_id, exc)
+        return {
+            "valid": False,
+            "message": f"Session ungültig – Drive-Zugriff fehlgeschlagen: {exc}",
+            "requires_2fa": False,
+        }
+
+    _sessions[apple_id] = api
+    return {
+        "valid": True,
+        "message": "Verbindung aktiv – Token ist gültig.",
+        "requires_2fa": False,
+    }
+
+
 def disconnect(apple_id: str) -> None:
     """Remove a session from the in-memory cache."""
     _sessions.pop(apple_id, None)
