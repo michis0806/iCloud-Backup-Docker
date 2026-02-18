@@ -9,7 +9,10 @@ from apscheduler.triggers.cron import CronTrigger
 
 from app import config_store
 from app.services import backup_service
-from app.services.notification import notify_backup_result
+from app.services.notification import notify_backup_result, notify_token_expiring
+
+# Token age (in days) at which a DSM warning is sent.
+_TOKEN_WARNING_DAYS = 50
 
 log = logging.getLogger("icloud-backup")
 
@@ -86,12 +89,36 @@ async def _run_backup_job(apple_id: str) -> None:
     notify_backup_result(apple_id, status, message)
 
 
+def _check_token_expiry() -> None:
+    """Check token age for all accounts and send DSM warnings for expiring tokens."""
+    for acc in config_store.list_accounts():
+        refresh_at = acc.get("last_token_refresh_at")
+        if not refresh_at:
+            continue
+        try:
+            refresh_dt = datetime.fromisoformat(refresh_at)
+            age_days = (datetime.now() - refresh_dt).days
+        except (ValueError, TypeError):
+            continue
+
+        remaining = 60 - age_days
+        if 0 < remaining <= (60 - _TOKEN_WARNING_DAYS):
+            log.warning(
+                "Token für %s ist %d Tage alt (noch ~%d Tage gültig)",
+                acc["apple_id"], age_days, remaining,
+            )
+            notify_token_expiring(acc["apple_id"], remaining)
+
+
 async def _run_all_backups() -> None:
     """Run backups for all configured accounts sequentially."""
     accounts = config_store.list_configured_accounts()
     if not accounts:
         log.info("Kein Account mit Backup-Konfiguration gefunden, überspringe geplanten Lauf")
         return
+
+    # Check token expiry and send warnings before running backups
+    _check_token_expiry()
 
     log.info("Geplanter Backup-Lauf gestartet für %d Account(s)", len(accounts))
     for acc in accounts:

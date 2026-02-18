@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException
 from app import config_store
 from app.schemas import AccountCreate, AccountResponse, SmsSendRequest, TwoFactorSubmit, TwoStepSubmit
 from app.services import icloud_service
+from app.services.notification import notify_token_expired
 
 log = logging.getLogger("icloud-backup")
 router = APIRouter(prefix="/api/accounts", tags=["accounts"])
@@ -158,6 +159,7 @@ async def check_connection(apple_id: str):
             status="requires_2fa",
             status_message=result["message"],
         )
+        notify_token_expired(apple_id)
     else:
         config_store.update_account_status(
             apple_id,
