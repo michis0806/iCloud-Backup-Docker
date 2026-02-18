@@ -369,7 +369,7 @@ def get_drive_folders(apple_id: str) -> list[dict]:
     except Exception as exc:
         log.error("Fehler beim Abrufen der Drive-Ordner für %s: %s", apple_id, exc)
 
-    return sorted(folders, key=lambda f: f["name"].lower())
+    return sorted(folders, key=lambda f: (f["shared_not_owned"], f["name"].lower()))
 
 
 def get_photo_libraries(apple_id: str) -> list[dict]:
