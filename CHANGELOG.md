@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.2] 2026-02-18
+
+Three fixes for the storage usage bar display:
+- Add explicit height:100% to .icloud-storage-segment (CSS flex child could collapse to 0px height in some browsers)
+- Use background-color instead of background shorthand to avoid conflicts with Bootstrap dark theme CSS resets
+- Reassign icloudStorage object instead of mutating it in-place to ensure Alpine.js reactivity triggers properly
+- Add fallback colors in backend when Apple API returns no displayColor
+
+
 ## [0.9.1] 2026-02-18
 
 ### Added
