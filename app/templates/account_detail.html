@@ -257,6 +257,61 @@
             <!-- Right column: Settings & Status -->
             <div class="col-lg-4">
 
+                <!-- Token Status -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="bi bi-key me-1"></i> Apple Token
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <template x-if="account.last_token_refresh_at">
+                            <div>
+                                <div class="mb-2 small">
+                                    <strong>Letztes Token-Refresh:</strong><br>
+                                    <span x-text="formatDate(account.last_token_refresh_at)"></span>
+                                </div>
+                                <div class="mb-2 small">
+                                    <strong>Token-Alter:</strong><br>
+                                    <span x-text="tokenAge(account.last_token_refresh_at)"></span>
+                                </div>
+                                <div class="mb-3">
+                                    <div class="progress" style="height: 6px;">
+                                        <div class="progress-bar"
+                                             :class="tokenProgressClass(account.last_token_refresh_at)"
+                                             :style="'width: ' + tokenProgressPercent(account.last_token_refresh_at) + '%'"
+                                             role="progressbar"></div>
+                                    </div>
+                                    <div class="form-text small mt-1">
+                                        <span x-text="tokenExpiryEstimate(account.last_token_refresh_at)"></span>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+                        <template x-if="!account.last_token_refresh_at">
+                            <div class="small text-body-secondary mb-3">
+                                <i class="bi bi-info-circle me-1"></i>
+                                Kein Token-Refresh-Zeitpunkt bekannt.
+                            </div>
+                        </template>
+                        <button type="button" class="btn btn-outline-secondary btn-sm w-100"
+                                @click="checkConnection()"
+                                :disabled="checkingConnection">
+                            <span x-show="checkingConnection" class="spinner-border spinner-border-sm me-1"></span>
+                            <i class="bi bi-plug me-1" x-show="!checkingConnection"></i>
+                            <span x-text="checkingConnection ? 'Wird geprüft...' : 'Verbindung prüfen'"></span>
+                        </button>
+                        <div class="mt-2 small" x-show="connectionResult" x-transition>
+                            <div class="alert py-1 px-2 mb-0 small"
+                                 :class="connectionResult?.valid ? 'alert-success' : 'alert-warning'">
+                                <i class="bi me-1"
+                                   :class="connectionResult?.valid ? 'bi-check-circle' : 'bi-exclamation-triangle'"></i>
+                                <span x-text="connectionResult?.message"></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Destination -->
                 <div class="card mb-4">
                     <div class="card-header">
@@ -471,6 +526,8 @@ function accountConfig(appleId) {
         errorMsg: '',
         statusInterval: null,
         progressInterval: null,
+        checkingConnection: false,
+        connectionResult: null,
 
         async init() {
             await Promise.all([
@@ -737,6 +794,57 @@ function accountConfig(appleId) {
                 'error': 'Fehler',
                 'not_configured': 'Nicht konfiguriert',
             }[status] || status;
+        },
+
+        async checkConnection() {
+            this.checkingConnection = true;
+            this.connectionResult = null;
+            try {
+                const res = await fetch(`/api/accounts/${this.encodedId()}/check-connection`, { method: 'POST' });
+                this.connectionResult = await res.json();
+                // Reload account data to reflect any status changes
+                await this.loadAccount();
+                if (this.connectionResult.requires_2fa) {
+                    this.errorMsg = 'Token abgelaufen – bitte erneut authentifizieren.';
+                }
+            } catch (e) {
+                this.connectionResult = { valid: false, message: 'Netzwerkfehler: ' + e.message };
+            }
+            this.checkingConnection = false;
+        },
+
+        _tokenAgeDays(iso) {
+            if (!iso) return 0;
+            const diff = Date.now() - new Date(iso).getTime();
+            return Math.max(0, diff / (1000 * 60 * 60 * 24));
+        },
+
+        tokenAge(iso) {
+            const days = Math.floor(this._tokenAgeDays(iso));
+            if (days === 0) return 'Heute erneuert';
+            if (days === 1) return '1 Tag';
+            return `${days} Tage`;
+        },
+
+        tokenProgressPercent(iso) {
+            const days = this._tokenAgeDays(iso);
+            // 60 days = ~2 months token lifetime
+            return Math.min(100, (days / 60) * 100);
+        },
+
+        tokenProgressClass(iso) {
+            const days = this._tokenAgeDays(iso);
+            if (days < 40) return 'bg-success';
+            if (days < 55) return 'bg-warning';
+            return 'bg-danger';
+        },
+
+        tokenExpiryEstimate(iso) {
+            const days = Math.floor(this._tokenAgeDays(iso));
+            const remaining = 60 - days;
+            if (remaining <= 0) return 'Token ist wahrscheinlich abgelaufen.';
+            if (remaining === 1) return 'Geschätzt noch ~1 Tag gültig.';
+            return `Geschätzt noch ~${remaining} Tage gültig.`;
         },
 
         formatDate(iso) {
