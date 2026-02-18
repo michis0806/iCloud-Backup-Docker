@@ -78,6 +78,7 @@ main {
 
 .icloud-storage-segment {
     min-width: 3px;
+    height: 100%;
     border-radius: 1px;
     transition: width 0.4s ease;
 }
