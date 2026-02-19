@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.3] 2026-02-19
+
+- Fix `KeyError` when Apple API omits the `displayColor` field, which caused
+  the entire storage info to return `None` (no bar shown at all)
+- Fix hex color values without `#` prefix (e.g. `"5EB0EF"`) being passed as
+  invalid CSS `background-color`, causing transparent/invisible segments
+- Add `_css_color()` helper that validates hex format, ensures `#` prefix, and
+  falls back to the palette colors when the API value is unusable
+
 ## [0.9.2] 2026-02-18
 
 Three fixes for the storage usage bar display:
