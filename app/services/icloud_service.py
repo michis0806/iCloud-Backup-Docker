@@ -516,12 +516,27 @@ def get_storage_usage(apple_id: str) -> dict | None:
             "#5EB0EF", "#F9C74F", "#F77F72", "#90BE6D",
             "#B497D6", "#F9844A", "#4ECDC4", "#AAB7B8",
         ]
+        _hex_chars = set("0123456789abcdefABCDEF")
+
+        def _css_color(raw) -> str | None:
+            """Return a valid CSS hex colour or ``None``."""
+            if not raw or not isinstance(raw, str):
+                return None
+            c = raw.strip().lstrip("#")
+            if len(c) not in (3, 6, 8) or not _hex_chars.issuperset(c):
+                return None
+            return "#" + c
+
         media = []
         for idx, (_key, m) in enumerate((storage.usages_by_media or {}).items()):
+            try:
+                raw_color = m.color
+            except (KeyError, AttributeError):
+                raw_color = None
             media.append({
                 "key": m.key,
                 "label": m.label,
-                "color": m.color or _fallback_colors[idx % len(_fallback_colors)],
+                "color": _css_color(raw_color) or _fallback_colors[idx % len(_fallback_colors)],
                 "usage_bytes": m.usage_in_bytes,
             })
 
