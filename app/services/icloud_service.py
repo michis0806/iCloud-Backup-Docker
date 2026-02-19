@@ -516,12 +516,23 @@ def get_storage_usage(apple_id: str) -> dict | None:
             "#5EB0EF", "#F9C74F", "#F77F72", "#90BE6D",
             "#B497D6", "#F9844A", "#4ECDC4", "#AAB7B8",
         ]
+        _hex_color_re = re.compile(r'^#?([0-9a-fA-F]{3,8})$')
         media = []
         for idx, (_key, m) in enumerate((storage.usages_by_media or {}).items()):
+            raw_color = m.color
+            # Normalise: Apple may return hex without '#' prefix or
+            # a non-CSS value – ensure we always have a valid '#rrggbb'.
+            color = None
+            if raw_color and isinstance(raw_color, str):
+                match = _hex_color_re.match(raw_color.strip())
+                if match:
+                    color = f"#{match.group(1)}"
+            if not color:
+                color = _fallback_colors[idx % len(_fallback_colors)]
             media.append({
                 "key": m.key,
                 "label": m.label,
-                "color": m.color or _fallback_colors[idx % len(_fallback_colors)],
+                "color": color,
                 "usage_bytes": m.usage_in_bytes,
             })
 
