@@ -28,6 +28,17 @@ logging.basicConfig(
     force=True,  # Override uvicorn's default logging setup
 )
 
+
+class _HealthCheckFilter(logging.Filter):
+    """Suppress noisy 'GET /health' access-log entries from uvicorn."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        return "GET /health" not in msg
+
+
+logging.getLogger("uvicorn.access").addFilter(_HealthCheckFilter())
+
 # Attach ring buffer handler to the root logger so all messages are captured
 root_logger = logging.getLogger()
 root_logger.addHandler(log_buffer)
