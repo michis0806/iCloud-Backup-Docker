@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.9.4] 2026-02-21
+## [0.9.4] 2026-02-22
 
 - Filter health check requests from uvicorn access log
 
