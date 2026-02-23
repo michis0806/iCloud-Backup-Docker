@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Check token expiry before manual backups (not just scheduled ones)
 - Send DSM notification when token has expired during backup (auto-detect via session check)
+- Fix ghost re-downloads of .sparsebundle and other macOS package files (package_token size mismatch)
 
 ## [0.9.5] 2026-02-23
 
