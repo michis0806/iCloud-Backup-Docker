@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.9.5] 2026-02-23
 
 - Add debug logging for repeated file downloads to diagnose ghost files and persistent metadata mismatches
+- Check token expiry before manual backups (not just scheduled ones)
+- Send DSM notification when token has expired during backup (auto-detect via session check)
 
 ## [0.9.4] 2026-02-22
 
