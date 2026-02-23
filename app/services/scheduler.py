@@ -9,7 +9,7 @@ from apscheduler.triggers.cron import CronTrigger
 
 from app import config_store
 from app.services import backup_service
-from app.services.notification import notify_backup_result, notify_token_expiring
+from app.services.notification import notify_backup_result, notify_token_expired, notify_token_expiring
 
 # Token age (in days) at which a DSM warning is sent.
 _TOKEN_WARNING_DAYS = 50
@@ -79,6 +79,12 @@ async def _run_backup_job(apple_id: str) -> None:
             "photos": result.get("photos_stats"),
             "storage": storage,
         }
+        if result.get("auth_expired"):
+            config_store.update_account_status(
+                apple_id, status="requires_2fa",
+                status_message=message,
+            )
+            notify_token_expired(apple_id)
     except Exception as exc:
         log.error("Backup-Job für %s fehlgeschlagen: %s", apple_id, exc)
         status = "error"
@@ -89,25 +95,33 @@ async def _run_backup_job(apple_id: str) -> None:
     notify_backup_result(apple_id, status, message)
 
 
+def check_token_expiry_for_account(apple_id: str) -> None:
+    """Check token age for a single account and send a DSM warning if expiring."""
+    acc = config_store.get_account(apple_id)
+    if acc is None:
+        return
+    refresh_at = acc.get("last_token_refresh_at")
+    if not refresh_at:
+        return
+    try:
+        refresh_dt = datetime.fromisoformat(refresh_at)
+        age_days = (datetime.now() - refresh_dt).days
+    except (ValueError, TypeError):
+        return
+
+    remaining = 60 - age_days
+    if 0 < remaining <= (60 - _TOKEN_WARNING_DAYS):
+        log.warning(
+            "Token für %s ist %d Tage alt (noch ~%d Tage gültig)",
+            apple_id, age_days, remaining,
+        )
+        notify_token_expiring(apple_id, remaining)
+
+
 def _check_token_expiry() -> None:
     """Check token age for all accounts and send DSM warnings for expiring tokens."""
     for acc in config_store.list_accounts():
-        refresh_at = acc.get("last_token_refresh_at")
-        if not refresh_at:
-            continue
-        try:
-            refresh_dt = datetime.fromisoformat(refresh_at)
-            age_days = (datetime.now() - refresh_dt).days
-        except (ValueError, TypeError):
-            continue
-
-        remaining = 60 - age_days
-        if 0 < remaining <= (60 - _TOKEN_WARNING_DAYS):
-            log.warning(
-                "Token für %s ist %d Tage alt (noch ~%d Tage gültig)",
-                acc["apple_id"], age_days, remaining,
-            )
-            notify_token_expiring(acc["apple_id"], remaining)
+        check_token_expiry_for_account(acc["apple_id"])
 
 
 async def _run_all_backups() -> None:

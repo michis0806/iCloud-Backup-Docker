@@ -1299,6 +1299,16 @@ def run_backup(
     if not destination:
         destination = apple_id.replace("@", "_at_").replace(".", "_")
 
+    # Early session check – abort with a clear message when the token
+    # has expired so callers can send the appropriate notification.
+    api = icloud_service.get_session(apple_id)
+    if api is None:
+        log.error("Keine gültige Sitzung für %s – Token vermutlich abgelaufen.", apple_id)
+        result["success"] = False
+        result["message"] = "Token abgelaufen – Zwei-Faktor-Authentifizierung erforderlich."
+        result["auth_expired"] = True
+        return result
+
     if config_id is not None:
         _register_cancel_event(config_id)
         _set_progress(config_id, {

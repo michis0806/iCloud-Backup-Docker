@@ -12,8 +12,8 @@ from app.schemas import (
     ScheduleUpdate, ScheduleResponse,
 )
 from app.services import backup_service, icloud_service
-from app.services.notification import notify_backup_result
-from app.services.scheduler import sync_scheduled_jobs
+from app.services.notification import notify_backup_result, notify_token_expired
+from app.services.scheduler import check_token_expiry_for_account, sync_scheduled_jobs
 
 log = logging.getLogger("icloud-backup")
 router = APIRouter(prefix="/api/backup", tags=["backup"])
@@ -65,6 +65,9 @@ async def trigger_backup(apple_id: str):
         text = cfg.get("drive_folders_advanced") or ""
         folders = [line.strip() for line in text.splitlines() if line.strip()]
 
+    # Check token expiry before starting
+    check_token_expiry_for_account(apple_id)
+
     # Run backup in background thread
     async def _run():
         try:
@@ -92,6 +95,13 @@ async def trigger_backup(apple_id: str):
                 "photos": result.get("photos_stats"),
                 "storage": storage,
             }
+            # Notify and update account status when token has expired
+            if result.get("auth_expired"):
+                config_store.update_account_status(
+                    apple_id, status="requires_2fa",
+                    status_message=message,
+                )
+                notify_token_expired(apple_id)
         except Exception as exc:
             log.error("Backup fehlgeschlagen für %s: %s", apple_id, exc)
             status = "error"
@@ -132,6 +142,8 @@ async def trigger_all_backups():
         if backup_service.get_progress(apple_id) is not None:
             continue
 
+        check_token_expiry_for_account(apple_id)
+
         run_start_time = datetime.now(timezone.utc)
         config_store.update_backup_status(
             apple_id, status="running", started_at=run_start_time.isoformat(),
@@ -168,6 +180,12 @@ async def trigger_all_backups():
                     "photos": result.get("photos_stats"),
                     "storage": storage,
                 }
+                if result.get("auth_expired"):
+                    config_store.update_account_status(
+                        apple_id, status="requires_2fa",
+                        status_message=message,
+                    )
+                    notify_token_expired(apple_id)
             except Exception as exc:
                 log.error("Backup fehlgeschlagen für %s: %s", apple_id, exc)
                 status = "error"
