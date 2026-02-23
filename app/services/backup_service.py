@@ -704,6 +704,7 @@ def sync_drive_folder(
     # Load etag cache
     cache = _load_cache(destination_key, folder_name)
     new_etags: dict[str, str] = {}
+    pkg_sizes: dict[str, int] = cache.get("_package_sizes", {})
 
     remote_files: set[str] = set()
 
@@ -717,6 +718,24 @@ def sync_drive_folder(
 
         remote_files.add(rel_path)
         local_path = dest / rel_path
+
+        # Package size cache: iCloud delivers bundles (e.g. .sparsebundle)
+        # as compressed archives via package_token.  The metadata size
+        # (node.size) differs from the actual download size, so a normal
+        # size comparison would trigger an unnecessary re-download every
+        # run.  When a previous download recorded the real on-disk size we
+        # accept it if the mtime also still matches.
+        if local_path.exists() and rel_path in pkg_sizes:
+            try:
+                _st = local_path.stat()
+                if _st.st_size == pkg_sizes[rel_path]:
+                    remote_mtime = node.date_modified.timestamp() if node.date_modified else 0
+                    if abs(remote_mtime - _st.st_mtime) <= 2:
+                        log.debug("Package-Cache-Hit: %s (bekannte Größe %s)", rel_path, pkg_sizes[rel_path])
+                        stats["skipped"] += 1
+                        continue
+            except OSError:
+                pass
 
         if not _file_needs_update(node, local_path):
             stats["skipped"] += 1
@@ -756,12 +775,12 @@ def sync_drive_folder(
             _local_size = _local_stat.st_size
             _local_mtime = _local_stat.st_mtime
             if _node_size and _local_size != _node_size:
-                log.warning(
-                    "Größen-Abweichung nach Download: %s – "
-                    "remote=%s Bytes, heruntergeladen=%s Bytes "
-                    "(Datei wird beim nächsten Lauf erneut heruntergeladen!)",
+                log.info(
+                    "Package-Download: %s – remote=%s Bytes, "
+                    "heruntergeladen=%s Bytes (Größe wird gecacht)",
                     rel_path, _node_size, _local_size,
                 )
+                pkg_sizes[rel_path] = _local_size
             if _node_mtime:
                 _remote_ts = _node_mtime.timestamp()
                 if abs(_remote_ts - _local_mtime) > 2:
@@ -826,6 +845,11 @@ def sync_drive_folder(
     # Save etag cache only when no errors occurred
     if stats["errors"] == 0:
         cache.update(new_etags)
+        # Prune package sizes for files that no longer exist remotely
+        if pkg_sizes:
+            cache["_package_sizes"] = {
+                k: v for k, v in pkg_sizes.items() if k in remote_files
+            }
         _save_cache(destination_key, folder_name, cache)
 
     return stats
