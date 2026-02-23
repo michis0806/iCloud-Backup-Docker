@@ -582,17 +582,36 @@ def _walk_remote(node, prefix: str = "", excludes: list[str] | None = None,
 def _file_needs_update(node, local_path: Path) -> bool:
     """Return True when the local file is missing or outdated."""
     if not local_path.exists():
+        log.debug(
+            "Update nötig (lokal nicht vorhanden): %s",
+            local_path.name,
+        )
         return True
     try:
         remote_size = node.size or 0
         local_size = local_path.stat().st_size
         if remote_size != local_size:
+            log.debug(
+                "Update nötig (Größe unterschiedlich): %s – "
+                "remote=%s Bytes, lokal=%s Bytes",
+                local_path.name, remote_size, local_size,
+            )
             return True
         remote_mtime = node.date_modified.timestamp() if node.date_modified else 0
         local_mtime = local_path.stat().st_mtime
         if abs(remote_mtime - local_mtime) > 2:
+            log.debug(
+                "Update nötig (mtime unterschiedlich): %s – "
+                "remote=%s, lokal=%s, diff=%.1fs",
+                local_path.name, remote_mtime, local_mtime,
+                abs(remote_mtime - local_mtime),
+            )
             return True
-    except Exception:
+    except Exception as exc:
+        log.debug(
+            "Update nötig (Prüfung fehlgeschlagen): %s – %s",
+            local_path.name, exc,
+        )
         return True
     return False
 
@@ -703,6 +722,17 @@ def sync_drive_folder(
             stats["skipped"] += 1
             continue
 
+        # Log remote node metadata to help diagnose repeated downloads
+        _node_type = getattr(node, "type", "unknown")
+        _node_size = node.size if node.size else 0
+        _node_mtime = node.date_modified if node.date_modified else None
+        _node_drivewsid = node.data.get("drivewsid", "") if hasattr(node, "data") else ""
+        log.debug(
+            "Download wird gestartet: %s – type=%s, remote_size=%s, "
+            "remote_mtime=%s, drivewsid=%s",
+            rel_path, _node_type, _node_size, _node_mtime, _node_drivewsid,
+        )
+
         if dry_run:
             log.info("[DRY RUN] Würde herunterladen: %s", rel_path)
             stats["downloaded"] += 1
@@ -720,6 +750,28 @@ def sync_drive_folder(
             if node.date_modified:
                 mtime = node.date_modified.timestamp()
                 os.utime(local_path, (mtime, mtime))
+
+            # Log post-download comparison to detect persistent mismatches
+            _local_stat = local_path.stat()
+            _local_size = _local_stat.st_size
+            _local_mtime = _local_stat.st_mtime
+            if _node_size and _local_size != _node_size:
+                log.warning(
+                    "Größen-Abweichung nach Download: %s – "
+                    "remote=%s Bytes, heruntergeladen=%s Bytes "
+                    "(Datei wird beim nächsten Lauf erneut heruntergeladen!)",
+                    rel_path, _node_size, _local_size,
+                )
+            if _node_mtime:
+                _remote_ts = _node_mtime.timestamp()
+                if abs(_remote_ts - _local_mtime) > 2:
+                    log.warning(
+                        "mtime-Abweichung nach Download: %s – "
+                        "remote=%s, lokal=%s, diff=%.1fs "
+                        "(Datei wird beim nächsten Lauf erneut heruntergeladen!)",
+                        rel_path, _remote_ts, _local_mtime,
+                        abs(_remote_ts - _local_mtime),
+                    )
 
             log.info("Heruntergeladen: %s", rel_path)
             stats["downloaded"] += 1
