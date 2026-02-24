@@ -1,0 +1,120 @@
+name: Check pyicloud Updates
+
+on:
+  schedule:
+    # Daily at 06:00 UTC
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+env:
+  PACKAGE_NAME: pyicloud
+
+jobs:
+  check-and-release:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Get latest pyicloud version from PyPI
+        id: pypi
+        run: |
+          LATEST=$(curl -sf https://pypi.org/pypi/${{ env.PACKAGE_NAME }}/json | jq -r '.info.version')
+          if [ -z "$LATEST" ] || [ "$LATEST" = "null" ]; then
+            echo "Failed to fetch latest version from PyPI"
+            exit 1
+          fi
+          echo "version=$LATEST" >> "$GITHUB_OUTPUT"
+          echo "Latest pyicloud on PyPI: $LATEST"
+
+      - name: Restore cached version
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .pyicloud-version
+          key: pyicloud-version-${{ steps.pypi.outputs.version }}
+          restore-keys: |
+            pyicloud-version-
+
+      - name: Read cached version
+        id: cached
+        run: |
+          if [ -f .pyicloud-version ]; then
+            CACHED=$(cat .pyicloud-version)
+          else
+            CACHED=""
+          fi
+          echo "version=$CACHED" >> "$GITHUB_OUTPUT"
+          echo "Cached pyicloud version: ${CACHED:-<none>}"
+
+      - name: Compare versions
+        id: compare
+        run: |
+          LATEST="${{ steps.pypi.outputs.version }}"
+          CACHED="${{ steps.cached.outputs.version }}"
+          if [ "$LATEST" = "$CACHED" ]; then
+            echo "pyicloud $LATEST is already built – skipping."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "New pyicloud version detected: $CACHED -> $LATEST"
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout repository
+        if: steps.compare.outputs.changed == 'true'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Determine next version
+        if: steps.compare.outputs.changed == 'true'
+        id: next
+        run: |
+          # Get the latest semver tag (e.g. v0.9.6)
+          LATEST_TAG=$(git tag -l 'v*' --sort=-v:refname | head -n 1)
+          if [ -z "$LATEST_TAG" ]; then
+            NEXT="v0.0.1"
+          else
+            # Strip the leading 'v'
+            VERSION="${LATEST_TAG#v}"
+            MAJOR=$(echo "$VERSION" | cut -d. -f1)
+            MINOR=$(echo "$VERSION" | cut -d. -f2)
+            PATCH=$(echo "$VERSION" | cut -d. -f3)
+            PATCH=$((PATCH + 1))
+            NEXT="v${MAJOR}.${MINOR}.${PATCH}"
+          fi
+          echo "tag=$NEXT" >> "$GITHUB_OUTPUT"
+          echo "Next release: $LATEST_TAG -> $NEXT"
+
+      - name: Create release
+        if: steps.compare.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ steps.next.outputs.tag }}"
+          PYICLOUD_VERSION="${{ steps.pypi.outputs.version }}"
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes "Bump pyicloud dependency to version $PYICLOUD_VERSION" \
+            --target "${{ github.sha }}"
+
+      - name: Trigger Docker build
+        if: steps.compare.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ steps.next.outputs.tag }}"
+          gh workflow run docker-publish.yml --ref "$TAG"
+
+      - name: Save version to cache
+        if: steps.compare.outputs.changed == 'true'
+        run: echo "${{ steps.pypi.outputs.version }}" > .pyicloud-version
+
+      - name: Update cache
+        if: steps.compare.outputs.changed == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .pyicloud-version
+          key: pyicloud-version-${{ steps.pypi.outputs.version }}
