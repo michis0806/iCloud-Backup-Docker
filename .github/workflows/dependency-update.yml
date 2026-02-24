@@ -1,0 +1,115 @@
+name: Rebuild on pyicloud Update
+
+on:
+  schedule:
+    # Daily at 06:00 UTC
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+env:
+  IMAGE_NAME: michis0806/icloud-backup-docker
+  PACKAGE_NAME: pyicloud
+
+jobs:
+  check-and-rebuild:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Get latest pyicloud version from PyPI
+        id: pypi
+        run: |
+          LATEST=$(curl -sf https://pypi.org/pypi/${{ env.PACKAGE_NAME }}/json | jq -r '.info.version')
+          if [ -z "$LATEST" ] || [ "$LATEST" = "null" ]; then
+            echo "Failed to fetch latest version from PyPI"
+            exit 1
+          fi
+          echo "version=$LATEST" >> "$GITHUB_OUTPUT"
+          echo "Latest pyicloud on PyPI: $LATEST"
+
+      - name: Restore cached version
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .pyicloud-version
+          key: pyicloud-version-${{ steps.pypi.outputs.version }}
+          restore-keys: |
+            pyicloud-version-
+
+      - name: Read cached version
+        id: cached
+        run: |
+          if [ -f .pyicloud-version ]; then
+            CACHED=$(cat .pyicloud-version)
+          else
+            CACHED=""
+          fi
+          echo "version=$CACHED" >> "$GITHUB_OUTPUT"
+          echo "Cached pyicloud version: ${CACHED:-<none>}"
+
+      - name: Compare versions
+        id: compare
+        run: |
+          LATEST="${{ steps.pypi.outputs.version }}"
+          CACHED="${{ steps.cached.outputs.version }}"
+          if [ "$LATEST" = "$CACHED" ]; then
+            echo "pyicloud $LATEST is already built – skipping."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "New pyicloud version detected: $CACHED -> $LATEST"
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout repository
+        if: steps.compare.outputs.changed == 'true'
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        if: steps.compare.outputs.changed == 'true'
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        if: steps.compare.outputs.changed == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        if: steps.compare.outputs.changed == 'true'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build date
+        if: steps.compare.outputs.changed == 'true'
+        id: builddate
+        run: echo "value=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push Docker image
+        if: steps.compare.outputs.changed == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:latest
+            ${{ env.IMAGE_NAME }}:pyicloud-${{ steps.pypi.outputs.version }}
+          build-args: |
+            APP_VERSION=pyicloud-${{ steps.pypi.outputs.version }}
+            APP_COMMIT=${{ github.sha }}
+            APP_BUILD_DATE=${{ steps.builddate.outputs.value }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Save version to cache
+        if: steps.compare.outputs.changed == 'true'
+        run: echo "${{ steps.pypi.outputs.version }}" > .pyicloud-version
+
+      - name: Update cache
+        if: steps.compare.outputs.changed == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .pyicloud-version
+          key: pyicloud-version-${{ steps.pypi.outputs.version }}
