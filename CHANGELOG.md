@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.11] 2026-03-02
+
+### Added
+- **iCloud Contacts Backup** – Back up all iCloud contacts as individual VCF files (vCard 3.0), a combined `all_contacts.vcf`, and raw JSON. Includes SHA-256 hash caching for change detection.
+- **iCloud Calendar Backup** – Back up all iCloud calendars as standard `.ics` files (one per calendar) using `pyicloud` for data retrieval and the `icalendar` library for standards-compliant ICS generation. 7-year date range (5 years back, 2 years forward).
+- **Contacts sync policy** – Configurable handling of deleted contacts: keep locally, delete, or archive to `/archive/` (default: archive). Matches the existing Drive/Photos sync policy pattern.
+- New UI configuration cards for Contacts and Calendar backup toggles
+- Backup stats now include contacts and calendar results (written, skipped, archived, deleted, errors)
+
 ## [0.9.10] 2026-03-02
 
 ### Fixed

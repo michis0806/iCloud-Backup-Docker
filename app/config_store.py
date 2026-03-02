@@ -77,6 +77,7 @@ def _default_backup() -> dict:
         "backup_photos": False,
         "backup_contacts": False,
         "backup_calendar": False,
+        "contacts_sync_policy": "archive",
         "drive_config_mode": "simple",
         "drive_folders_simple": None,
         "drive_folders_advanced": None,
@@ -223,6 +224,7 @@ def save_backup_config(apple_id: str, config: dict) -> dict | None:
             "drive_config_mode",
             "drive_folders_simple", "drive_folders_advanced",
             "photos_include_family", "shared_library_id",
+            "contacts_sync_policy",
             "drive_sync_policy", "photos_sync_policy",
             "exclusions", "destination",
         ):
