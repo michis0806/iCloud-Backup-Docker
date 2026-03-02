@@ -7,10 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.10.0] 2026-03-02
+## [0.9.10] 2026-03-02
 
 ### Fixed
-- Geplanter Backup-Job wurde gelegentlich übersprungen, wenn der Scheduler den Auslösezeitpunkt um wenige Sekunden verpasste (APScheduler `misfire_grace_time` von 1s auf 3600s erhöht)
+- Scheduled backup job was occasionally skipped if the scheduler missed the trigger time by a few seconds (APScheduler `misfire_grace_time` increased from 1s to 3600s)
 
 ## [0.9.9] 2026-02-24
 
