@@ -16,7 +16,7 @@ _TOKEN_WARNING_DAYS = 50
 
 log = logging.getLogger("icloud-backup")
 
-scheduler = AsyncIOScheduler()
+scheduler = AsyncIOScheduler(job_defaults={"misfire_grace_time": 3600})
 
 _BACKUP_JOB_ID = "backup_all"
 
