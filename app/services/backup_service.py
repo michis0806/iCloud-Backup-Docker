@@ -1,9 +1,11 @@
-"""Core backup logic for iCloud Drive and iCloud Photos."""
+"""Core backup logic for iCloud Drive, iCloud Photos, and iCloud Contacts."""
 
 import gc
+import hashlib
 import json
 import logging
 import os
+import re
 import shutil
 import threading
 from datetime import datetime
@@ -1281,7 +1283,7 @@ def get_backup_storage_stats(destination: str) -> dict:
     """
     base = settings.backup_path / destination
     result = {}
-    for subdir in ("photos", "drive"):
+    for subdir in ("photos", "drive", "contacts"):
         path = base / subdir
         if not path.exists():
             result[subdir] = {"count": 0, "size_bytes": 0}
@@ -1300,6 +1302,281 @@ def get_backup_storage_stats(destination: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# iCloud Contacts backup
+# ---------------------------------------------------------------------------
+
+def _escape_vcard(value: str) -> str:
+    """Escape special characters for vCard 3.0 text values."""
+    value = value.replace("\\", "\\\\")
+    value = value.replace(";", "\\;")
+    value = value.replace(",", "\\,")
+    value = value.replace("\n", "\\n")
+    return value
+
+
+def _contact_to_vcard(contact: dict) -> str:
+    """Convert a pyicloud contact dict to a vCard 3.0 string."""
+    lines = ["BEGIN:VCARD", "VERSION:3.0"]
+
+    first = contact.get("firstName", "")
+    last = contact.get("lastName", "")
+    middle = contact.get("middleName", "")
+    prefix = contact.get("prefix", "")
+    suffix = contact.get("suffix", "")
+    nickname = contact.get("nickName", "")
+    company = contact.get("companyName", "")
+    department = contact.get("department", "")
+    job_title = contact.get("jobTitle", "")
+    notes = contact.get("notes", "")
+    birthday = contact.get("birthday", "")
+
+    # N and FN are required
+    n_parts = [
+        _escape_vcard(last),
+        _escape_vcard(first),
+        _escape_vcard(middle),
+        _escape_vcard(prefix),
+        _escape_vcard(suffix),
+    ]
+    lines.append(f"N:{';'.join(n_parts)}")
+
+    fn = " ".join(p for p in [prefix, first, middle, last, suffix] if p).strip()
+    if not fn:
+        fn = company or "Unbekannt"
+    lines.append(f"FN:{_escape_vcard(fn)}")
+
+    if nickname:
+        lines.append(f"NICKNAME:{_escape_vcard(nickname)}")
+
+    if company or department:
+        org_parts = [_escape_vcard(company)]
+        if department:
+            org_parts.append(_escape_vcard(department))
+        lines.append(f"ORG:{';'.join(org_parts)}")
+
+    if job_title:
+        lines.append(f"TITLE:{_escape_vcard(job_title)}")
+
+    # Phone numbers
+    _PHONE_TYPE_MAP = {
+        "MOBILE": "CELL", "IPHONE": "CELL",
+        "HOME": "HOME", "WORK": "WORK", "MAIN": "VOICE",
+        "HOME FAX": "HOME,FAX", "WORK FAX": "WORK,FAX",
+        "PAGER": "PAGER", "OTHER": "VOICE",
+    }
+    for phone in contact.get("phones", []):
+        number = phone.get("field", "")
+        if not number:
+            continue
+        label = phone.get("label", "").upper()
+        vtype = _PHONE_TYPE_MAP.get(label, "VOICE")
+        lines.append(f"TEL;TYPE={vtype}:{number}")
+
+    # Email addresses
+    for email in contact.get("emailAddresses", []):
+        addr = email.get("field", "")
+        if not addr:
+            continue
+        label = email.get("label", "").upper()
+        etype = "HOME" if "HOME" in label else ("WORK" if "WORK" in label else "INTERNET")
+        lines.append(f"EMAIL;TYPE={etype}:{addr}")
+
+    # Street addresses
+    for addr in contact.get("streetAddresses", []):
+        street = addr.get("field", {})
+        if isinstance(street, dict):
+            parts = [
+                "",  # PO box
+                "",  # extended address
+                _escape_vcard(street.get("street", "")),
+                _escape_vcard(street.get("city", "")),
+                _escape_vcard(street.get("state", "")),
+                _escape_vcard(street.get("postalCode", "")),
+                _escape_vcard(street.get("country", "")),
+            ]
+            label = addr.get("label", "").upper()
+            atype = "HOME" if "HOME" in label else ("WORK" if "WORK" in label else "HOME")
+            lines.append(f"ADR;TYPE={atype}:{';'.join(parts)}")
+
+    # URLs
+    for url in contact.get("urls", []):
+        link = url.get("field", "")
+        if link:
+            lines.append(f"URL:{link}")
+
+    # Birthday
+    if birthday:
+        # pyicloud may return "YYYY-MM-DD" or a date array
+        if isinstance(birthday, str) and re.match(r"\d{4}-\d{2}-\d{2}", birthday):
+            lines.append(f"BDAY:{birthday}")
+
+    # Notes
+    if notes:
+        lines.append(f"NOTE:{_escape_vcard(notes)}")
+
+    # UID – use contactId for stable identity
+    contact_id = contact.get("contactId", "")
+    if contact_id:
+        lines.append(f"UID:{contact_id}")
+
+    lines.append("END:VCARD")
+    return "\r\n".join(lines)
+
+
+def _safe_filename(name: str) -> str:
+    """Create a filesystem-safe filename from a contact name."""
+    name = re.sub(r'[<>:"/\\|?*]', "_", name)
+    name = name.strip(". ")
+    return name or "unnamed"
+
+
+def run_contacts_backup(
+    apple_id: str,
+    destination: str,
+    config_id: str | None = None,
+) -> dict:
+    """Backup all iCloud contacts as VCF files.
+
+    Creates:
+      - {destination}/contacts/all_contacts.vcf (combined)
+      - {destination}/contacts/{name}.vcf (individual)
+      - {destination}/contacts/contacts.json (raw JSON)
+
+    Returns stats dict with downloaded, skipped, errors counts.
+    """
+    stats = {"downloaded": 0, "skipped": 0, "errors": 0}
+
+    if config_id is not None:
+        _set_progress(config_id, {
+            "phase": "contacts",
+            "folder": "",
+            "current_file": "Kontakte werden abgerufen...",
+            "downloaded": 0, "skipped": 0, "errors": 0,
+        })
+
+    contacts = icloud_service.get_contacts(apple_id)
+    if contacts is None:
+        log.error("Kontakte für %s konnten nicht abgerufen werden.", apple_id)
+        stats["errors"] += 1
+        return stats
+
+    dest_path = settings.backup_path / destination / "contacts"
+    dest_path.mkdir(parents=True, exist_ok=True)
+
+    # Load previous hash cache
+    cache_file = settings.config_path / f".icloud-contacts-cache-{destination}.json"
+    old_hashes: dict[str, str] = {}
+    if cache_file.exists():
+        try:
+            old_hashes = json.loads(cache_file.read_text())
+        except Exception:
+            pass
+
+    new_hashes: dict[str, str] = {}
+    vcards_combined = []
+    written_filenames: set[str] = set()
+
+    log.info(
+        "Kontakte-Backup für %s: %d Kontakte gefunden",
+        apple_id, len(contacts),
+    )
+
+    for i, contact in enumerate(contacts):
+        if _is_cancelled(config_id):
+            raise BackupCancelled()
+
+        contact_id = contact.get("contactId", f"unknown_{i}")
+        first = contact.get("firstName", "")
+        last = contact.get("lastName", "")
+        display = f"{first} {last}".strip() or contact.get("companyName", "") or contact_id
+
+        if config_id is not None:
+            _set_progress(config_id, {
+                "phase": "contacts",
+                "folder": "",
+                "current_file": display,
+                "downloaded": stats["downloaded"],
+                "skipped": stats["skipped"],
+                "errors": stats["errors"],
+            })
+
+        try:
+            # Compute hash of contact data for change detection
+            contact_json = json.dumps(contact, sort_keys=True, ensure_ascii=False)
+            contact_hash = hashlib.sha256(contact_json.encode()).hexdigest()[:16]
+            new_hashes[contact_id] = contact_hash
+
+            vcard = _contact_to_vcard(contact)
+            vcards_combined.append(vcard)
+
+            # Determine individual filename (handle collisions)
+            base_name = _safe_filename(display)
+            filename = base_name
+            counter = 1
+            while filename.lower() in written_filenames:
+                filename = f"{base_name}_{counter}"
+                counter += 1
+            written_filenames.add(filename.lower())
+
+            vcf_path = dest_path / f"{filename}.vcf"
+
+            # Skip if unchanged
+            if old_hashes.get(contact_id) == contact_hash and vcf_path.exists():
+                stats["skipped"] += 1
+                continue
+
+            vcf_path.write_text(vcard, encoding="utf-8")
+            stats["downloaded"] += 1
+
+        except Exception as exc:
+            log.error("Fehler beim Verarbeiten von Kontakt '%s': %s", display, exc)
+            stats["errors"] += 1
+
+    # Write combined VCF
+    try:
+        combined_path = dest_path / "all_contacts.vcf"
+        combined_path.write_text("\r\n".join(vcards_combined), encoding="utf-8")
+    except Exception as exc:
+        log.error("Fehler beim Schreiben von all_contacts.vcf: %s", exc)
+        stats["errors"] += 1
+
+    # Write raw JSON backup
+    try:
+        json_path = dest_path / "contacts.json"
+        json_path.write_text(
+            json.dumps(contacts, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    except Exception as exc:
+        log.error("Fehler beim Schreiben von contacts.json: %s", exc)
+        stats["errors"] += 1
+
+    # Remove individual VCF files for contacts that no longer exist
+    current_files = {f"{_safe_filename(display)}.vcf" for display in written_filenames}
+    current_files.add("all_contacts.vcf")
+    current_files.add("contacts.json")
+    for existing in dest_path.iterdir():
+        if existing.is_file() and existing.name not in current_files:
+            try:
+                existing.unlink()
+                log.debug("Gelöschten Kontakt entfernt: %s", existing.name)
+            except OSError:
+                pass
+
+    # Save hash cache
+    try:
+        cache_file.write_text(json.dumps(new_hashes, ensure_ascii=False))
+    except Exception:
+        pass
+
+    log.info(
+        "Kontakte-Backup für %s abgeschlossen: %d geschrieben, %d übersprungen, %d Fehler",
+        apple_id, stats["downloaded"], stats["skipped"], stats["errors"],
+    )
+    return stats
+
+
+# ---------------------------------------------------------------------------
 # Combined backup runner
 # ---------------------------------------------------------------------------
 
@@ -1307,6 +1584,7 @@ def run_backup(
     apple_id: str,
     backup_drive: bool = False,
     backup_photos: bool = False,
+    backup_contacts: bool = False,
     drive_folders: list[str] | None = None,
     photos_include_family: bool = False,
     shared_library_id: str | None = None,
@@ -1318,7 +1596,7 @@ def run_backup(
     photos_sync_policy: str = SyncPolicy.KEEP,
 ) -> dict:
     """Run a complete backup for one account based on its configuration."""
-    result = {"drive_stats": None, "photos_stats": None, "success": True, "message": ""}
+    result = {"drive_stats": None, "photos_stats": None, "contacts_stats": None, "success": True, "message": ""}
 
     if not destination:
         destination = apple_id.replace("@", "_at_").replace(".", "_")
@@ -1365,6 +1643,15 @@ def run_backup(
             result["photos_stats"] = photos_stats
             if photos_stats["errors"] > 0:
                 result["success"] = False
+
+        if backup_contacts:
+            log.info("Starte iCloud Kontakte Backup für %s", apple_id)
+            contacts_stats = run_contacts_backup(
+                apple_id, destination, config_id=config_id,
+            )
+            result["contacts_stats"] = contacts_stats
+            if contacts_stats["errors"] > 0:
+                result["success"] = False
     except BackupCancelled:
         cancelled = True
         log.info("Backup für %s wurde vom Benutzer abgebrochen.", apple_id)
@@ -1393,6 +1680,10 @@ def run_backup(
         if p.get('archived'):
             summary += f", {p['archived']} archiviert"
         summary += f", {p['skipped']} übersprungen, {p['errors']} Fehler"
+        parts.append(summary)
+    if result["contacts_stats"]:
+        c = result["contacts_stats"]
+        summary = f"Kontakte: {c['downloaded']} geschrieben, {c['skipped']} übersprungen, {c['errors']} Fehler"
         parts.append(summary)
 
     result["message"] = " | ".join(parts) if parts else "Nichts zu sichern."

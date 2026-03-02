@@ -30,6 +30,7 @@ class TwoStepSubmit(BaseModel):
 class BackupConfigCreate(BaseModel):
     backup_drive: bool = False
     backup_photos: bool = False
+    backup_contacts: bool = False
     drive_config_mode: DriveConfigMode = DriveConfigMode.SIMPLE
     drive_folders_simple: list[str] | None = None
     drive_folders_advanced: str | None = None
@@ -45,6 +46,7 @@ class BackupConfigResponse(BaseModel):
     apple_id: str
     backup_drive: bool
     backup_photos: bool
+    backup_contacts: bool = False
     drive_config_mode: DriveConfigMode
     drive_folders_simple: list[str] | None = None
     drive_folders_advanced: str | None = None

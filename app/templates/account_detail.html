@@ -47,11 +47,18 @@
                                 <i class="bi bi-folder me-1"></i> iCloud Drive
                             </label>
                         </div>
-                        <div class="form-check form-switch">
+                        <div class="form-check form-switch mb-3">
                             <input class="form-check-input" type="checkbox" id="backupPhotos"
                                    x-model="config.backup_photos">
                             <label class="form-check-label" for="backupPhotos">
                                 <i class="bi bi-image me-1"></i> iCloud Fotos
+                            </label>
+                        </div>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="backupContacts"
+                                   x-model="config.backup_contacts">
+                            <label class="form-check-label" for="backupContacts">
+                                <i class="bi bi-person-vcard me-1"></i> iCloud Kontakte
                             </label>
                         </div>
                     </div>
@@ -481,6 +488,25 @@
                                     </div>
                                 </div>
                             </template>
+                            <template x-if="backupStatus.stats?.contacts">
+                                <div class="border-top pt-2 mt-2">
+                                    <strong>Kontakte:</strong>
+                                    <div class="d-flex flex-wrap gap-3 mt-1">
+                                        <div>
+                                            <span class="text-success" x-text="backupStatus.stats.contacts.downloaded"></span>
+                                            <span class="text-body-secondary">geschrieben</span>
+                                        </div>
+                                        <div>
+                                            <span class="text-body-secondary" x-text="backupStatus.stats.contacts.skipped"></span>
+                                            <span class="text-body-secondary">übersprungen</span>
+                                        </div>
+                                        <div>
+                                            <span class="text-danger" x-text="backupStatus.stats.contacts.errors"></span>
+                                            <span class="text-body-secondary">Fehler</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
                         </div>
                     </div>
                 </div>
@@ -500,6 +526,7 @@ function accountConfig(appleId) {
         config: {
             backup_drive: false,
             backup_photos: false,
+            backup_contacts: false,
             drive_config_mode: 'simple',
             drive_folders_simple: [],
             drive_folders_advanced: '',
@@ -572,6 +599,7 @@ function accountConfig(appleId) {
                 this.config = {
                     backup_drive: c.backup_drive,
                     backup_photos: c.backup_photos,
+                    backup_contacts: c.backup_contacts || false,
                     drive_config_mode: c.drive_config_mode,
                     drive_folders_simple: c.drive_folders_simple || [],
                     drive_folders_advanced: c.drive_folders_advanced || '',
@@ -673,6 +701,7 @@ function accountConfig(appleId) {
                 'starting': 'Starte...',
                 'drive': 'iCloud Drive',
                 'photos': 'iCloud Fotos',
+                'contacts': 'iCloud Kontakte',
             }[phase] || phase || '';
         },
 

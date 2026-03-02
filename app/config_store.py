@@ -75,6 +75,7 @@ def _default_backup() -> dict:
     return {
         "backup_drive": False,
         "backup_photos": False,
+        "backup_contacts": False,
         "drive_config_mode": "simple",
         "drive_folders_simple": None,
         "drive_folders_advanced": None,
@@ -217,7 +218,7 @@ def save_backup_config(apple_id: str, config: dict) -> dict | None:
         if "backup" not in acc:
             acc["backup"] = _default_backup()
         for key in (
-            "backup_drive", "backup_photos", "drive_config_mode",
+            "backup_drive", "backup_photos", "backup_contacts", "drive_config_mode",
             "drive_folders_simple", "drive_folders_advanced",
             "photos_include_family", "shared_library_id",
             "drive_sync_policy", "photos_sync_policy",
@@ -314,7 +315,7 @@ def list_configured_accounts() -> list[dict]:
     result = []
     for acc in data["accounts"]:
         backup = acc.get("backup") or {}
-        if backup.get("backup_drive") or backup.get("backup_photos"):
+        if backup.get("backup_drive") or backup.get("backup_photos") or backup.get("backup_contacts"):
             result.append({
                 "apple_id": acc["apple_id"],
                 "status": acc.get("status", "pending"),
