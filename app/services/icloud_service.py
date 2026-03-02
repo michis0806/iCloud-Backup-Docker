@@ -572,6 +572,44 @@ def get_contacts(apple_id: str) -> list[dict] | None:
         return None
 
 
+def get_calendars(apple_id: str) -> list[dict] | None:
+    """Fetch all calendars for the given account.
+
+    Returns a list of calendar dicts or None when no session is available.
+    """
+    api = get_session(apple_id)
+    if api is None:
+        return None
+
+    try:
+        return api.calendar.get_calendars()
+    except Exception as exc:
+        log.error("Fehler beim Abrufen der Kalender für %s: %s", apple_id, exc)
+        return None
+
+
+def get_calendar_events(
+    apple_id: str,
+    from_dt: "datetime | None" = None,
+    to_dt: "datetime | None" = None,
+) -> list[dict] | None:
+    """Fetch calendar events for the given account and date range.
+
+    Returns a list of event dicts or None when no session is available.
+    """
+    from datetime import datetime
+
+    api = get_session(apple_id)
+    if api is None:
+        return None
+
+    try:
+        return api.calendar.get_events(from_dt=from_dt, to_dt=to_dt)
+    except Exception as exc:
+        log.error("Fehler beim Abrufen der Kalender-Events für %s: %s", apple_id, exc)
+        return None
+
+
 def disconnect(apple_id: str) -> None:
     """Remove a session from the in-memory cache."""
     _sessions.pop(apple_id, None)

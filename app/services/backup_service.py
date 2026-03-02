@@ -1283,7 +1283,7 @@ def get_backup_storage_stats(destination: str) -> dict:
     """
     base = settings.backup_path / destination
     result = {}
-    for subdir in ("photos", "drive", "contacts"):
+    for subdir in ("photos", "drive", "contacts", "calendar"):
         path = base / subdir
         if not path.exists():
             result[subdir] = {"count": 0, "size_bytes": 0}
@@ -1577,6 +1577,315 @@ def run_contacts_backup(
 
 
 # ---------------------------------------------------------------------------
+# iCloud Calendar backup
+# ---------------------------------------------------------------------------
+
+def _apple_date_to_datetime(date_list: list, tz_name: str = "") -> datetime | None:
+    """Convert Apple's 7-element date array to a Python datetime.
+
+    Format: [YYYYMMDD_str, year, month, day, hour, minute, minutes_from_midnight]
+    """
+    try:
+        if not date_list or len(date_list) < 6:
+            return None
+        year = int(date_list[1])
+        month = int(date_list[2])
+        day = int(date_list[3])
+        hour = int(date_list[4])
+        minute = int(date_list[5])
+        return datetime(year, month, day, hour, minute)
+    except (ValueError, TypeError, IndexError):
+        return None
+
+
+def _event_to_ical(event: dict, cal_name: str = "") -> "icalendar.Event | None":
+    """Convert a pyicloud calendar event dict to an icalendar Event component."""
+    from icalendar import Event as ICalEvent, vText
+
+    try:
+        ical_event = ICalEvent()
+
+        title = event.get("title", "Ohne Titel")
+        ical_event.add("summary", title)
+
+        guid = event.get("guid", "")
+        if guid:
+            ical_event.add("uid", guid)
+
+        tz_name = event.get("tz", "")
+
+        # Parse dates
+        start_date = event.get("startDate") or event.get("localStartDate")
+        end_date = event.get("endDate") or event.get("localEndDate")
+
+        start_dt = _apple_date_to_datetime(start_date, tz_name)
+        end_dt = _apple_date_to_datetime(end_date, tz_name)
+
+        if start_dt is None:
+            return None
+
+        all_day = event.get("allDay", False)
+
+        if all_day:
+            ical_event.add("dtstart", start_dt.date())
+            if end_dt:
+                ical_event.add("dtend", end_dt.date())
+        else:
+            if tz_name:
+                try:
+                    import zoneinfo
+                    tz = zoneinfo.ZoneInfo(tz_name)
+                    start_dt = start_dt.replace(tzinfo=tz)
+                    if end_dt:
+                        end_dt = end_dt.replace(tzinfo=tz)
+                except (KeyError, Exception):
+                    pass
+            ical_event.add("dtstart", start_dt)
+            if end_dt:
+                ical_event.add("dtend", end_dt)
+
+        # Duration
+        duration = event.get("duration")
+        if duration and not end_dt:
+            from datetime import timedelta
+            ical_event.add("duration", timedelta(minutes=int(duration)))
+
+        # Location
+        location = event.get("location", "")
+        if location:
+            ical_event.add("location", location)
+
+        # Description
+        description = event.get("description", "")
+        if description:
+            ical_event.add("description", description)
+
+        # URL
+        url = event.get("url", "")
+        if url:
+            ical_event.add("url", url)
+
+        # Alarms / reminders
+        for alarm_data in event.get("alarms", []):
+            if isinstance(alarm_data, dict):
+                from icalendar import Alarm
+                from datetime import timedelta as td
+                alarm = Alarm()
+                alarm.add("action", "DISPLAY")
+                alarm.add("description", title)
+                measurement = alarm_data.get("measurement", {})
+                if isinstance(measurement, dict):
+                    total_minutes = (
+                        measurement.get("weeks", 0) * 7 * 24 * 60
+                        + measurement.get("days", 0) * 24 * 60
+                        + measurement.get("hours", 0) * 60
+                        + measurement.get("minutes", 0)
+                    )
+                    before = measurement.get("before", True)
+                    if before:
+                        alarm.add("trigger", td(minutes=-total_minutes))
+                    else:
+                        alarm.add("trigger", td(minutes=0))
+                    ical_event.add_component(alarm)
+
+        # Invitees
+        for invitee in event.get("invitees", []):
+            if isinstance(invitee, dict):
+                email = invitee.get("email", "")
+                if email:
+                    ical_event.add("attendee", f"mailto:{email}")
+            elif isinstance(invitee, str) and ":" in invitee:
+                email = invitee.split(":")[-1]
+                if "@" in email:
+                    ical_event.add("attendee", f"mailto:{email}")
+
+        # Etag as sequence
+        etag = event.get("etag", "")
+        if etag:
+            ical_event.add("x-apple-etag", etag)
+
+        return ical_event
+
+    except Exception as exc:
+        log.debug("Fehler bei Event-Konvertierung '%s': %s", event.get("title", "?"), exc)
+        return None
+
+
+def run_calendar_backup(
+    apple_id: str,
+    destination: str,
+    config_id: str | None = None,
+) -> dict:
+    """Backup all iCloud calendars as ICS files.
+
+    Creates:
+      - {destination}/calendar/{calendar_name}.ics (per calendar)
+      - {destination}/calendar/calendars.json (raw JSON)
+
+    Fetches events spanning 5 years back and 2 years forward.
+
+    Returns stats dict with downloaded, skipped, errors counts.
+    """
+    from icalendar import Calendar as ICalCalendar
+    from datetime import timedelta
+
+    stats = {"downloaded": 0, "skipped": 0, "errors": 0}
+
+    if config_id is not None:
+        _set_progress(config_id, {
+            "phase": "calendar",
+            "folder": "",
+            "current_file": "Kalender werden abgerufen...",
+            "downloaded": 0, "skipped": 0, "errors": 0,
+        })
+
+    # Fetch calendars
+    calendars = icloud_service.get_calendars(apple_id)
+    if calendars is None:
+        log.error("Kalender für %s konnten nicht abgerufen werden.", apple_id)
+        stats["errors"] += 1
+        return stats
+
+    # Fetch events with a wide date range for a complete backup
+    now = datetime.now()
+    from_dt = datetime(now.year - 5, 1, 1)
+    to_dt = datetime(now.year + 2, 12, 31)
+
+    # pyicloud fetches events month by month internally; we call it once
+    # with the full range and let the API handle pagination
+    all_events = icloud_service.get_calendar_events(apple_id, from_dt=from_dt, to_dt=to_dt)
+    if all_events is None:
+        log.error("Kalender-Events für %s konnten nicht abgerufen werden.", apple_id)
+        stats["errors"] += 1
+        return stats
+
+    dest_path = settings.backup_path / destination / "calendar"
+    dest_path.mkdir(parents=True, exist_ok=True)
+
+    # Load previous hash cache for change detection
+    cache_file = settings.config_path / f".icloud-calendar-cache-{destination}.json"
+    old_hashes: dict[str, str] = {}
+    if cache_file.exists():
+        try:
+            old_hashes = json.loads(cache_file.read_text())
+        except Exception:
+            pass
+
+    # Group events by calendar (pGuid)
+    cal_map: dict[str, dict] = {}
+    for cal in calendars:
+        guid = cal.get("guid", "")
+        if guid:
+            cal_map[guid] = cal
+
+    events_by_cal: dict[str, list[dict]] = {}
+    for ev in all_events:
+        pguid = ev.get("pGuid", "")
+        events_by_cal.setdefault(pguid, []).append(ev)
+
+    new_hashes: dict[str, str] = {}
+    written_files: set[str] = set()
+
+    log.info(
+        "Kalender-Backup für %s: %d Kalender, %d Events gefunden",
+        apple_id, len(calendars), len(all_events),
+    )
+
+    for cal_guid, cal_info in cal_map.items():
+        if _is_cancelled(config_id):
+            raise BackupCancelled()
+
+        cal_title = cal_info.get("title", "Unbenannt")
+        cal_events = events_by_cal.get(cal_guid, [])
+
+        if config_id is not None:
+            _set_progress(config_id, {
+                "phase": "calendar",
+                "folder": cal_title,
+                "current_file": f"{len(cal_events)} Events",
+                "downloaded": stats["downloaded"],
+                "skipped": stats["skipped"],
+                "errors": stats["errors"],
+            })
+
+        try:
+            # Build iCalendar
+            ical = ICalCalendar()
+            ical.add("prodid", "-//iCloud Backup Docker//DE")
+            ical.add("version", "2.0")
+            ical.add("x-wr-calname", cal_title)
+            color = cal_info.get("color", "")
+            if color:
+                ical.add("x-apple-calendar-color", color)
+
+            for ev in cal_events:
+                ical_event = _event_to_ical(ev, cal_title)
+                if ical_event:
+                    ical.add_component(ical_event)
+
+            ics_content = ical.to_ical().decode("utf-8")
+
+            # Compute hash for change detection
+            content_hash = hashlib.sha256(ics_content.encode()).hexdigest()[:16]
+            new_hashes[cal_guid] = content_hash
+
+            safe_name = _safe_filename(cal_title)
+            ics_filename = f"{safe_name}.ics"
+            ics_path = dest_path / ics_filename
+            written_files.add(ics_filename)
+
+            # Skip if unchanged
+            if old_hashes.get(cal_guid) == content_hash and ics_path.exists():
+                stats["skipped"] += 1
+                continue
+
+            ics_path.write_text(ics_content, encoding="utf-8")
+            stats["downloaded"] += 1
+            log.info("Kalender geschrieben: %s (%d Events)", cal_title, len(cal_events))
+
+        except Exception as exc:
+            log.error("Fehler beim Verarbeiten von Kalender '%s': %s", cal_title, exc)
+            stats["errors"] += 1
+
+    # Write raw JSON backup
+    try:
+        json_path = dest_path / "calendars.json"
+        written_files.add("calendars.json")
+        raw_data = {
+            "calendars": calendars,
+            "events": all_events,
+        }
+        json_path.write_text(
+            json.dumps(raw_data, ensure_ascii=False, indent=2, default=str),
+            encoding="utf-8",
+        )
+    except Exception as exc:
+        log.error("Fehler beim Schreiben von calendars.json: %s", exc)
+        stats["errors"] += 1
+
+    # Remove stale .ics files for deleted calendars
+    for existing in dest_path.iterdir():
+        if existing.is_file() and existing.name not in written_files:
+            try:
+                existing.unlink()
+                log.debug("Gelöschten Kalender entfernt: %s", existing.name)
+            except OSError:
+                pass
+
+    # Save hash cache
+    try:
+        cache_file.write_text(json.dumps(new_hashes, ensure_ascii=False))
+    except Exception:
+        pass
+
+    log.info(
+        "Kalender-Backup für %s abgeschlossen: %d geschrieben, %d übersprungen, %d Fehler",
+        apple_id, stats["downloaded"], stats["skipped"], stats["errors"],
+    )
+    return stats
+
+
+# ---------------------------------------------------------------------------
 # Combined backup runner
 # ---------------------------------------------------------------------------
 
@@ -1585,6 +1894,7 @@ def run_backup(
     backup_drive: bool = False,
     backup_photos: bool = False,
     backup_contacts: bool = False,
+    backup_calendar: bool = False,
     drive_folders: list[str] | None = None,
     photos_include_family: bool = False,
     shared_library_id: str | None = None,
@@ -1596,7 +1906,7 @@ def run_backup(
     photos_sync_policy: str = SyncPolicy.KEEP,
 ) -> dict:
     """Run a complete backup for one account based on its configuration."""
-    result = {"drive_stats": None, "photos_stats": None, "contacts_stats": None, "success": True, "message": ""}
+    result = {"drive_stats": None, "photos_stats": None, "contacts_stats": None, "calendar_stats": None, "success": True, "message": ""}
 
     if not destination:
         destination = apple_id.replace("@", "_at_").replace(".", "_")
@@ -1652,6 +1962,15 @@ def run_backup(
             result["contacts_stats"] = contacts_stats
             if contacts_stats["errors"] > 0:
                 result["success"] = False
+
+        if backup_calendar:
+            log.info("Starte iCloud Kalender Backup für %s", apple_id)
+            calendar_stats = run_calendar_backup(
+                apple_id, destination, config_id=config_id,
+            )
+            result["calendar_stats"] = calendar_stats
+            if calendar_stats["errors"] > 0:
+                result["success"] = False
     except BackupCancelled:
         cancelled = True
         log.info("Backup für %s wurde vom Benutzer abgebrochen.", apple_id)
@@ -1684,6 +2003,10 @@ def run_backup(
     if result["contacts_stats"]:
         c = result["contacts_stats"]
         summary = f"Kontakte: {c['downloaded']} geschrieben, {c['skipped']} übersprungen, {c['errors']} Fehler"
+        parts.append(summary)
+    if result["calendar_stats"]:
+        k = result["calendar_stats"]
+        summary = f"Kalender: {k['downloaded']} geschrieben, {k['skipped']} übersprungen, {k['errors']} Fehler"
         parts.append(summary)
 
     result["message"] = " | ".join(parts) if parts else "Nichts zu sichern."

@@ -54,11 +54,18 @@
                                 <i class="bi bi-image me-1"></i> iCloud Fotos
                             </label>
                         </div>
-                        <div class="form-check form-switch">
+                        <div class="form-check form-switch mb-3">
                             <input class="form-check-input" type="checkbox" id="backupContacts"
                                    x-model="config.backup_contacts">
                             <label class="form-check-label" for="backupContacts">
                                 <i class="bi bi-person-vcard me-1"></i> iCloud Kontakte
+                            </label>
+                        </div>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="backupCalendar"
+                                   x-model="config.backup_calendar">
+                            <label class="form-check-label" for="backupCalendar">
+                                <i class="bi bi-calendar-event me-1"></i> iCloud Kalender
                             </label>
                         </div>
                     </div>
@@ -507,6 +514,25 @@
                                     </div>
                                 </div>
                             </template>
+                            <template x-if="backupStatus.stats?.calendar">
+                                <div class="border-top pt-2 mt-2">
+                                    <strong>Kalender:</strong>
+                                    <div class="d-flex flex-wrap gap-3 mt-1">
+                                        <div>
+                                            <span class="text-success" x-text="backupStatus.stats.calendar.downloaded"></span>
+                                            <span class="text-body-secondary">geschrieben</span>
+                                        </div>
+                                        <div>
+                                            <span class="text-body-secondary" x-text="backupStatus.stats.calendar.skipped"></span>
+                                            <span class="text-body-secondary">übersprungen</span>
+                                        </div>
+                                        <div>
+                                            <span class="text-danger" x-text="backupStatus.stats.calendar.errors"></span>
+                                            <span class="text-body-secondary">Fehler</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
                         </div>
                     </div>
                 </div>
@@ -527,6 +553,7 @@ function accountConfig(appleId) {
             backup_drive: false,
             backup_photos: false,
             backup_contacts: false,
+            backup_calendar: false,
             drive_config_mode: 'simple',
             drive_folders_simple: [],
             drive_folders_advanced: '',
@@ -600,6 +627,7 @@ function accountConfig(appleId) {
                     backup_drive: c.backup_drive,
                     backup_photos: c.backup_photos,
                     backup_contacts: c.backup_contacts || false,
+                    backup_calendar: c.backup_calendar || false,
                     drive_config_mode: c.drive_config_mode,
                     drive_folders_simple: c.drive_folders_simple || [],
                     drive_folders_advanced: c.drive_folders_advanced || '',
@@ -702,6 +730,7 @@ function accountConfig(appleId) {
                 'drive': 'iCloud Drive',
                 'photos': 'iCloud Fotos',
                 'contacts': 'iCloud Kontakte',
+                'calendar': 'iCloud Kalender',
             }[phase] || phase || '';
         },
 
