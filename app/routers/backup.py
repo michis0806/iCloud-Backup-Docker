@@ -47,7 +47,7 @@ async def trigger_backup(apple_id: str):
         raise HTTPException(status_code=400, detail="Account nicht authentifiziert.")
 
     cfg = config_store.get_backup_config(apple_id)
-    if cfg is None or (not cfg.get("backup_drive") and not cfg.get("backup_photos") and not cfg.get("backup_contacts")):
+    if cfg is None or (not cfg.get("backup_drive") and not cfg.get("backup_photos") and not cfg.get("backup_contacts") and not cfg.get("backup_calendar")):
         raise HTTPException(status_code=400, detail="Keine Backup-Konfiguration vorhanden.")
 
     # Mark as running
@@ -77,6 +77,7 @@ async def trigger_backup(apple_id: str):
                 backup_drive=cfg.get("backup_drive", False),
                 backup_photos=cfg.get("backup_photos", False),
                 backup_contacts=cfg.get("backup_contacts", False),
+                backup_calendar=cfg.get("backup_calendar", False),
                 drive_folders=folders,
                 photos_include_family=cfg.get("photos_include_family", False),
                 shared_library_id=cfg.get("shared_library_id"),
@@ -95,6 +96,7 @@ async def trigger_backup(apple_id: str):
                 "drive": result.get("drive_stats"),
                 "photos": result.get("photos_stats"),
                 "contacts": result.get("contacts_stats"),
+                "calendar": result.get("calendar_stats"),
                 "storage": storage,
             }
             # Notify and update account status when token has expired
@@ -165,6 +167,7 @@ async def trigger_all_backups():
                     backup_drive=cfg.get("backup_drive", False),
                     backup_photos=cfg.get("backup_photos", False),
                     backup_contacts=cfg.get("backup_contacts", False),
+                    backup_calendar=cfg.get("backup_calendar", False),
                     drive_folders=folders,
                     photos_include_family=cfg.get("photos_include_family", False),
                     shared_library_id=cfg.get("shared_library_id"),
@@ -182,6 +185,7 @@ async def trigger_all_backups():
                     "drive": result.get("drive_stats"),
                     "photos": result.get("photos_stats"),
                     "contacts": result.get("contacts_stats"),
+                    "calendar": result.get("calendar_stats"),
                     "storage": storage,
                 }
                 if result.get("auth_expired"):
