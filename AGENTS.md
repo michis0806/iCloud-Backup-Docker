@@ -2,13 +2,14 @@
 
 ## Project Overview
 
-iCloud Backup Docker is a FastAPI-based web application that backs up iCloud Drive and iCloud Photos to local storage. It runs as a Docker container with a Bootstrap 5 / Alpine.js frontend.
+iCloud Backup Docker is a FastAPI-based web application that backs up iCloud Drive, iCloud Photos, iCloud Contacts and iCloud Calendars to local storage. It runs as a Docker container with a Bootstrap 5 / Alpine.js frontend.
 
 ## Tech Stack
 
 - **Backend:** Python 3.12, FastAPI, Uvicorn
 - **Frontend:** Jinja2 templates, Bootstrap 5, Alpine.js
 - **iCloud API:** pyicloud
+- **Calendar ICS:** icalendar (>=6.0.0)
 - **Scheduler:** APScheduler (AsyncIOScheduler)
 - **Config:** Pydantic Settings + YAML persistence
 - **Tests:** pytest + pytest-asyncio + httpx
@@ -27,8 +28,8 @@ app/
 │   ├── accounts.py      # /api/accounts – account CRUD, 2FA endpoints
 │   └── backup.py        # /api/backup – config, trigger, progress
 ├── services/
-│   ├── icloud_service.py    # pyicloud wrapper (auth, 2FA, 2SA, Drive)
-│   ├── backup_service.py    # Core backup logic (Drive + Photos)
+│   ├── icloud_service.py    # pyicloud wrapper (auth, 2FA, 2SA, Drive, Contacts, Calendar)
+│   ├── backup_service.py    # Core backup logic (Drive, Photos, Contacts, Calendar)
 │   ├── scheduler.py         # APScheduler cron job management
 │   ├── notification.py      # Synology DSM notifications (synodsmnotify)
 │   └── log_handler.py       # Ring buffer for live log viewer
@@ -68,7 +69,9 @@ Drive downloads use `node.open(stream=True)` which returns a `Response` and is r
 
 - **Drive backup:** Recursively walks iCloud Drive folders, downloads files via `_open_drive_node()` (wraps `node.open(stream=True)` with fallback logic for special characters), uses etag caching to skip unchanged folders.
 - **Photos backup:** Iterates `api.photos.all`, organizes by date into `YYYY/MM/DD/` directories. Change detection uses a **multi-level approach**: (1) fingerprint cache (`resOriginalFingerprint` / `recordChangeTag`) as primary check, (2) file size comparison as fallback. The fingerprint cache is persisted per library in `/config/.icloud-photo-cache-*.json`.
-- Both support exclusion patterns (glob and path-based).
+- **Contacts backup:** Fetches all contacts via `api.contacts.all`, converts each to vCard 3.0 format (manual conversion in `_contact_to_vcard()`). Creates individual VCF files, a combined `all_contacts.vcf`, and a raw `contacts.json`. SHA-256 hash per `contactId` for change detection (cache: `/config/.icloud-contacts-cache-*.json`). Deleted contacts are handled via configurable sync policy (default: archive).
+- **Calendar backup:** Fetches calendars via `api.calendar.get_calendars()` and events via `api.calendar.get_events()` (7-year window: 5 years back, 2 years forward). Apple's proprietary 7-element date arrays are converted to Python datetimes via `_apple_date_to_datetime()`. Events are converted to `icalendar.Event` objects via `_event_to_ical()` (handles all-day events, timezones, alarms, attendees). One `.ics` file per calendar. SHA-256 hash per calendar GUID for change detection (cache: `/config/.icloud-calendar-cache-*.json`).
+- Drive and Photos support exclusion patterns (glob and path-based).
 
 ### Special Characters in Folder/File Names
 
@@ -90,24 +93,25 @@ If all fallbacks fail, a warning is logged advising the user to rename the folde
 | `last_backup_at` | end | UTC ISO timestamp when backup **finished** (not started!) |
 | `last_backup_duration_seconds` | end | Wall-clock duration in seconds |
 | `last_backup_message` | end | Human-readable result / error message |
-| `last_backup_stats` | end | Dict with `drive`, `photos`, `storage` sub-dicts |
+| `last_backup_stats` | end | Dict with `drive`, `photos`, `contacts`, `calendar`, `storage` sub-dicts |
 
 All timestamps use `datetime.now(timezone.utc).isoformat()` which produces an explicit `+00:00` suffix. This ensures JavaScript `new Date(iso)` correctly interprets them as UTC, and `toLocaleString('de-DE')` renders them in the browser's local timezone.
 
 ### Sync Policy (SyncPolicy enum)
 
-Each backup type (Drive / Photos) has a configurable sync policy that determines what happens to local files when they are deleted in iCloud:
+Each backup type (Drive / Photos / Contacts) has a configurable sync policy that determines what happens to local files when they are deleted in iCloud:
 
-| Policy | Drive Default | Photos Default | Behaviour |
-|--------|:---:|:---:|---|
-| `keep` | | **X** | Local files remain untouched |
-| `delete` | **X** | | Local files are removed |
-| `archive` | | | Files are moved to `/archive/{destination}/…`, preserving the folder structure |
+| Policy | Drive Default | Photos Default | Contacts Default | Behaviour |
+|--------|:---:|:---:|:---:|---|
+| `keep` | | **X** | | Local files remain untouched |
+| `delete` | **X** | | | Local files are removed |
+| `archive` | | | **X** | Files are moved to `/archive/{destination}/…`, preserving the folder structure |
 
-The shared helper `_apply_sync_policy()` in `backup_service.py` implements all three policies and is used by both Drive and Photos reconciliation.
+The shared helper `_apply_sync_policy()` in `backup_service.py` implements all three policies and is used by Drive, Photos, and Contacts reconciliation.
 
 - **Drive:** After downloading, `sync_drive_folder()` compares the `remote_files` set against local files and applies the policy.
 - **Photos:** `run_photos_backup()` collects remote filenames during iteration, then `_reconcile_photos()` applies the policy per library/album.
+- **Contacts:** `run_contacts_backup()` tracks written filenames and compares against existing VCF files after processing all contacts. Orphaned files are handled via `_apply_sync_policy()`.
 - **Archive mount:** `/archive` is a dedicated Docker volume (`ARCHIVE_PATH` env var). Files are moved via `shutil.move()` with the relative path preserved.
 
 ### Configuration

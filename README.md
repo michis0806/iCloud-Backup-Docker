@@ -1,12 +1,14 @@
 # iCloud Backup Docker
 
-A Docker-based backup service for **iCloud Drive** and **iCloud Photos** with a user-friendly web interface.
+A Docker-based backup service for **iCloud Drive**, **iCloud Photos**, **iCloud Contacts** and **iCloud Calendars** with a user-friendly web interface.
 
 ## Features
 
 - **Multi-Account Support** – Manage and back up multiple iCloud accounts
 - **iCloud Drive Backup** – Simple mode (folder selection via checkboxes) or advanced mode (manual path configuration)
 - **iCloud Photos Backup** – Including optional family library
+- **iCloud Contacts Backup** – Individual VCF files (vCard 3.0), combined VCF, and raw JSON with change detection
+- **iCloud Calendar Backup** – Standard `.ics` files per calendar via `icalendar` library (7-year date range)
 - **Sync Policy** – Choose per backup type what happens to locally deleted files: keep, delete, or archive to a dedicated mount
 - **Exclusions** – Flexible exclusion patterns (glob patterns, paths)
 - **Scheduled Backups** – Configurable via cron expressions
@@ -119,14 +121,16 @@ services:
 
 ### 2. Configure Backup
 - Click "Konfigurieren" (Configure) on the desired account
-- Select: iCloud Drive and/or iCloud Photos
+- Select backup types: iCloud Drive, Photos, Contacts, and/or Calendars
 - **Drive (Simple):** Select folders via checkboxes
 - **Drive (Advanced):** Enter paths manually (one path per line)
 - **Photos:** Optionally include family library
-- **Sync policy** (per Drive / Photos): Choose what happens when files are deleted in iCloud:
+- **Contacts:** Individual VCF files per contact + combined VCF + raw JSON backup
+- **Calendars:** One `.ics` file per calendar with all events (5 years back, 2 years forward)
+- **Sync policy** (per Drive / Photos / Contacts): Choose what happens when files are deleted in iCloud:
   - **Keep** – local files stay untouched (default for Photos)
   - **Delete** – local files are removed (default for Drive)
-  - **Archive** – files are moved to the `/archive` volume, preserving the folder structure
+  - **Archive** – files are moved to the `/archive` volume, preserving the folder structure (default for Contacts)
 - Define exclusions (e.g. `*.tmp`, `.DS_Store`, `node_modules`)
 
 ### 3. Run Backup
@@ -224,6 +228,7 @@ sudo docker compose up -d
 - **Backend:** Python / FastAPI
 - **Frontend:** Bootstrap 5 / Alpine.js
 - **iCloud API:** [pyicloud](https://github.com/picklepete/pyicloud)
+- **Calendar:** [icalendar](https://github.com/collective/icalendar) (ICS generation)
 - **Configuration:** YAML (`/config/config.yaml`)
 - **Scheduler:** APScheduler
 
