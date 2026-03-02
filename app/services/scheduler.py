@@ -68,6 +68,7 @@ async def _run_backup_job(apple_id: str) -> None:
             destination=cfg.get("destination", ""),
             exclusions=cfg.get("exclusions"),
             config_id=apple_id,
+            contacts_sync_policy=cfg.get("contacts_sync_policy", "archive"),
             drive_sync_policy=cfg.get("drive_sync_policy", "delete"),
             photos_sync_policy=cfg.get("photos_sync_policy", "keep"),
         )

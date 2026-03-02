@@ -84,6 +84,7 @@ async def trigger_backup(apple_id: str):
                 destination=cfg.get("destination", ""),
                 exclusions=cfg.get("exclusions"),
                 config_id=apple_id,
+                contacts_sync_policy=cfg.get("contacts_sync_policy", "archive"),
                 drive_sync_policy=cfg.get("drive_sync_policy", "delete"),
                 photos_sync_policy=cfg.get("photos_sync_policy", "keep"),
             )
@@ -139,7 +140,7 @@ async def trigger_all_backups():
         if account is None or account["status"] != "authenticated":
             continue
         cfg = config_store.get_backup_config(apple_id)
-        if cfg is None or (not cfg.get("backup_drive") and not cfg.get("backup_photos") and not cfg.get("backup_contacts")):
+        if cfg is None or (not cfg.get("backup_drive") and not cfg.get("backup_photos") and not cfg.get("backup_contacts") and not cfg.get("backup_calendar")):
             continue
 
         # Check if already running
@@ -174,6 +175,7 @@ async def trigger_all_backups():
                     destination=cfg.get("destination", ""),
                     exclusions=cfg.get("exclusions"),
                     config_id=apple_id,
+                    contacts_sync_policy=cfg.get("contacts_sync_policy", "archive"),
                     drive_sync_policy=cfg.get("drive_sync_policy", "delete"),
                     photos_sync_policy=cfg.get("photos_sync_policy", "keep"),
                 )

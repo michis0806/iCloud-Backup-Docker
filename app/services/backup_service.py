@@ -1434,6 +1434,7 @@ def run_contacts_backup(
     apple_id: str,
     destination: str,
     config_id: str | None = None,
+    sync_policy: str = SyncPolicy.ARCHIVE,
 ) -> dict:
     """Backup all iCloud contacts as VCF files.
 
@@ -1442,9 +1443,14 @@ def run_contacts_backup(
       - {destination}/contacts/{name}.vcf (individual)
       - {destination}/contacts/contacts.json (raw JSON)
 
-    Returns stats dict with downloaded, skipped, errors counts.
+    Deleted contacts are handled according to *sync_policy*:
+      - ``"keep"``: local VCF files are kept even if the contact was deleted
+      - ``"delete"``: local VCF files are removed
+      - ``"archive"``: local VCF files are moved to /archive/
+
+    Returns stats dict with downloaded, skipped, deleted, archived, errors counts.
     """
-    stats = {"downloaded": 0, "skipped": 0, "errors": 0}
+    stats = {"downloaded": 0, "skipped": 0, "deleted": 0, "archived": 0, "errors": 0}
 
     if config_id is not None:
         _set_progress(config_id, {
@@ -1551,17 +1557,17 @@ def run_contacts_backup(
         log.error("Fehler beim Schreiben von contacts.json: %s", exc)
         stats["errors"] += 1
 
-    # Remove individual VCF files for contacts that no longer exist
-    current_files = {f"{_safe_filename(display)}.vcf" for display in written_filenames}
-    current_files.add("all_contacts.vcf")
-    current_files.add("contacts.json")
-    for existing in dest_path.iterdir():
-        if existing.is_file() and existing.name not in current_files:
-            try:
-                existing.unlink()
-                log.debug("Gelöschten Kontakt entfernt: %s", existing.name)
-            except OSError:
-                pass
+    # Handle individual VCF files for contacts that no longer exist
+    if sync_policy != SyncPolicy.KEEP:
+        current_files = {f"{fn}.vcf" for fn in written_filenames}
+        current_files.add("all_contacts.vcf")
+        current_files.add("contacts.json")
+        archive_dest = settings.archive_path / destination / "contacts"
+        for existing in dest_path.iterdir():
+            if existing.is_file() and existing.name not in current_files:
+                _apply_sync_policy(
+                    existing, existing.name, sync_policy, archive_dest, stats,
+                )
 
     # Save hash cache
     try:
@@ -1570,8 +1576,10 @@ def run_contacts_backup(
         pass
 
     log.info(
-        "Kontakte-Backup für %s abgeschlossen: %d geschrieben, %d übersprungen, %d Fehler",
-        apple_id, stats["downloaded"], stats["skipped"], stats["errors"],
+        "Kontakte-Backup für %s abgeschlossen: %d geschrieben, %d übersprungen, "
+        "%d archiviert, %d gelöscht, %d Fehler",
+        apple_id, stats["downloaded"], stats["skipped"],
+        stats["archived"], stats["deleted"], stats["errors"],
     )
     return stats
 
@@ -1902,6 +1910,7 @@ def run_backup(
     exclusions: list[str] | None = None,
     dry_run: bool = False,
     config_id: str | None = None,
+    contacts_sync_policy: str = SyncPolicy.ARCHIVE,
     drive_sync_policy: str = SyncPolicy.DELETE,
     photos_sync_policy: str = SyncPolicy.KEEP,
 ) -> dict:
@@ -1958,6 +1967,7 @@ def run_backup(
             log.info("Starte iCloud Kontakte Backup für %s", apple_id)
             contacts_stats = run_contacts_backup(
                 apple_id, destination, config_id=config_id,
+                sync_policy=contacts_sync_policy,
             )
             result["contacts_stats"] = contacts_stats
             if contacts_stats["errors"] > 0:
@@ -2002,7 +2012,12 @@ def run_backup(
         parts.append(summary)
     if result["contacts_stats"]:
         c = result["contacts_stats"]
-        summary = f"Kontakte: {c['downloaded']} geschrieben, {c['skipped']} übersprungen, {c['errors']} Fehler"
+        summary = f"Kontakte: {c['downloaded']} geschrieben"
+        if c.get('deleted'):
+            summary += f", {c['deleted']} gelöscht"
+        if c.get('archived'):
+            summary += f", {c['archived']} archiviert"
+        summary += f", {c['skipped']} übersprungen, {c['errors']} Fehler"
         parts.append(summary)
     if result["calendar_stats"]:
         k = result["calendar_stats"]

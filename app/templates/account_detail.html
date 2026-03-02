@@ -244,6 +244,36 @@
                     </div>
                 </div>
 
+                <!-- Contacts Configuration -->
+                <div class="card mb-4" x-show="config.backup_contacts" x-transition>
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="bi bi-person-vcard me-1"></i> Kontakte Konfiguration
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <!-- Contacts Sync Policy -->
+                        <div>
+                            <label for="contactsSyncPolicy" class="form-label fw-semibold">
+                                <i class="bi bi-arrow-repeat me-1"></i>
+                                Remote gelöschte Kontakte
+                            </label>
+                            <select class="form-select" id="contactsSyncPolicy"
+                                    x-model="config.contacts_sync_policy">
+                                <option value="archive">In Archiv verschieben</option>
+                                <option value="delete">Lokal löschen</option>
+                                <option value="keep">Lokal behalten</option>
+                            </select>
+                            <div class="form-text">
+                                Was passiert mit lokalen VCF-Dateien, wenn Kontakte in iCloud gelöscht wurden?
+                                <span x-show="config.contacts_sync_policy === 'archive'" class="text-info">
+                                    Kontakte werden nach <code>/archive/</code> verschoben.
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Exclusions -->
                 <div class="card mb-4">
                     <div class="card-header">
@@ -507,6 +537,18 @@
                                             <span class="text-body-secondary" x-text="backupStatus.stats.contacts.skipped"></span>
                                             <span class="text-body-secondary">übersprungen</span>
                                         </div>
+                                        <template x-if="backupStatus.stats.contacts.deleted">
+                                            <div>
+                                                <span class="text-warning" x-text="backupStatus.stats.contacts.deleted"></span>
+                                                <span class="text-body-secondary">gelöscht</span>
+                                            </div>
+                                        </template>
+                                        <template x-if="backupStatus.stats.contacts.archived">
+                                            <div>
+                                                <span class="text-info" x-text="backupStatus.stats.contacts.archived"></span>
+                                                <span class="text-body-secondary">archiviert</span>
+                                            </div>
+                                        </template>
                                         <div>
                                             <span class="text-danger" x-text="backupStatus.stats.contacts.errors"></span>
                                             <span class="text-body-secondary">Fehler</span>
@@ -559,6 +601,7 @@ function accountConfig(appleId) {
             drive_folders_advanced: '',
             photos_include_family: false,
             shared_library_id: null,
+            contacts_sync_policy: 'archive',
             drive_sync_policy: 'delete',
             photos_sync_policy: 'keep',
             destination: '',
@@ -633,6 +676,7 @@ function accountConfig(appleId) {
                     drive_folders_advanced: c.drive_folders_advanced || '',
                     photos_include_family: c.photos_include_family,
                     shared_library_id: c.shared_library_id || null,
+                    contacts_sync_policy: c.contacts_sync_policy || 'archive',
                     drive_sync_policy: c.drive_sync_policy || 'delete',
                     photos_sync_policy: c.photos_sync_policy || 'keep',
                     destination: c.destination || '',
