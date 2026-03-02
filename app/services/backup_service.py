@@ -1564,7 +1564,7 @@ def run_contacts_backup(
         current_files.add("contacts.json")
         archive_dest = settings.archive_path / destination / "contacts"
         for existing in dest_path.iterdir():
-            if existing.is_file() and existing.name not in current_files:
+            if existing.is_file() and existing.name.lower() not in current_files:
                 _apply_sync_policy(
                     existing, existing.name, sync_policy, archive_dest, stats,
                 )
