@@ -13,6 +13,7 @@ A Docker-based backup service for **iCloud Drive**, **iCloud Photos**, **iCloud 
 - **Exclusions** – Flexible exclusion patterns (glob patterns, paths)
 - **Scheduled Backups** – Configurable via cron expressions
 - **2FA Support** – Two-factor authentication directly through the web UI (device push & SMS)
+- **Pushover Notifications** – Push notifications for backup errors and expiring tokens via [Pushover](https://pushover.net)
 - **Synology Notifications** – Optional notifications via `synodsmnotify` on Synology NAS
 - **Password Protection** – Web UI secured with password authentication
 - **Dark Mode UI** – Modern, responsive web interface
@@ -75,6 +76,10 @@ Zusätzlich wird die Version in der Web-UI im Footer angezeigt.
 | `CONFIG_PATH` | `./config` | Host path for configuration & sessions |
 | `LOG_LEVEL` | `INFO` | Log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
 | `DSM_NOTIFY` | `false` | Enable Synology DSM notifications via `synodsmnotify` (`true`/`false`) |
+| `PUSHOVER_ENABLED` | `false` | Enable [Pushover](https://pushover.net) push notifications (`true`/`false`) |
+| `PUSHOVER_API_TOKEN` | – | Pushover application API token |
+| `PUSHOVER_USER_KEY` | – | Pushover user key |
+| `PUSHOVER_DEVICES` | *(all)* | Comma-separated device names to notify (empty = all devices) |
 | `TZ` | `Europe/Berlin` | Timezone |
 
 ### Volumes
@@ -107,6 +112,10 @@ services:
       - TZ=${TZ:-Europe/Berlin}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - DSM_NOTIFY=${DSM_NOTIFY:-false}
+      # - PUSHOVER_ENABLED=true
+      # - PUSHOVER_API_TOKEN=your-app-token
+      # - PUSHOVER_USER_KEY=your-user-key
+      # - PUSHOVER_DEVICES=                    # optional: comma-separated device names
       # - AUTH_PASSWORD=my-secure-password
       # - SECRET_KEY=...  # Optional; falls back to AUTH_PASSWORD if not set
 ```
