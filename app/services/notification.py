@@ -95,12 +95,16 @@ def send_pushover_notification(title: str, message: str) -> None:
         )
         return
 
-    payload = json.dumps({
+    data = {
         "token": settings.pushover_api_token,
         "user": settings.pushover_user_key,
         "title": title,
         "message": message,
-    }).encode()
+    }
+    if settings.pushover_devices:
+        data["device"] = settings.pushover_devices
+
+    payload = json.dumps(data).encode()
 
     req = urllib.request.Request(
         _PUSHOVER_API_URL,
