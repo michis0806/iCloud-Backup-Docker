@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.12] 2026-03-16
+
+### Added
+- **Pushover-Benachrichtigungen** – Push-Notifications bei fehlerhaften Backups, ablaufenden und abgelaufenen Tokens über [Pushover](https://pushover.net). Konfiguration über `PUSHOVER_ENABLED`, `PUSHOVER_API_TOKEN`, `PUSHOVER_USER_KEY` und optional `PUSHOVER_DEVICES` (kommaseparierte Gerätenamen). Funktioniert parallel zu den bestehenden Synology DSM-Benachrichtigungen.
+
 ## [0.9.11] 2026-03-02
 
 ### Added
