@@ -24,5 +24,6 @@ services:
       - PUSHOVER_ENABLED=${PUSHOVER_ENABLED:-false}
       - PUSHOVER_API_TOKEN=${PUSHOVER_API_TOKEN:-}
       - PUSHOVER_USER_KEY=${PUSHOVER_USER_KEY:-}
+      - PUSHOVER_DEVICES=${PUSHOVER_DEVICES:-}
       # - AUTH_PASSWORD=mein-sicheres-passwort  # If not set, a random password is logged on startup
       # - SECRET_KEY=...  # Optional; falls back to AUTH_PASSWORD if not set

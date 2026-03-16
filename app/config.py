@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     pushover_enabled: bool = False
     pushover_api_token: str = ""
     pushover_user_key: str = ""
+    pushover_devices: str = ""
 
     model_config = {"env_prefix": ""}
 
