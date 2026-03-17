@@ -90,13 +90,24 @@ async def get_trusted_devices(apple_id: str):
 
 
 @router.post("/{apple_id}/2fa/push")
-async def request_2fa_push(apple_id: str):
-    """Request Apple to send a 2FA push notification to trusted devices."""
+async def request_2fa_push(apple_id: str, body: ReconnectRequest | None = None):
+    """Re-trigger 2FA push notification by forcing a fresh authentication."""
     account = config_store.get_account(apple_id)
     if account is None:
         raise HTTPException(status_code=404, detail="Account nicht gefunden.")
 
-    result = icloud_service.request_2fa_push(apple_id)
+    password = body.password if body else None
+    result = icloud_service.request_2fa_push(apple_id, password=password)
+
+    # Update account status if auth state changed
+    if result.get("status"):
+        config_store.update_account_status(
+            apple_id,
+            status=result["status"],
+            status_message=result["message"],
+            token_refreshed=(result["status"] == "authenticated"),
+        )
+
     return result
 
 
