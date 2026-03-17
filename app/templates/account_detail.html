@@ -649,20 +649,33 @@
 
                     <!-- Device code tab -->
                     <div x-show="tfaMode === 'device'">
-                        <p class="text-muted small">
-                            Geben Sie den 6-stelligen Code von Ihrem Apple-Gerät ein.
-                        </p>
+                        <div class="d-flex align-items-start gap-2 mb-3 p-2 rounded border border-info bg-info bg-opacity-10">
+                            <i class="bi bi-info-circle text-info mt-1"></i>
+                            <div class="small">
+                                Eine Benachrichtigung wurde an Ihre Apple-Geräte gesendet.
+                                Geben Sie den angezeigten 6-stelligen Code ein.
+                            </div>
+                        </div>
                         <form @submit.prevent="submitTfa()">
                             <div class="mb-3">
                                 <input type="text" class="form-control form-control-lg text-center"
                                        x-model="tfaCode" maxlength="6" pattern="[0-9]{6}"
                                        placeholder="000000" autofocus>
                             </div>
-                            <button type="submit" class="btn btn-warning w-100" :disabled="tfaLoading">
+                            <button type="submit" class="btn btn-warning w-100" :disabled="tfaLoading || tfaCode.length < 6">
                                 <span x-show="tfaLoading" class="spinner-border spinner-border-sm me-1"></span>
                                 Bestätigen
                             </button>
                         </form>
+                        <div class="text-center mt-3">
+                            <button type="button" class="btn btn-link btn-sm text-muted"
+                                    @click="resendDeviceCode()"
+                                    :disabled="resendingCode">
+                                <span x-show="resendingCode" class="spinner-border spinner-border-sm me-1"></span>
+                                <i class="bi bi-arrow-clockwise me-1" x-show="!resendingCode"></i>
+                                Keine Benachrichtigung erhalten? Erneut senden
+                            </button>
+                        </div>
                     </div>
 
                     <!-- SMS tab -->
@@ -783,6 +796,7 @@ function accountConfig(appleId) {
         tfaSmsSent: false,
         tfaSmsDeviceIndex: null,
         tfaSmsSuccess: '',
+        resendingCode: false,
 
         async init() {
             await Promise.all([
@@ -1105,6 +1119,28 @@ function accountConfig(appleId) {
                 this.reauthError = 'Netzwerkfehler: ' + e.message;
             }
             this.reauthLoading = false;
+        },
+
+        async resendDeviceCode() {
+            this.resendingCode = true;
+            this.tfaError = '';
+            try {
+                // Re-authenticate to trigger a new push notification
+                const res = await fetch(`/api/accounts/${this.encodedId()}/reconnect`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password: this.reauthPassword }),
+                });
+                const data = await res.json();
+                if (data.status === 'requires_2fa') {
+                    this.tfaError = '';  // clear any previous error
+                } else if (data.status === 'error') {
+                    this.tfaError = data.status_message || 'Erneutes Senden fehlgeschlagen.';
+                }
+            } catch (e) {
+                this.tfaError = 'Netzwerkfehler: ' + e.message;
+            }
+            this.resendingCode = false;
         },
 
         async switchToSms() {
