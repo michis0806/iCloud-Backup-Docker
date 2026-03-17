@@ -31,7 +31,7 @@ jobs:
 
       - name: Restore cached version
         id: cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: .pyicloud-version
           key: pyicloud-version-${{ steps.pypi.outputs.version }}
@@ -64,7 +64,7 @@ jobs:
 
       - name: Checkout repository
         if: steps.compare.outputs.changed == 'true'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
           fetch-tags: true
@@ -136,7 +136,7 @@ jobs:
 
       - name: Update cache
         if: steps.compare.outputs.changed == 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: .pyicloud-version
           key: pyicloud-version-${{ steps.pypi.outputs.version }}
