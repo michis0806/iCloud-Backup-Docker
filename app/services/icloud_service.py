@@ -146,58 +146,73 @@ def get_trusted_devices(apple_id: str) -> list[dict]:
         return []
 
 
-def _clear_session_files(apple_id: str) -> None:
-    """Remove on-disk session files for *apple_id* so the next PyiCloudService
-    instance starts with a fresh client_id.  This forces Apple to treat the
-    login as a new device and send a 2FA push notification."""
-    cookie_dir = Path(_cookie_dir_for(apple_id))
-    for pattern in ("*.session", "*.session.lock"):
-        for f in cookie_dir.glob(pattern):
-            try:
-                f.unlink()
-                log.info("Session-Datei gelöscht: %s", f)
-            except OSError:
-                pass
+def _request_device_push(api: PyiCloudService) -> bool:
+    """Ask Apple to send a 2FA push notification to trusted devices.
+
+    Tries GET first (standard HSA2), then POST as fallback.
+    Returns True if the request was accepted (2xx).
+    """
+    try:
+        headers = api._get_auth_headers({"Accept": "application/json"})
+    except Exception:
+        headers = {}
+
+    url = f"{api._auth_endpoint}/verify/trusteddevice"
+
+    for method in (api.session.get, api.session.post):
+        try:
+            resp = method(url, headers=headers)
+            log.info(
+                "2FA push request %s %s → %s",
+                method.__name__.upper(), url, resp.status_code,
+            )
+            if resp.ok:
+                return True
+        except Exception as exc:
+            log.warning("2FA push %s fehlgeschlagen: %s", method.__name__.upper(), exc)
+
+    return False
 
 
 def request_2fa_push(apple_id: str, password: str | None = None) -> dict:
-    """Re-trigger a 2FA push notification by forcing a fresh authentication.
+    """Trigger a 2FA push notification to all trusted Apple devices.
 
-    Drops the cached session **and on-disk session files**, then
-    re-authenticates with the given password.  Because the session files
-    (which contain the client_id) are gone, Apple treats this as a brand-new
-    device and sends a push notification to all trusted devices.
+    If there is already an active session that requires 2FA, sends the
+    push request directly.  Otherwise re-authenticates first.
 
     Returns a dict with:
         - success: bool
         - message: human-readable status message
-        - status: auth status after re-authentication
+        - status: auth status after the operation
     """
-    if not password:
-        return {"success": False, "message": "Passwort erforderlich."}
+    api = _sessions.get(apple_id)
 
-    # Drop in-memory session AND on-disk session files
-    _sessions.pop(apple_id, None)
-    _clear_session_files(apple_id)
+    # If no session or session doesn't need 2FA, re-authenticate
+    if api is None or not api.requires_2fa:
+        if not password:
+            return {"success": False, "message": "Passwort erforderlich."}
+        _sessions.pop(apple_id, None)
+        result = authenticate(apple_id, password=password)
+        if result["status"] != "requires_2fa":
+            return {
+                "success": result["status"] == "authenticated",
+                "message": result["message"],
+                "status": result["status"],
+            }
+        api = _sessions.get(apple_id)
 
-    result = authenticate(apple_id, password=password)
-
-    if result["status"] == "requires_2fa":
+    # Now we have a session that requires 2FA – request the push
+    if api and _request_device_push(api):
         return {
             "success": True,
             "message": "Benachrichtigung an Ihre Apple-Geräte gesendet.",
             "status": "requires_2fa",
         }
-    if result["status"] == "authenticated":
-        return {
-            "success": True,
-            "message": "Bereits authentifiziert – keine 2FA erforderlich.",
-            "status": "authenticated",
-        }
+
     return {
         "success": False,
-        "message": result.get("message", "Authentifizierung fehlgeschlagen."),
-        "status": result["status"],
+        "message": "Push-Benachrichtigung konnte nicht ausgelöst werden. Versuchen Sie SMS.",
+        "status": "requires_2fa",
     }
 
 

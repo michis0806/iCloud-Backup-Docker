@@ -146,12 +146,13 @@ async def reconnect_account(apple_id: str, body: ReconnectRequest | None = None)
 
     password = body.password if body else None
 
-    if password:
-        # Clear old session so Apple treats this as a new device and sends a 2FA push
-        icloud_service._sessions.pop(apple_id, None)
-        icloud_service._clear_session_files(apple_id)
-
     auth_result = icloud_service.authenticate(apple_id, password=password)
+
+    # If 2FA is needed, explicitly request Apple to send a push notification
+    if auth_result["status"] == "requires_2fa":
+        api = icloud_service._sessions.get(apple_id)
+        if api:
+            icloud_service._request_device_push(api)
 
     updated = config_store.update_account_status(
         apple_id,
@@ -159,7 +160,6 @@ async def reconnect_account(apple_id: str, body: ReconnectRequest | None = None)
         status_message=auth_result["message"],
         token_refreshed=(auth_result["status"] == "authenticated"),
     )
-    # Pass through requires_password flag so frontend can prompt for password
     result = dict(updated)
     if auth_result.get("requires_password"):
         result["requires_password"] = True

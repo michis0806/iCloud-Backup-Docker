@@ -1129,18 +1129,17 @@ function accountConfig(appleId) {
             this.resendingCode = true;
             this.tfaError = '';
             try {
-                // Re-authenticate to force Apple to send a fresh push notification
-                // (reconnect endpoint clears session files when password is provided)
-                const res = await fetch(`/api/accounts/${this.encodedId()}/reconnect`, {
+                const res = await fetch(`/api/accounts/${this.encodedId()}/2fa/push`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ password: this.reauthPassword }),
                 });
                 const data = await res.json();
-                if (data.status === 'requires_2fa') {
+                if (data.success) {
                     this.tfaCode = '';
-                } else if (data.status === 'error') {
-                    this.tfaError = data.status_message || 'Erneutes Senden fehlgeschlagen.';
+                    this.tfaError = '';
+                } else {
+                    this.tfaError = data.message || 'Benachrichtigung fehlgeschlagen. Versuchen Sie SMS.';
                 }
             } catch (e) {
                 this.tfaError = 'Netzwerkfehler: ' + e.message;
