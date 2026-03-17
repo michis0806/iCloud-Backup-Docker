@@ -146,33 +146,42 @@ def get_trusted_devices(apple_id: str) -> list[dict]:
         return []
 
 
-def request_2fa_push(apple_id: str) -> dict:
-    """Request Apple to send a 2FA push notification to all trusted devices.
+def request_2fa_push(apple_id: str, password: str | None = None) -> dict:
+    """Re-trigger a 2FA push notification by forcing a fresh authentication.
+
+    Drops the cached session and re-authenticates with the given password,
+    which causes Apple to send a new push notification to trusted devices.
 
     Returns a dict with:
         - success: bool
         - message: human-readable status message
+        - status: auth status after re-authentication
     """
-    api = _sessions.get(apple_id)
-    if api is None:
-        return {"success": False, "message": "Keine aktive Sitzung."}
+    if not password:
+        return {"success": False, "message": "Passwort erforderlich."}
 
-    if not api.requires_2fa:
-        return {"success": False, "message": "2FA nicht erforderlich."}
+    # Drop cached session to force a completely fresh auth flow
+    _sessions.pop(apple_id, None)
 
-    try:
-        headers = api._get_auth_headers({"Accept": "application/json"})
-        resp = api.session.put(
-            f"{api._auth_endpoint}/verify/trusteddevice",
-            headers=headers,
-        )
-        log.info("2FA Push-Benachrichtigung angefordert für %s (Status: %s)", apple_id, resp.status_code)
-        if resp.ok or resp.status_code == 200:
-            return {"success": True, "message": "Benachrichtigung gesendet."}
-        return {"success": False, "message": f"Apple hat mit Status {resp.status_code} geantwortet."}
-    except Exception as exc:
-        log.error("Fehler beim Senden der 2FA-Benachrichtigung für %s: %s", apple_id, exc)
-        return {"success": False, "message": f"Fehler: {exc}"}
+    result = authenticate(apple_id, password=password)
+
+    if result["status"] == "requires_2fa":
+        return {
+            "success": True,
+            "message": "Benachrichtigung an Ihre Apple-Geräte gesendet.",
+            "status": "requires_2fa",
+        }
+    if result["status"] == "authenticated":
+        return {
+            "success": True,
+            "message": "Bereits authentifiziert – keine 2FA erforderlich.",
+            "status": "authenticated",
+        }
+    return {
+        "success": False,
+        "message": result.get("message", "Authentifizierung fehlgeschlagen."),
+        "status": result["status"],
+    }
 
 
 def send_sms_code(apple_id: str, device_index: int) -> dict:

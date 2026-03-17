@@ -810,6 +810,10 @@ function accountConfig(appleId) {
                     this.loadPhotoLibraries(),
                 ]);
             }
+            // Auto-show reauth form if account needs reconnection
+            if (this.account.status === 'requires_2fa' || this.account.status === 'error') {
+                this.showReauthForm = true;
+            }
             // Poll backup status every 10 seconds
             this.statusInterval = setInterval(() => this.loadBackupStatus(), 10000);
         },
@@ -1127,7 +1131,11 @@ function accountConfig(appleId) {
             this.resendingCode = true;
             this.tfaError = '';
             try {
-                const res = await fetch(`/api/accounts/${this.encodedId()}/2fa/push`, { method: 'POST' });
+                const res = await fetch(`/api/accounts/${this.encodedId()}/2fa/push`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password: this.reauthPassword }),
+                });
                 const data = await res.json();
                 if (!data.success) {
                     this.tfaError = data.message || 'Benachrichtigung konnte nicht gesendet werden.';
