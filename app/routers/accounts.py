@@ -89,6 +89,17 @@ async def get_trusted_devices(apple_id: str):
     return devices
 
 
+@router.post("/{apple_id}/2fa/push")
+async def request_2fa_push(apple_id: str):
+    """Request Apple to send a 2FA push notification to trusted devices."""
+    account = config_store.get_account(apple_id)
+    if account is None:
+        raise HTTPException(status_code=404, detail="Account nicht gefunden.")
+
+    result = icloud_service.request_2fa_push(apple_id)
+    return result
+
+
 @router.post("/{apple_id}/2fa/sms")
 async def send_sms_code(apple_id: str, data: SmsSendRequest):
     account = config_store.get_account(apple_id)

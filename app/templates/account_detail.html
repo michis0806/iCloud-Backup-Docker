@@ -669,7 +669,7 @@
                         </form>
                         <div class="text-center mt-3">
                             <button type="button" class="btn btn-link btn-sm text-muted"
-                                    @click="resendDeviceCode()"
+                                    @click="triggerDevicePush()"
                                     :disabled="resendingCode">
                                 <span x-show="resendingCode" class="spinner-border spinner-border-sm me-1"></span>
                                 <i class="bi bi-arrow-clockwise me-1" x-show="!resendingCode"></i>
@@ -1106,6 +1106,8 @@ function accountConfig(appleId) {
                     this.tfaSmsDeviceIndex = null;
                     this.tfaSmsSuccess = '';
                     new bootstrap.Modal(this.$refs.tfaModal).show();
+                    // Trigger push notification to trusted devices
+                    this.triggerDevicePush();
                 } else if (data.status === 'error') {
                     this.reauthError = data.status_message || 'Anmeldung fehlgeschlagen.';
                 } else if (data.status === 'authenticated') {
@@ -1121,21 +1123,14 @@ function accountConfig(appleId) {
             this.reauthLoading = false;
         },
 
-        async resendDeviceCode() {
+        async triggerDevicePush() {
             this.resendingCode = true;
             this.tfaError = '';
             try {
-                // Re-authenticate to trigger a new push notification
-                const res = await fetch(`/api/accounts/${this.encodedId()}/reconnect`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ password: this.reauthPassword }),
-                });
+                const res = await fetch(`/api/accounts/${this.encodedId()}/2fa/push`, { method: 'POST' });
                 const data = await res.json();
-                if (data.status === 'requires_2fa') {
-                    this.tfaError = '';  // clear any previous error
-                } else if (data.status === 'error') {
-                    this.tfaError = data.status_message || 'Erneutes Senden fehlgeschlagen.';
+                if (!data.success) {
+                    this.tfaError = data.message || 'Benachrichtigung konnte nicht gesendet werden.';
                 }
             } catch (e) {
                 this.tfaError = 'Netzwerkfehler: ' + e.message;
