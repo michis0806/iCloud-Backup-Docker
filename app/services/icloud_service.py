@@ -47,6 +47,9 @@ def authenticate(apple_id: str, password: str | None = None) -> dict:
             verify=True,
         )
     except PyiCloudFailedLoginException as exc:
+        msg = str(exc)
+        if "No password" in msg or "password" in msg.lower():
+            return {"status": "error", "message": "Session abgelaufen – bitte Passwort eingeben.", "requires_password": True}
         return {"status": "error", "message": f"Login fehlgeschlagen: {exc}"}
     except Exception as exc:
         return {"status": "error", "message": f"Verbindungsfehler: {exc}"}
@@ -446,10 +449,16 @@ def check_connection(apple_id: str) -> dict:
             verify=True,
         )
     except PyiCloudFailedLoginException as exc:
+        msg = str(exc)
+        if "No password" in msg or "password" in msg.lower():
+            msg = "Session abgelaufen – bitte erneut anmelden."
+        else:
+            msg = f"Login fehlgeschlagen: {exc}"
         return {
             "valid": False,
-            "message": f"Login fehlgeschlagen: {exc}",
+            "message": msg,
             "requires_2fa": False,
+            "requires_password": True,
         }
     except Exception as exc:
         return {
