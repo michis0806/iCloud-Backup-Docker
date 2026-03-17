@@ -146,6 +146,35 @@ def get_trusted_devices(apple_id: str) -> list[dict]:
         return []
 
 
+def request_2fa_push(apple_id: str) -> dict:
+    """Request Apple to send a 2FA push notification to all trusted devices.
+
+    Returns a dict with:
+        - success: bool
+        - message: human-readable status message
+    """
+    api = _sessions.get(apple_id)
+    if api is None:
+        return {"success": False, "message": "Keine aktive Sitzung."}
+
+    if not api.requires_2fa:
+        return {"success": False, "message": "2FA nicht erforderlich."}
+
+    try:
+        headers = api._get_auth_headers({"Accept": "application/json"})
+        resp = api.session.put(
+            f"{api._auth_endpoint}/verify/trusteddevice",
+            headers=headers,
+        )
+        log.info("2FA Push-Benachrichtigung angefordert für %s (Status: %s)", apple_id, resp.status_code)
+        if resp.ok or resp.status_code == 200:
+            return {"success": True, "message": "Benachrichtigung gesendet."}
+        return {"success": False, "message": f"Apple hat mit Status {resp.status_code} geantwortet."}
+    except Exception as exc:
+        log.error("Fehler beim Senden der 2FA-Benachrichtigung für %s: %s", apple_id, exc)
+        return {"success": False, "message": f"Fehler: {exc}"}
+
+
 def send_sms_code(apple_id: str, device_index: int) -> dict:
     """Send an SMS verification code to the given trusted device/phone number."""
     api = _sessions.get(apple_id)
