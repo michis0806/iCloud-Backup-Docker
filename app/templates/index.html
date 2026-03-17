@@ -171,8 +171,11 @@
                             <!-- Reconnect button (uses saved session tokens, triggers 2FA if needed) -->
                             <template x-if="account.status === 'error'">
                                 <button class="btn btn-outline-warning btn-sm"
-                                        @click="reconnect(account)">
-                                    <i class="bi bi-arrow-repeat me-1"></i> Erneut verbinden
+                                        @click="reconnect(account)"
+                                        :disabled="reconnectingAccounts[account.apple_id]">
+                                    <span x-show="reconnectingAccounts[account.apple_id]" class="spinner-border spinner-border-sm me-1"></span>
+                                    <i class="bi bi-arrow-repeat me-1" x-show="!reconnectingAccounts[account.apple_id]"></i>
+                                    <span x-text="reconnectingAccounts[account.apple_id] ? 'Verbinde...' : 'Erneut verbinden'"></span>
                                 </button>
                             </template>
 
@@ -244,6 +247,40 @@
                         </div>
                         <button type="submit" class="btn btn-primary w-100" :disabled="addLoading">
                             <span x-show="addLoading" class="spinner-border spinner-border-sm me-1"></span>
+                            Anmelden
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Reconnect Password Modal -->
+    <div class="modal fade" id="reconnectModal" tabindex="-1" x-ref="reconnectModal">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Erneut anmelden</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-danger" x-show="reconnectError" x-text="reconnectError"></div>
+                    <p class="text-muted small">
+                        Die Session für <strong x-text="reconnectAppleId"></strong> ist abgelaufen.
+                        Bitte geben Sie das Passwort erneut ein.
+                    </p>
+                    <form @submit.prevent="submitReconnect()">
+                        <div class="mb-3">
+                            <label class="form-label">Passwort</label>
+                            <input type="password" class="form-control" x-model="reconnectPassword"
+                                   placeholder="App-spezifisches Passwort" required>
+                            <div class="form-text">
+                                Das Passwort wird nur zur Anmeldung verwendet und
+                                <strong>nicht gespeichert</strong>.
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-warning w-100" :disabled="reconnectLoading">
+                            <span x-show="reconnectLoading" class="spinner-border spinner-border-sm me-1"></span>
                             Anmelden
                         </button>
                     </form>
@@ -387,6 +424,13 @@ function dashboard() {
         newPassword: '',
         addLoading: false,
         addError: '',
+
+        // Reconnect
+        reconnectAppleId: null,
+        reconnectPassword: '',
+        reconnectLoading: false,
+        reconnectError: '',
+        reconnectingAccounts: {},
 
         // 2FA
         tfaAppleId: null,
@@ -691,17 +735,49 @@ function dashboard() {
         },
 
         async reconnect(account) {
+            this.reconnectingAccounts[account.apple_id] = true;
             try {
                 const res = await fetch(`/api/accounts/${encodeURIComponent(account.apple_id)}/reconnect`, { method: 'POST' });
                 const data = await res.json();
-                // If reconnect requires 2FA, show the 2FA dialog
-                if (data.status === 'requires_2fa') {
+                if (data.requires_password) {
+                    // Session expired – prompt for password
+                    this.reconnectAppleId = account.apple_id;
+                    this.reconnectPassword = '';
+                    this.reconnectError = '';
+                    new bootstrap.Modal(this.$refs.reconnectModal).show();
+                } else if (data.status === 'requires_2fa') {
                     this.show2FA(data);
                 }
                 await this.loadAccounts();
             } catch (e) {
                 console.error('Reconnect-Fehler:', e);
             }
+            this.reconnectingAccounts[account.apple_id] = false;
+        },
+
+        async submitReconnect() {
+            this.reconnectLoading = true;
+            this.reconnectError = '';
+            try {
+                const res = await fetch(`/api/accounts/${encodeURIComponent(this.reconnectAppleId)}/reconnect`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password: this.reconnectPassword }),
+                });
+                const data = await res.json();
+                if (data.status === 'requires_2fa') {
+                    bootstrap.Modal.getInstance(this.$refs.reconnectModal)?.hide();
+                    this.show2FA(data);
+                } else if (data.status === 'error') {
+                    this.reconnectError = data.status_message || 'Anmeldung fehlgeschlagen.';
+                } else {
+                    bootstrap.Modal.getInstance(this.$refs.reconnectModal)?.hide();
+                }
+                await this.loadAccounts();
+            } catch (e) {
+                this.reconnectError = 'Netzwerkfehler: ' + e.message;
+            }
+            this.reconnectLoading = false;
         },
 
         async runBackup(appleId) {

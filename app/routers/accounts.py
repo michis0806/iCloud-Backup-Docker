@@ -5,7 +5,7 @@ import logging
 from fastapi import APIRouter, HTTPException
 
 from app import config_store
-from app.schemas import AccountCreate, AccountResponse, SmsSendRequest, TwoFactorSubmit, TwoStepSubmit
+from app.schemas import AccountCreate, AccountResponse, ReconnectRequest, SmsSendRequest, TwoFactorSubmit, TwoStepSubmit
 from app.services import icloud_service
 from app.services.notification import notify_token_expired
 
@@ -116,14 +116,15 @@ async def submit_2sa(apple_id: str, data: TwoStepSubmit):
     return updated
 
 
-@router.post("/{apple_id}/reconnect", response_model=AccountResponse)
-async def reconnect_account(apple_id: str):
+@router.post("/{apple_id}/reconnect")
+async def reconnect_account(apple_id: str, body: ReconnectRequest | None = None):
     account = config_store.get_account(apple_id)
     if account is None:
         raise HTTPException(status_code=404, detail="Account nicht gefunden.")
 
-    # Reconnect using saved session tokens – no password needed
-    auth_result = icloud_service.authenticate(apple_id)
+    password = body.password if body else None
+
+    auth_result = icloud_service.authenticate(apple_id, password=password)
 
     updated = config_store.update_account_status(
         apple_id,
@@ -131,7 +132,11 @@ async def reconnect_account(apple_id: str):
         status_message=auth_result["message"],
         token_refreshed=(auth_result["status"] == "authenticated"),
     )
-    return updated
+    # Pass through requires_password flag so frontend can prompt for password
+    result = dict(updated)
+    if auth_result.get("requires_password"):
+        result["requires_password"] = True
+    return result
 
 
 @router.post("/{apple_id}/check-connection")

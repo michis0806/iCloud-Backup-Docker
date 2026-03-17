@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.13] 2026-03-17
+
+### Fixed
+- **Reconnect-Button funktioniert jetzt** – Der „Erneut verbinden"-Button auf dem Dashboard hat bei abgelaufener Session nichts getan, weil `authenticate()` ohne Passwort aufgerufen wurde. Der Button zeigt jetzt einen Lade-Spinner und öffnet bei Bedarf ein Passwort-Eingabefeld.
+- Bessere Fehlermeldungen bei abgelaufenen Sessions (statt kryptischem „No password set")
+
+### Added
+- **Neu autorisieren auf der Detailseite** – Neuer „Neu autorisieren"-Button mit Passwort-Eingabe und 2FA-Dialog direkt auf der Account-Konfigurationsseite
+- „Verbindung prüfen" blendet bei abgelaufenem Token automatisch das Reauth-Formular ein
+
 ## [0.9.12] 2026-03-16
 
 ### Added

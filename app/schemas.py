@@ -7,6 +7,10 @@ class AccountCreate(BaseModel):
     password: str
 
 
+class ReconnectRequest(BaseModel):
+    password: str | None = None
+
+
 class AccountResponse(BaseModel):
     apple_id: str
     status: AccountStatus

@@ -353,6 +353,42 @@
                                 <span x-text="connectionResult?.message"></span>
                             </div>
                         </div>
+
+                        <!-- Re-authenticate section -->
+                        <div class="mt-3 border-top pt-3">
+                            <template x-if="!showReauthForm">
+                                <button type="button" class="btn btn-outline-warning btn-sm w-100"
+                                        @click="showReauthForm = true">
+                                    <i class="bi bi-arrow-repeat me-1"></i> Neu autorisieren
+                                </button>
+                            </template>
+                            <template x-if="showReauthForm">
+                                <div>
+                                    <div class="alert alert-danger py-1 px-2 small" x-show="reauthError" x-text="reauthError"></div>
+                                    <div class="mb-2">
+                                        <input type="password" class="form-control form-control-sm"
+                                               x-model="reauthPassword"
+                                               placeholder="Passwort eingeben">
+                                        <div class="form-text small">
+                                            Wird nur zur Anmeldung verwendet, nicht gespeichert.
+                                        </div>
+                                    </div>
+                                    <div class="d-flex gap-2">
+                                        <button type="button" class="btn btn-warning btn-sm flex-grow-1"
+                                                @click="submitReauth()"
+                                                :disabled="reauthLoading || !reauthPassword">
+                                            <span x-show="reauthLoading" class="spinner-border spinner-border-sm me-1"></span>
+                                            Anmelden
+                                        </button>
+                                        <button type="button" class="btn btn-outline-secondary btn-sm"
+                                                @click="showReauthForm = false; reauthError = ''"
+                                                :disabled="reauthLoading">
+                                            Abbrechen
+                                        </button>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
                     </div>
                 </div>
 
@@ -582,6 +618,35 @@
             </div>
         </div>
     </form>
+
+    <!-- 2FA Modal for re-authentication -->
+    <div class="modal fade" id="detailTfaModal" tabindex="-1" x-ref="tfaModal">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Zwei-Faktor-Code</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-danger" x-show="tfaError" x-text="tfaError"></div>
+                    <p class="text-muted small">
+                        Geben Sie den 6-stelligen Code von Ihrem Apple-Gerät ein.
+                    </p>
+                    <form @submit.prevent="submitTfa()">
+                        <div class="mb-3">
+                            <input type="text" class="form-control form-control-lg text-center"
+                                   x-model="tfaCode" maxlength="6" pattern="[0-9]{6}"
+                                   placeholder="000000" autofocus>
+                        </div>
+                        <button type="submit" class="btn btn-warning w-100" :disabled="tfaLoading">
+                            <span x-show="tfaLoading" class="spinner-border spinner-border-sm me-1"></span>
+                            Bestätigen
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 {% endblock %}
 
@@ -625,6 +690,13 @@ function accountConfig(appleId) {
         progressInterval: null,
         checkingConnection: false,
         connectionResult: null,
+        showReauthForm: false,
+        reauthPassword: '',
+        reauthLoading: false,
+        reauthError: '',
+        tfaCode: '',
+        tfaLoading: false,
+        tfaError: '',
 
         async init() {
             await Promise.all([
@@ -904,15 +976,68 @@ function accountConfig(appleId) {
             try {
                 const res = await fetch(`/api/accounts/${this.encodedId()}/check-connection`, { method: 'POST' });
                 this.connectionResult = await res.json();
-                // Reload account data to reflect any status changes
                 await this.loadAccount();
-                if (this.connectionResult.requires_2fa) {
-                    this.errorMsg = 'Token abgelaufen – bitte erneut authentifizieren.';
+                if (this.connectionResult.requires_2fa || this.connectionResult.requires_password) {
+                    this.showReauthForm = true;
                 }
             } catch (e) {
                 this.connectionResult = { valid: false, message: 'Netzwerkfehler: ' + e.message };
             }
             this.checkingConnection = false;
+        },
+
+        async submitReauth() {
+            this.reauthLoading = true;
+            this.reauthError = '';
+            try {
+                const res = await fetch(`/api/accounts/${this.encodedId()}/reconnect`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password: this.reauthPassword }),
+                });
+                const data = await res.json();
+                if (data.status === 'requires_2fa') {
+                    this.showReauthForm = false;
+                    this.tfaCode = '';
+                    this.tfaError = '';
+                    new bootstrap.Modal(this.$refs.tfaModal).show();
+                } else if (data.status === 'error') {
+                    this.reauthError = data.status_message || 'Anmeldung fehlgeschlagen.';
+                } else if (data.status === 'authenticated') {
+                    this.showReauthForm = false;
+                    this.reauthPassword = '';
+                    this.connectionResult = null;
+                    this.successMsg = 'Erfolgreich neu autorisiert.';
+                }
+                await this.loadAccount();
+            } catch (e) {
+                this.reauthError = 'Netzwerkfehler: ' + e.message;
+            }
+            this.reauthLoading = false;
+        },
+
+        async submitTfa() {
+            this.tfaLoading = true;
+            this.tfaError = '';
+            try {
+                const res = await fetch(`/api/accounts/${this.encodedId()}/2fa`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ code: this.tfaCode }),
+                });
+                const data = await res.json();
+                if (data.status === 'authenticated') {
+                    bootstrap.Modal.getInstance(this.$refs.tfaModal)?.hide();
+                    this.successMsg = 'Erfolgreich neu autorisiert.';
+                    this.connectionResult = null;
+                    await this.loadAccount();
+                } else {
+                    this.tfaError = data.status_message || 'Code ungültig.';
+                }
+            } catch (e) {
+                this.tfaError = 'Netzwerkfehler: ' + e.message;
+            }
+            this.tfaLoading = false;
         },
 
         _tokenAgeDays(iso) {
