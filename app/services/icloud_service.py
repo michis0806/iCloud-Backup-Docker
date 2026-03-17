@@ -146,11 +146,27 @@ def get_trusted_devices(apple_id: str) -> list[dict]:
         return []
 
 
+def _clear_session_files(apple_id: str) -> None:
+    """Remove on-disk session files for *apple_id* so the next PyiCloudService
+    instance starts with a fresh client_id.  This forces Apple to treat the
+    login as a new device and send a 2FA push notification."""
+    cookie_dir = Path(_cookie_dir_for(apple_id))
+    for pattern in ("*.session", "*.session.lock"):
+        for f in cookie_dir.glob(pattern):
+            try:
+                f.unlink()
+                log.info("Session-Datei gelöscht: %s", f)
+            except OSError:
+                pass
+
+
 def request_2fa_push(apple_id: str, password: str | None = None) -> dict:
     """Re-trigger a 2FA push notification by forcing a fresh authentication.
 
-    Drops the cached session and re-authenticates with the given password,
-    which causes Apple to send a new push notification to trusted devices.
+    Drops the cached session **and on-disk session files**, then
+    re-authenticates with the given password.  Because the session files
+    (which contain the client_id) are gone, Apple treats this as a brand-new
+    device and sends a push notification to all trusted devices.
 
     Returns a dict with:
         - success: bool
@@ -160,8 +176,9 @@ def request_2fa_push(apple_id: str, password: str | None = None) -> dict:
     if not password:
         return {"success": False, "message": "Passwort erforderlich."}
 
-    # Drop cached session to force a completely fresh auth flow
+    # Drop in-memory session AND on-disk session files
     _sessions.pop(apple_id, None)
+    _clear_session_files(apple_id)
 
     result = authenticate(apple_id, password=password)
 
