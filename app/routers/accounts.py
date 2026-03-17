@@ -146,6 +146,11 @@ async def reconnect_account(apple_id: str, body: ReconnectRequest | None = None)
 
     password = body.password if body else None
 
+    if password:
+        # Clear old session so Apple treats this as a new device and sends a 2FA push
+        icloud_service._sessions.pop(apple_id, None)
+        icloud_service._clear_session_files(apple_id)
+
     auth_result = icloud_service.authenticate(apple_id, password=password)
 
     updated = config_store.update_account_status(

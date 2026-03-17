@@ -1110,8 +1110,6 @@ function accountConfig(appleId) {
                     this.tfaSmsDeviceIndex = null;
                     this.tfaSmsSuccess = '';
                     new bootstrap.Modal(this.$refs.tfaModal).show();
-                    // Trigger push notification to trusted devices
-                    this.triggerDevicePush();
                 } else if (data.status === 'error') {
                     this.reauthError = data.status_message || 'Anmeldung fehlgeschlagen.';
                 } else if (data.status === 'authenticated') {
@@ -1131,14 +1129,18 @@ function accountConfig(appleId) {
             this.resendingCode = true;
             this.tfaError = '';
             try {
-                const res = await fetch(`/api/accounts/${this.encodedId()}/2fa/push`, {
+                // Re-authenticate to force Apple to send a fresh push notification
+                // (reconnect endpoint clears session files when password is provided)
+                const res = await fetch(`/api/accounts/${this.encodedId()}/reconnect`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ password: this.reauthPassword }),
                 });
                 const data = await res.json();
-                if (!data.success) {
-                    this.tfaError = data.message || 'Benachrichtigung konnte nicht gesendet werden.';
+                if (data.status === 'requires_2fa') {
+                    this.tfaCode = '';
+                } else if (data.status === 'error') {
+                    this.tfaError = data.status_message || 'Erneutes Senden fehlgeschlagen.';
                 }
             } catch (e) {
                 this.tfaError = 'Netzwerkfehler: ' + e.message;
