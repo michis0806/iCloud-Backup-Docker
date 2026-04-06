@@ -150,7 +150,7 @@ async def get_backup_progress(apple_id: str):
 # ---------------------------------------------------------------------------
 @app.get("/login")
 async def login_page(request: Request):
-    return templates.TemplateResponse("login.html", {"request": request, "error": None})
+    return templates.TemplateResponse(name="login.html", request=request, context={"error": None})
 
 
 @app.post("/login")
@@ -166,7 +166,7 @@ async def login_submit(request: Request, password: str = Form(...)):
         )
         return response
     return templates.TemplateResponse(
-        "login.html", {"request": request, "error": "Falsches Passwort."}, status_code=401
+        name="login.html", request=request, context={"error": "Falsches Passwort."}, status_code=401
     )
 
 
@@ -183,18 +183,18 @@ async def logout():
 @app.get("/")
 async def index(request: Request):
     return templates.TemplateResponse(
-        "index.html", {"request": request, "build": _build_info()}
+        name="index.html", request=request, context={"build": _build_info()}
     )
 
 
 @app.get("/accounts/{apple_id}")
 async def account_detail(request: Request, apple_id: str):
     return templates.TemplateResponse(
-        "account_detail.html",
-        {"request": request, "apple_id": apple_id, "build": _build_info()},
+        name="account_detail.html", request=request,
+        context={"apple_id": apple_id, "build": _build_info()},
     )
 
 
 @app.get("/logs")
 async def logs_page(request: Request):
-    return templates.TemplateResponse("logs.html", {"request": request, "build": _build_info()})
+    return templates.TemplateResponse(name="logs.html", request=request, context={"build": _build_info()})
