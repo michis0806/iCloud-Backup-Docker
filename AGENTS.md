@@ -31,7 +31,7 @@ app/
 │   ├── icloud_service.py    # pyicloud wrapper (auth, 2FA, 2SA, Drive, Contacts, Calendar)
 │   ├── backup_service.py    # Core backup logic (Drive, Photos, Contacts, Calendar)
 │   ├── scheduler.py         # APScheduler cron job management
-│   ├── notification.py      # Synology DSM notifications (synodsmnotify)
+│   ├── notification.py      # Pushover push notifications
 │   └── log_handler.py       # Ring buffer for live log viewer
 ├── static/              # CSS, JS
 └── templates/           # Jinja2 (login, dashboard, config, logs)
@@ -144,8 +144,10 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8080
 | `CONFIG_PATH` | `./config` | Host path for configuration & sessions |
 | `ARCHIVE_PATH` | `./archive` | Host path for archived files (sync policy = "archive") |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
-| `DSM_NOTIFY` | `false` | Enable Synology DSM notifications (`synodsmnotify`) |
 | `TZ` | `Europe/Berlin` | Container timezone |
+
+> Pushover notification settings are stored in `/config/config.yaml` and
+> configured via the web UI (Einstellungen), not via environment variables.
 
 ## Changelog & Release Process
 
@@ -162,4 +164,4 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8080
 - **Exclusion paths:** Must work for both top-level and subfolder paths (e.g. `Documents/subfolder`).
 - **Log level changes:** `LOG_LEVEL` env var is applied at startup via `config.py`. The log handler uses a ring buffer (`log_handler.py`) that captures all levels.
 - **Special characters in folder names:** `#`, `%`, `?`, `&`, `+` in iCloud Drive folder or file names can cause 404 errors during download. `_open_drive_node()` provides fallback strategies, but renaming the folder is the safest fix.
-- **Env var naming:** The Synology notification variable is `DSM_NOTIFY`, not `SYNOLOGY_NOTIFY`.
+- **Notifications:** Only Pushover is supported. Configuration lives in `/config/config.yaml` (managed via the web UI under *Einstellungen*), not in environment variables.

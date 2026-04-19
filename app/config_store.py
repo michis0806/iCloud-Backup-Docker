@@ -105,7 +105,6 @@ def _default_schedule() -> dict:
 
 def _default_notifications() -> dict:
     return {
-        "dsm_notify": False,
         "pushover_enabled": False,
         "pushover_api_token": "",
         "pushover_user_key": "",
@@ -341,7 +340,6 @@ def save_notifications(settings_dict: dict) -> dict:
     defaults = _default_notifications()
     clean = {k: settings_dict.get(k, defaults[k]) for k in defaults}
     # Coerce booleans so YAML doesn't end up with "true"/"false" strings.
-    clean["dsm_notify"] = bool(clean["dsm_notify"])
     clean["pushover_enabled"] = bool(clean["pushover_enabled"])
     for key in ("pushover_api_token", "pushover_user_key", "pushover_devices"):
         clean[key] = str(clean.get(key) or "")

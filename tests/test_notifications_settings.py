@@ -27,17 +27,16 @@ async def test_defaults_when_nothing_saved(client):
     res = await client.get("/api/settings/notifications")
     assert res.status_code == 200
     data = res.json()
-    assert data["dsm_notify"] is False
     assert data["pushover_enabled"] is False
     assert data["pushover_api_token_set"] is False
     assert data["pushover_user_key_set"] is False
     assert data["pushover_devices"] == ""
+    assert "dsm_notify" not in data
 
 
 @pytest.mark.asyncio
 async def test_save_full_settings(client):
     payload = {
-        "dsm_notify": True,
         "pushover_enabled": True,
         "pushover_api_token": "abcdefghij1234567890",
         "pushover_user_key": "uvwxyz1234567890abcd",
@@ -46,7 +45,6 @@ async def test_save_full_settings(client):
     res = await client.post("/api/settings/notifications", json=payload)
     assert res.status_code == 200
     data = res.json()
-    assert data["dsm_notify"] is True
     assert data["pushover_enabled"] is True
     assert data["pushover_api_token_set"] is True
     assert data["pushover_user_key_set"] is True
@@ -63,7 +61,6 @@ async def test_save_full_settings(client):
 @pytest.mark.asyncio
 async def test_empty_secret_keeps_stored_value(client):
     config_store.save_notifications({
-        "dsm_notify": False,
         "pushover_enabled": True,
         "pushover_api_token": "keep-me-token",
         "pushover_user_key": "keep-me-user",
@@ -71,7 +68,6 @@ async def test_empty_secret_keeps_stored_value(client):
     })
     # Simulate the GUI: user toggles something but leaves the token input empty.
     payload = {
-        "dsm_notify": True,
         "pushover_enabled": True,
         "pushover_api_token": "",
         "pushover_user_key": "",
@@ -81,7 +77,6 @@ async def test_empty_secret_keeps_stored_value(client):
     assert res.status_code == 200
 
     stored = config_store.get_notifications()
-    assert stored["dsm_notify"] is True
     assert stored["pushover_api_token"] == "keep-me-token"
     assert stored["pushover_user_key"] == "keep-me-user"
     assert stored["pushover_devices"] == "iphone"
@@ -91,7 +86,6 @@ def test_pushover_respects_config_store_toggle(monkeypatch, tmp_path):
     monkeypatch.setattr(config_store, "_CONFIG_FILE", tmp_path / "config.yaml")
     # Disabled: nothing should be sent.
     config_store.save_notifications({
-        "dsm_notify": False,
         "pushover_enabled": False,
         "pushover_api_token": "token",
         "pushover_user_key": "user",
@@ -115,69 +109,15 @@ async def test_test_endpoint_rejects_unknown_backend(client):
 
 
 @pytest.mark.asyncio
-async def test_test_endpoint_dsm_reports_missing_binary(client, monkeypatch):
-    # Ensure the binary check returns False regardless of the host.
-    monkeypatch.setattr(notification, "_binary_available", lambda: False)
+async def test_test_endpoint_rejects_dsm_backend(client):
+    """DSM was removed; the endpoint must not accept it anymore."""
     res = await client.post("/api/settings/notifications/test", json={"backend": "dsm"})
-    assert res.status_code == 200
-    body = res.json()
-    assert body["success"] is False
-    assert "synodsmnotify" in body["message"]
-
-
-@pytest.mark.asyncio
-async def test_test_endpoint_dsm_invokes_synodsmnotify_with_json_payload(client, monkeypatch):
-    """DSM 7.x requires the mail-string-key + JSON-payload argument form."""
-    import json as _json
-    monkeypatch.setattr(notification, "_binary_available", lambda: True)
-
-    captured = {}
-
-    class _FakeCompleted:
-        returncode = 0
-        stdout = b""
-        stderr = b""
-
-    def _fake_run(cmd, **kwargs):
-        captured["cmd"] = cmd
-        captured["env"] = kwargs.get("env", {})
-        return _FakeCompleted()
-
-    monkeypatch.setattr(notification.subprocess, "run", _fake_run)
-
-    res = await client.post("/api/settings/notifications/test", json={"backend": "dsm"})
-    assert res.status_code == 200
-    body = res.json()
-    assert body["success"] is True
-
-    cmd = captured["cmd"]
-    assert cmd[0] == notification._SYNODSMNOTIFY
-    assert cmd[1] == "@administrators"
-    assert cmd[2] == "DSMSupportFormCustomMessage"
-    payload = _json.loads(cmd[3])
-    assert set(payload.keys()) == {"CUSTOM_MSG"}
-    assert "Testnachricht" in payload["CUSTOM_MSG"]
-    # LD_LIBRARY_PATH must be prefixed with the Synology lib directory.
-    assert captured["env"]["LD_LIBRARY_PATH"].startswith(notification._SYNO_LIB_DIR)
-
-
-def test_dsm_payload_builds_single_custom_msg_key():
-    payload = notification._dsm_payload("Titel", "Nachricht")
-    import json as _json
-    data = _json.loads(payload)
-    assert data == {"CUSTOM_MSG": "Titel: Nachricht"}
-
-
-def test_dsm_payload_handles_empty_title():
-    import json as _json
-    assert _json.loads(notification._dsm_payload("", "foo")) == {"CUSTOM_MSG": "foo"}
-    assert _json.loads(notification._dsm_payload("bar", "")) == {"CUSTOM_MSG": "bar"}
+    assert res.status_code == 422
 
 
 @pytest.mark.asyncio
 async def test_test_endpoint_pushover_requires_credentials(client):
     config_store.save_notifications({
-        "dsm_notify": False,
         "pushover_enabled": True,
         "pushover_api_token": "",
         "pushover_user_key": "",
@@ -193,7 +133,6 @@ async def test_test_endpoint_pushover_requires_credentials(client):
 @pytest.mark.asyncio
 async def test_test_endpoint_pushover_success(client, monkeypatch):
     config_store.save_notifications({
-        "dsm_notify": False,
         "pushover_enabled": True,
         "pushover_api_token": "token-abc",
         "pushover_user_key": "user-xyz",

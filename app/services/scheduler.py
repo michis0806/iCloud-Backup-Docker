@@ -11,7 +11,7 @@ from app import config_store
 from app.services import backup_service
 from app.services.notification import notify_backup_result, notify_token_expired, notify_token_expiring
 
-# Token age (in days) at which a DSM warning is sent.
+# Token age (in days) at which a warning notification is sent.
 _TOKEN_WARNING_DAYS = 50
 
 log = logging.getLogger("icloud-backup")
@@ -101,7 +101,7 @@ async def _run_backup_job(apple_id: str) -> None:
 
 
 def check_token_expiry_for_account(apple_id: str) -> None:
-    """Check token age for a single account and send a DSM warning if expiring."""
+    """Check token age for a single account and send a warning notification if expiring."""
     acc = config_store.get_account(apple_id)
     if acc is None:
         return
@@ -124,7 +124,7 @@ def check_token_expiry_for_account(apple_id: str) -> None:
 
 
 def _check_token_expiry() -> None:
-    """Check token age for all accounts and send DSM warnings for expiring tokens."""
+    """Check token age for all accounts and send warning notifications for expiring tokens."""
     for acc in config_store.list_accounts():
         check_token_expiry_for_account(acc["apple_id"])
 
