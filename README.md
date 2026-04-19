@@ -14,7 +14,6 @@ A Docker-based backup service for **iCloud Drive**, **iCloud Photos**, **iCloud 
 - **Scheduled Backups** – Configurable via cron expressions
 - **2FA Support** – Two-factor authentication directly through the web UI (device push & SMS)
 - **Pushover Notifications** – Push notifications for backup errors and expiring tokens via [Pushover](https://pushover.net), configurable in the web UI
-- **Synology Notifications** – Optional notifications via `synodsmnotify` on Synology NAS, configurable in the web UI
 - **Cached iCloud Storage** – Storage breakdown is refreshed automatically after every backup and cached on disk
 - **Password Protection** – Web UI secured with password authentication
 - **Dark Mode UI** – Modern, responsive web interface
@@ -78,7 +77,7 @@ Zusätzlich wird die Version in der Web-UI im Footer angezeigt.
 | `LOG_LEVEL` | `INFO` | Log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
 | `TZ` | `Europe/Berlin` | Timezone |
 
-> Notification settings (DSM and Pushover) are configured in the web UI under
+> Notification settings (Pushover) are configured in the web UI under
 > **Einstellungen** and stored in `/config/config.yaml`. They are no longer
 > set via environment variables.
 
@@ -111,7 +110,7 @@ services:
     environment:
       - TZ=${TZ:-Europe/Berlin}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      # Notifications (DSM / Pushover) are configured in the web UI
+      # Notifications (Pushover) are configured in the web UI
       # under "Einstellungen" and stored in /config/config.yaml.
       # - AUTH_PASSWORD=my-secure-password
       # - SECRET_KEY=...  # Optional; falls back to AUTH_PASSWORD if not set
@@ -178,16 +177,10 @@ services:
          - /volume1/docker/icloud-backup/backups:/backups
          - /volume1/docker/icloud-backup/config:/config
          - /volume1/docker/icloud-backup/archive:/archive
-         - /usr/syno/bin/synodsmnotify:/usr/local/bin/synodsmnotify:ro
-         - /usr/lib:/usr/syno/lib:ro
        environment:
          - TZ=Europe/Berlin
          - AUTH_PASSWORD=my-secure-password
    ```
-
-   > To enable DSM notifications, open the web UI → **Einstellungen** and
-   > toggle "DSM-Benachrichtigungen aktivieren". The mounts above
-   > (`synodsmnotify` + `/usr/lib`) are still required.
 
 5. **Start the project** → Container Manager builds and starts the container
 

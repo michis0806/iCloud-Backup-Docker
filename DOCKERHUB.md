@@ -14,7 +14,6 @@ Back up your **iCloud Drive** and **iCloud Photos** automatically with a simple 
 - Etag caching for fast incremental backups
 - Live progress, backup duration & built-in log viewer
 - Pushover push notifications for backup errors and expiring tokens
-- Synology DSM notifications via `synodsmnotify`
 - Multi-arch: `linux/amd64` and `linux/arm64`
 
 ## Quick Start
@@ -54,13 +53,11 @@ Open **http://localhost:8080** and log in.
 | `AUTH_PASSWORD` | *(random)* | Web UI password. Random if not set (check logs). |
 | `SECRET_KEY` | *(uses AUTH_PASSWORD)* | Secret for cookie signing. Falls back to `AUTH_PASSWORD` if not set. |
 | `LOG_LEVEL` | `INFO` | Log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`). |
-| `DSM_NOTIFY` | `false` | Enable Synology DSM notifications (`true`/`false`). |
-| `PUSHOVER_ENABLED` | `false` | Enable [Pushover](https://pushover.net) push notifications (`true`/`false`). |
-| `PUSHOVER_API_TOKEN` | – | Pushover application API token. |
-| `PUSHOVER_USER_KEY` | – | Pushover user key. |
-| `PUSHOVER_DEVICES` | *(all)* | Comma-separated device names to notify (empty = all devices). |
 | `ARCHIVE_PATH` | `./archive` | Host path for archived files (sync policy "archive"). |
 | `TZ` | `Europe/Berlin` | Container timezone. |
+
+> Pushover notifications are configured in the web UI under **Einstellungen**
+> and stored in `/config/config.yaml`.
 
 ## Volumes
 

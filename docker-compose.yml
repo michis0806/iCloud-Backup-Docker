@@ -13,13 +13,10 @@ services:
       - ${BACKUP_PATH:-./backups}:/backups
       - ${CONFIG_PATH:-./config}:/config
       - ${ARCHIVE_PATH:-./archive}:/archive
-      # Synology DSM notifications (uncomment on Synology NAS)
-      # - /usr/syno/bin/synodsmnotify:/usr/local/bin/synodsmnotify:ro
-      # - /usr/lib:/usr/syno/lib:ro
     environment:
       - TZ=${TZ:-Europe/Berlin}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      # Notifications (DSM / Pushover) werden in der Web-Oberfläche unter
+      # Benachrichtigungen (Pushover) werden in der Web-Oberfläche unter
       # "Einstellungen" konfiguriert und in /config/config.yaml gespeichert.
       # - AUTH_PASSWORD=mein-sicheres-passwort  # If not set, a random password is logged on startup
       # - SECRET_KEY=...  # Optional; falls back to AUTH_PASSWORD if not set

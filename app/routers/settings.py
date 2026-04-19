@@ -15,7 +15,6 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 
 class NotificationSettings(BaseModel):
-    dsm_notify: bool = False
     pushover_enabled: bool = False
     pushover_api_token: str = ""
     pushover_user_key: str = ""
@@ -33,7 +32,6 @@ def _redact(settings_dict: dict) -> dict:
 
 
 class NotificationSettingsResponse(BaseModel):
-    dsm_notify: bool
     pushover_enabled: bool
     pushover_api_token_set: bool
     pushover_user_key_set: bool
@@ -45,7 +43,6 @@ class NotificationSettingsResponse(BaseModel):
 def _to_response(data: dict) -> NotificationSettingsResponse:
     redacted = _redact(data)
     return NotificationSettingsResponse(
-        dsm_notify=bool(data.get("dsm_notify")),
         pushover_enabled=bool(data.get("pushover_enabled")),
         pushover_api_token_set=bool(data.get("pushover_api_token")),
         pushover_user_key_set=bool(data.get("pushover_user_key")),
@@ -64,7 +61,6 @@ async def get_notification_settings():
 async def update_notification_settings(data: NotificationSettings):
     current = config_store.get_notifications()
     merged = dict(current)
-    merged["dsm_notify"] = data.dsm_notify
     merged["pushover_enabled"] = data.pushover_enabled
     merged["pushover_devices"] = data.pushover_devices
     # Only overwrite secrets when the client actually sends a new value.
@@ -78,7 +74,7 @@ async def update_notification_settings(data: NotificationSettings):
 
 
 class NotificationTestRequest(BaseModel):
-    backend: Literal["dsm", "pushover"]
+    backend: Literal["pushover"]
 
 
 class NotificationTestResponse(BaseModel):
@@ -89,9 +85,7 @@ class NotificationTestResponse(BaseModel):
 @router.post("/notifications/test", response_model=NotificationTestResponse)
 async def test_notification(data: NotificationTestRequest):
     """Send a one-off test notification via the selected backend."""
-    if data.backend == "dsm":
-        result = await asyncio.to_thread(notification.test_dsm)
-    elif data.backend == "pushover":
+    if data.backend == "pushover":
         result = await asyncio.to_thread(notification.test_pushover)
     else:  # pragma: no cover – pydantic already enforces this
         raise HTTPException(status_code=400, detail="Unbekannter Backend-Typ.")

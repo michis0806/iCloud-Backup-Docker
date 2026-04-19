@@ -23,37 +23,6 @@
             </div>
 
             <form x-show="!loading" @submit.prevent="save()" class="mt-2">
-                <!-- DSM -->
-                <h6 class="mt-2">Synology DSM</h6>
-                <div class="form-check form-switch mb-3">
-                    <input class="form-check-input" type="checkbox" id="dsmNotify"
-                           x-model="form.dsm_notify">
-                    <label class="form-check-label" for="dsmNotify">
-                        DSM-Benachrichtigungen aktivieren
-                    </label>
-                    <div class="form-text">
-                        Erfordert eingehängte Volumes
-                        <code>/usr/syno/bin/synodsmnotify</code> und
-                        <code>/usr/lib</code> (siehe README).
-                    </div>
-                </div>
-
-                <div class="d-flex align-items-center gap-2 mb-3">
-                    <button type="button" class="btn btn-outline-secondary btn-sm"
-                            @click="sendTest('dsm')" :disabled="testing.dsm">
-                        <span x-show="testing.dsm" class="spinner-border spinner-border-sm me-1"></span>
-                        <i class="bi bi-send me-1" x-show="!testing.dsm"></i>
-                        Testbenachrichtigung senden
-                    </button>
-                    <span x-show="testResult.dsm" x-transition
-                          class="small"
-                          :class="testResult.dsm && testResult.dsm.success ? 'text-success' : 'text-danger'"
-                          x-text="testResult.dsm ? testResult.dsm.message : ''">
-                    </span>
-                </div>
-
-                <hr>
-
                 <!-- Pushover -->
                 <h6 class="mt-2">Pushover</h6>
                 <div class="form-check form-switch mb-3">
@@ -139,10 +108,9 @@ function notificationSettings() {
         saving: false,
         saved: false,
         error: '',
-        testing: { dsm: false, pushover: false },
-        testResult: { dsm: null, pushover: null },
+        testing: { pushover: false },
+        testResult: { pushover: null },
         current: {
-            dsm_notify: false,
             pushover_enabled: false,
             pushover_api_token_set: false,
             pushover_user_key_set: false,
@@ -151,7 +119,6 @@ function notificationSettings() {
             pushover_devices: '',
         },
         form: {
-            dsm_notify: false,
             pushover_enabled: false,
             pushover_api_token: '',
             pushover_user_key: '',
@@ -169,7 +136,6 @@ function notificationSettings() {
                 if (!res.ok) throw new Error('HTTP ' + res.status);
                 const data = await res.json();
                 this.current = data;
-                this.form.dsm_notify = data.dsm_notify;
                 this.form.pushover_enabled = data.pushover_enabled;
                 this.form.pushover_devices = data.pushover_devices || '';
                 // Secrets are never returned – keep inputs empty so submit keeps current values.
@@ -215,7 +181,7 @@ function notificationSettings() {
             this.saving = true;
             this.saved = false;
             this.error = '';
-            this.testResult = { dsm: null, pushover: null };
+            this.testResult = { pushover: null };
             try {
                 const res = await fetch('/api/settings/notifications', {
                     method: 'POST',

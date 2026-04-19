@@ -1,4 +1,4 @@
-"""Notification service – supports DSM (synodsmnotify) and Pushover.
+"""Notification service – Pushover backend.
 
 Settings are stored in the YAML config (``config_store.get_notifications``)
 so they can be edited from the web UI instead of docker-compose.yml.
@@ -6,98 +6,17 @@ so they can be edited from the web UI instead of docker-compose.yml.
 
 import json
 import logging
-import os
-import shutil
-import subprocess
-import urllib.request
 import urllib.error
+import urllib.request
 
 from app import config_store
 
 log = logging.getLogger("icloud-backup")
 
-# ---------------------------------------------------------------------------
-# DSM (Synology) backend
-# ---------------------------------------------------------------------------
-
-_SYNODSMNOTIFY = "/usr/local/bin/synodsmnotify"
-_SYNO_LIB_DIR = "/usr/syno/lib"
-
-# DSM 7.x requires the positional "title" arg to be a registered mail string
-# key and the "msg" arg to be a JSON object whose keys map to the placeholders
-# defined in that mail template. We use the built-in ``DSMSupportFormCustomMessage``
-# template, which exposes a single free-form placeholder ``%CUSTOM_MSG%`` and
-# has no hardcoded title/subject, so our own text is rendered verbatim.
-_DSM_MAIL_KEY = "DSMSupportFormCustomMessage"
-
-
-def _binary_available() -> bool:
-    """Check whether synodsmnotify is available in the container."""
-    return shutil.which(_SYNODSMNOTIFY) is not None
-
-
-def _dsm_env() -> dict:
-    env = os.environ.copy()
-    env["LD_LIBRARY_PATH"] = _SYNO_LIB_DIR + ":" + env.get("LD_LIBRARY_PATH", "")
-    return env
-
-
-def _dsm_payload(title: str, message: str) -> str:
-    """Build the JSON string for the synodsmnotify ``msg`` positional arg."""
-    text = f"{title}: {message}" if title and message else (title or message)
-    return json.dumps({"CUSTOM_MSG": text})
-
-
-def send_dsm_notification(title: str, message: str) -> None:
-    """Send a DSM notification via synodsmnotify.
-
-    Does nothing when DSM notifications are disabled or the binary is missing.
-    """
-    if not config_store.get_notifications().get("dsm_notify"):
-        return
-
-    if not _binary_available():
-        log.warning(
-            "DSM-Benachrichtigungen sind aktiviert, aber %s wurde nicht gefunden. "
-            "Bitte die Volumes /usr/syno/bin/synodsmnotify:%s:ro und "
-            "/usr/lib:%s:ro in docker-compose.yml einbinden.",
-            _SYNODSMNOTIFY,
-            _SYNODSMNOTIFY,
-            _SYNO_LIB_DIR,
-        )
-        return
-
-    try:
-        subprocess.run(
-            [_SYNODSMNOTIFY, "@administrators", _DSM_MAIL_KEY, _dsm_payload(title, message)],
-            timeout=10,
-            check=True,
-            capture_output=True,
-            env=_dsm_env(),
-        )
-        log.info("DSM-Benachrichtigung gesendet: %s", title)
-    except subprocess.CalledProcessError as exc:
-        stderr = exc.stderr.decode(errors="replace")
-        if exc.returncode == 127 and "shared librar" in stderr:
-            log.warning(
-                "synodsmnotify fehlgeschlagen (rc=127): Shared Libraries fehlen. "
-                "Bitte /usr/lib:%s:ro als Volume einbinden. Detail: %s",
-                _SYNO_LIB_DIR,
-                stderr,
-            )
-        else:
-            log.warning("synodsmnotify fehlgeschlagen (rc=%d): %s", exc.returncode, stderr)
-    except FileNotFoundError:
-        log.warning("synodsmnotify nicht gefunden")
-    except Exception as exc:
-        log.warning("DSM-Benachrichtigung fehlgeschlagen: %s", exc)
-
-
-# ---------------------------------------------------------------------------
-# Pushover backend
-# ---------------------------------------------------------------------------
-
 _PUSHOVER_API_URL = "https://api.pushover.net/1/messages.json"
+
+_TEST_TITLE = "iCloud Backup – Testbenachrichtigung"
+_TEST_MESSAGE = "Dies ist eine Testnachricht aus dem iCloud-Backup-Service."
 
 
 def send_pushover_notification(title: str, message: str) -> None:
@@ -128,11 +47,9 @@ def send_pushover_notification(title: str, message: str) -> None:
     if devices:
         data["device"] = devices
 
-    payload = json.dumps(data).encode()
-
     req = urllib.request.Request(
         _PUSHOVER_API_URL,
-        data=payload,
+        data=json.dumps(data).encode(),
         headers={"Content-Type": "application/json"},
         method="POST",
     )
@@ -141,18 +58,16 @@ def send_pushover_notification(title: str, message: str) -> None:
         with urllib.request.urlopen(req, timeout=10):
             log.info("Pushover-Benachrichtigung gesendet: %s", title)
     except urllib.error.HTTPError as exc:
-        log.warning("Pushover-Benachrichtigung fehlgeschlagen (HTTP %d): %s", exc.code, exc.read().decode(errors="replace"))
+        log.warning(
+            "Pushover-Benachrichtigung fehlgeschlagen (HTTP %d): %s",
+            exc.code,
+            exc.read().decode(errors="replace"),
+        )
     except Exception as exc:
         log.warning("Pushover-Benachrichtigung fehlgeschlagen: %s", exc)
 
 
-# ---------------------------------------------------------------------------
-# Unified helpers – dispatch to all enabled backends
-# ---------------------------------------------------------------------------
-
 def _send(title: str, message: str) -> None:
-    """Send a notification to all enabled backends."""
-    send_dsm_notification(title, message)
     send_pushover_notification(title, message)
 
 
@@ -183,49 +98,6 @@ def notify_token_expired(apple_id: str) -> None:
         f"{apple_id}: Token ist abgelaufen. "
         "Zwei-Faktor-Authentifizierung erforderlich.",
     )
-
-
-# ---------------------------------------------------------------------------
-# Test helpers – bypass the "enabled" toggle and return structured results
-# so the UI can display a success/failure message.
-# ---------------------------------------------------------------------------
-
-_TEST_TITLE = "iCloud Backup – Testbenachrichtigung"
-_TEST_MESSAGE = "Dies ist eine Testnachricht aus dem iCloud-Backup-Service."
-
-
-def test_dsm() -> dict:
-    """Send a one-off DSM notification and report the result."""
-    if not _binary_available():
-        return {
-            "success": False,
-            "message": (
-                f"{_SYNODSMNOTIFY} wurde nicht gefunden. Bitte die Volumes "
-                f"/usr/syno/bin/synodsmnotify:{_SYNODSMNOTIFY}:ro und "
-                f"/usr/lib:{_SYNO_LIB_DIR}:ro in docker-compose.yml einbinden."
-            ),
-        }
-
-    try:
-        subprocess.run(
-            [_SYNODSMNOTIFY, "@administrators", _DSM_MAIL_KEY, _dsm_payload(_TEST_TITLE, _TEST_MESSAGE)],
-            timeout=10,
-            check=True,
-            capture_output=True,
-            env=_dsm_env(),
-        )
-        log.info("DSM-Testbenachrichtigung gesendet")
-        return {"success": True, "message": "DSM-Testbenachrichtigung gesendet."}
-    except subprocess.CalledProcessError as exc:
-        stderr = exc.stderr.decode(errors="replace").strip()
-        return {
-            "success": False,
-            "message": f"synodsmnotify fehlgeschlagen (rc={exc.returncode}): {stderr or '(keine Ausgabe)'}",
-        }
-    except FileNotFoundError:
-        return {"success": False, "message": "synodsmnotify nicht gefunden."}
-    except Exception as exc:
-        return {"success": False, "message": f"DSM-Benachrichtigung fehlgeschlagen: {exc}"}
 
 
 def test_pushover() -> dict:

@@ -7,20 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.20] - 2026-04-19
+
+### Removed
+- **Synology DSM notifications** – Removed completely. Even when invoked with
+  the correct DSM 7.3 syntax, `synodsmnotify` consistently segfaulted inside
+  the container because the bundled Synology C++ libraries require a DSM
+  runtime environment that cannot be reproduced in a generic Docker image.
+  Pushover remains the only supported notification backend. The `DSM_NOTIFY`
+  environment variable, the `dsm_notify` config key, the DSM section in the
+  *Einstellungen* UI, and the `synodsmnotify` / `/usr/lib` volume mounts in
+  the Synology docker-compose example have all been removed. Any stored
+  `dsm_notify` values in `/config/config.yaml` are ignored.
+
 ## [0.9.18] - 2026-04-19
 
 ### Fixed
-- **DSM notifications now work on DSM 7.x** – `synodsmnotify` in DSM 7.3
-  requires the positional `title` argument to be a registered mail-string key
-  and the `msg` argument to be a JSON object mapping placeholders to values.
-  The service now invokes
-  `synodsmnotify @administrators DSMSupportFormCustomMessage '{"CUSTOM_MSG":"…"}'`,
-  which uses the built-in `DSMSupportFormCustomMessage` template (a single
-  `%CUSTOM_MSG%` placeholder, no hardcoded subject/title). Notifications appear
-  in DSM's notification center and are routed through the user's configured
-  Synology notification channels (mail, push, SMS, …). Previously this
-  segfaulted (`rc=-11`) or returned `title: '…' is neither mail string key nor
-  i18n format.`.
+- **DSM notifications call format updated for DSM 7.x** – `synodsmnotify` in
+  DSM 7.3 requires the positional `title` argument to be a registered
+  mail-string key and the `msg` argument to be a JSON object mapping
+  placeholders to values. The service was updated to use
+  `DSMSupportFormCustomMessage` with a `{"CUSTOM_MSG":"…"}` payload, fixing
+  the previous `title: '…' is neither mail string key nor i18n format.`
+  error. (Superseded by the full removal of DSM support in 0.9.19 after the
+  binary still segfaulted inside the container despite the correct syntax.)
 
 ## [0.9.17] - 2026-04-19
 
