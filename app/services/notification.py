@@ -167,3 +167,92 @@ def notify_token_expired(apple_id: str) -> None:
         f"{apple_id}: Token ist abgelaufen. "
         "Zwei-Faktor-Authentifizierung erforderlich.",
     )
+
+
+# ---------------------------------------------------------------------------
+# Test helpers – bypass the "enabled" toggle and return structured results
+# so the UI can display a success/failure message.
+# ---------------------------------------------------------------------------
+
+_TEST_TITLE = "iCloud Backup – Testbenachrichtigung"
+_TEST_MESSAGE = "Dies ist eine Testnachricht aus dem iCloud-Backup-Service."
+
+
+def test_dsm() -> dict:
+    """Send a one-off DSM notification and report the result."""
+    if not _binary_available():
+        return {
+            "success": False,
+            "message": (
+                f"{_SYNODSMNOTIFY} wurde nicht gefunden. Bitte die Volumes "
+                f"/usr/syno/bin/synodsmnotify:{_SYNODSMNOTIFY}:ro und "
+                f"/usr/lib:{_SYNO_LIB_DIR}:ro in docker-compose.yml einbinden."
+            ),
+        }
+
+    env = os.environ.copy()
+    env["LD_LIBRARY_PATH"] = _SYNO_LIB_DIR + ":" + env.get("LD_LIBRARY_PATH", "")
+
+    try:
+        subprocess.run(
+            [_SYNODSMNOTIFY, "@administrators", _TEST_TITLE, _TEST_MESSAGE],
+            timeout=10,
+            check=True,
+            capture_output=True,
+            env=env,
+        )
+        log.info("DSM-Testbenachrichtigung gesendet")
+        return {"success": True, "message": "DSM-Testbenachrichtigung gesendet."}
+    except subprocess.CalledProcessError as exc:
+        stderr = exc.stderr.decode(errors="replace").strip()
+        return {
+            "success": False,
+            "message": f"synodsmnotify fehlgeschlagen (rc={exc.returncode}): {stderr or '(keine Ausgabe)'}",
+        }
+    except FileNotFoundError:
+        return {"success": False, "message": "synodsmnotify nicht gefunden."}
+    except Exception as exc:
+        return {"success": False, "message": f"DSM-Benachrichtigung fehlgeschlagen: {exc}"}
+
+
+def test_pushover() -> dict:
+    """Send a one-off Pushover notification and report the result."""
+    notif = config_store.get_notifications()
+    token = (notif.get("pushover_api_token") or "").strip()
+    user = (notif.get("pushover_user_key") or "").strip()
+    devices = (notif.get("pushover_devices") or "").strip()
+
+    if not token or not user:
+        return {
+            "success": False,
+            "message": "API-Token oder User-Key fehlt. Bitte zuerst speichern.",
+        }
+
+    data = {
+        "token": token,
+        "user": user,
+        "title": _TEST_TITLE,
+        "message": _TEST_MESSAGE,
+    }
+    if devices:
+        data["device"] = devices
+
+    req = urllib.request.Request(
+        _PUSHOVER_API_URL,
+        data=json.dumps(data).encode(),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=10):
+            log.info("Pushover-Testbenachrichtigung gesendet")
+            return {"success": True, "message": "Pushover-Testbenachrichtigung gesendet."}
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode(errors="replace").strip()
+        return {
+            "success": False,
+            "message": f"Pushover-API antwortete mit HTTP {exc.code}: {body or '(kein Body)'}",
+        }
+    except Exception as exc:
+        return {"success": False, "message": f"Pushover-Benachrichtigung fehlgeschlagen: {exc}"}

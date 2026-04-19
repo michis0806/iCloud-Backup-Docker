@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Notifications are configured in the web UI** – DSM and Pushover settings are no longer set via `DSM_NOTIFY` / `PUSHOVER_*` in `docker-compose.yml`; they live under the new **Einstellungen** menu and are stored in the existing `/config/config.yaml`. The API never returns stored secrets, and submitting an empty value preserves the previously saved secret.
 
 ### Added
+- **Test buttons for DSM and Pushover** – The settings page now offers a "Testbenachrichtigung senden" button per backend that triggers a one-off notification (bypassing the enabled toggle) and shows the result inline. Backed by `POST /api/settings/notifications/test` with `{"backend": "dsm"|"pushover"}`.
 - Unit tests for the new storage cache (`tests/test_storage_cache.py`) and the notification settings API (`tests/test_notifications_settings.py`).
 
 ### Removed

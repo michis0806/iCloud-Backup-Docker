@@ -105,3 +105,70 @@ def test_pushover_respects_config_store_toggle(monkeypatch, tmp_path):
     monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen)
     notification.send_pushover_notification("t", "m")
     assert called["n"] == 0
+
+
+@pytest.mark.asyncio
+async def test_test_endpoint_rejects_unknown_backend(client):
+    res = await client.post("/api/settings/notifications/test", json={"backend": "email"})
+    # Pydantic rejects the Literal with 422 before the handler runs.
+    assert res.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_test_endpoint_dsm_reports_missing_binary(client, monkeypatch):
+    # Ensure the binary check returns False regardless of the host.
+    monkeypatch.setattr(notification, "_binary_available", lambda: False)
+    res = await client.post("/api/settings/notifications/test", json={"backend": "dsm"})
+    assert res.status_code == 200
+    body = res.json()
+    assert body["success"] is False
+    assert "synodsmnotify" in body["message"]
+
+
+@pytest.mark.asyncio
+async def test_test_endpoint_pushover_requires_credentials(client):
+    config_store.save_notifications({
+        "dsm_notify": False,
+        "pushover_enabled": True,
+        "pushover_api_token": "",
+        "pushover_user_key": "",
+        "pushover_devices": "",
+    })
+    res = await client.post("/api/settings/notifications/test", json={"backend": "pushover"})
+    assert res.status_code == 200
+    body = res.json()
+    assert body["success"] is False
+    assert "Token" in body["message"] or "User-Key" in body["message"]
+
+
+@pytest.mark.asyncio
+async def test_test_endpoint_pushover_success(client, monkeypatch):
+    config_store.save_notifications({
+        "dsm_notify": False,
+        "pushover_enabled": True,
+        "pushover_api_token": "token-abc",
+        "pushover_user_key": "user-xyz",
+        "pushover_devices": "iphone",
+    })
+
+    class _FakeResp:
+        def __enter__(self):
+            return self
+        def __exit__(self, *exc):
+            return False
+
+    captured = {}
+    def _fake_urlopen(req, timeout=10):
+        captured["url"] = req.full_url
+        captured["body"] = req.data
+        return _FakeResp()
+    monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen)
+
+    res = await client.post("/api/settings/notifications/test", json={"backend": "pushover"})
+    assert res.status_code == 200
+    body = res.json()
+    assert body["success"] is True
+    assert "pushover.net" in captured["url"]
+    assert b"token-abc" in captured["body"]
+    assert b"user-xyz" in captured["body"]
+    assert b"iphone" in captured["body"]
