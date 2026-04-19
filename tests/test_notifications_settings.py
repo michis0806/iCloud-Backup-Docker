@@ -126,6 +126,55 @@ async def test_test_endpoint_dsm_reports_missing_binary(client, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_test_endpoint_dsm_invokes_synodsmnotify_with_json_payload(client, monkeypatch):
+    """DSM 7.x requires the mail-string-key + JSON-payload argument form."""
+    import json as _json
+    monkeypatch.setattr(notification, "_binary_available", lambda: True)
+
+    captured = {}
+
+    class _FakeCompleted:
+        returncode = 0
+        stdout = b""
+        stderr = b""
+
+    def _fake_run(cmd, **kwargs):
+        captured["cmd"] = cmd
+        captured["env"] = kwargs.get("env", {})
+        return _FakeCompleted()
+
+    monkeypatch.setattr(notification.subprocess, "run", _fake_run)
+
+    res = await client.post("/api/settings/notifications/test", json={"backend": "dsm"})
+    assert res.status_code == 200
+    body = res.json()
+    assert body["success"] is True
+
+    cmd = captured["cmd"]
+    assert cmd[0] == notification._SYNODSMNOTIFY
+    assert cmd[1] == "@administrators"
+    assert cmd[2] == "DSMSupportFormCustomMessage"
+    payload = _json.loads(cmd[3])
+    assert set(payload.keys()) == {"CUSTOM_MSG"}
+    assert "Testnachricht" in payload["CUSTOM_MSG"]
+    # LD_LIBRARY_PATH must be prefixed with the Synology lib directory.
+    assert captured["env"]["LD_LIBRARY_PATH"].startswith(notification._SYNO_LIB_DIR)
+
+
+def test_dsm_payload_builds_single_custom_msg_key():
+    payload = notification._dsm_payload("Titel", "Nachricht")
+    import json as _json
+    data = _json.loads(payload)
+    assert data == {"CUSTOM_MSG": "Titel: Nachricht"}
+
+
+def test_dsm_payload_handles_empty_title():
+    import json as _json
+    assert _json.loads(notification._dsm_payload("", "foo")) == {"CUSTOM_MSG": "foo"}
+    assert _json.loads(notification._dsm_payload("bar", "")) == {"CUSTOM_MSG": "bar"}
+
+
+@pytest.mark.asyncio
 async def test_test_endpoint_pushover_requires_credentials(client):
     config_store.save_notifications({
         "dsm_notify": False,

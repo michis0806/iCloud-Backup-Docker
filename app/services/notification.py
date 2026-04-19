@@ -23,23 +23,42 @@ log = logging.getLogger("icloud-backup")
 _SYNODSMNOTIFY = "/usr/local/bin/synodsmnotify"
 _SYNO_LIB_DIR = "/usr/syno/lib"
 
+# DSM 7.x requires the positional "title" arg to be a registered mail string
+# key and the "msg" arg to be a JSON object whose keys map to the placeholders
+# defined in that mail template. We use the built-in ``DSMSupportFormCustomMessage``
+# template, which exposes a single free-form placeholder ``%CUSTOM_MSG%`` and
+# has no hardcoded title/subject, so our own text is rendered verbatim.
+_DSM_MAIL_KEY = "DSMSupportFormCustomMessage"
+
 
 def _binary_available() -> bool:
     """Check whether synodsmnotify is available in the container."""
     return shutil.which(_SYNODSMNOTIFY) is not None
 
 
+def _dsm_env() -> dict:
+    env = os.environ.copy()
+    env["LD_LIBRARY_PATH"] = _SYNO_LIB_DIR + ":" + env.get("LD_LIBRARY_PATH", "")
+    return env
+
+
+def _dsm_payload(title: str, message: str) -> str:
+    """Build the JSON string for the synodsmnotify ``msg`` positional arg."""
+    text = f"{title}: {message}" if title and message else (title or message)
+    return json.dumps({"CUSTOM_MSG": text})
+
+
 def send_dsm_notification(title: str, message: str) -> None:
     """Send a DSM notification via synodsmnotify.
 
-    Does nothing when DSM_NOTIFY is disabled or the binary is missing.
+    Does nothing when DSM notifications are disabled or the binary is missing.
     """
     if not config_store.get_notifications().get("dsm_notify"):
         return
 
     if not _binary_available():
         log.warning(
-            "DSM_NOTIFY ist aktiviert, aber %s wurde nicht gefunden. "
+            "DSM-Benachrichtigungen sind aktiviert, aber %s wurde nicht gefunden. "
             "Bitte die Volumes /usr/syno/bin/synodsmnotify:%s:ro und "
             "/usr/lib:%s:ro in docker-compose.yml einbinden.",
             _SYNODSMNOTIFY,
@@ -48,16 +67,13 @@ def send_dsm_notification(title: str, message: str) -> None:
         )
         return
 
-    env = os.environ.copy()
-    env["LD_LIBRARY_PATH"] = _SYNO_LIB_DIR + ":" + env.get("LD_LIBRARY_PATH", "")
-
     try:
         subprocess.run(
-            [_SYNODSMNOTIFY, "@administrators", title, message],
+            [_SYNODSMNOTIFY, "@administrators", _DSM_MAIL_KEY, _dsm_payload(title, message)],
             timeout=10,
             check=True,
             capture_output=True,
-            env=env,
+            env=_dsm_env(),
         )
         log.info("DSM-Benachrichtigung gesendet: %s", title)
     except subprocess.CalledProcessError as exc:
@@ -190,16 +206,13 @@ def test_dsm() -> dict:
             ),
         }
 
-    env = os.environ.copy()
-    env["LD_LIBRARY_PATH"] = _SYNO_LIB_DIR + ":" + env.get("LD_LIBRARY_PATH", "")
-
     try:
         subprocess.run(
-            [_SYNODSMNOTIFY, "@administrators", _TEST_TITLE, _TEST_MESSAGE],
+            [_SYNODSMNOTIFY, "@administrators", _DSM_MAIL_KEY, _dsm_payload(_TEST_TITLE, _TEST_MESSAGE)],
             timeout=10,
             check=True,
             capture_output=True,
-            env=env,
+            env=_dsm_env(),
         )
         log.info("DSM-Testbenachrichtigung gesendet")
         return {"success": True, "message": "DSM-Testbenachrichtigung gesendet."}
