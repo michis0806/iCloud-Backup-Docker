@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.18] - 2026-04-19
+
+### Fixed
+- **DSM notifications now work on DSM 7.x** – `synodsmnotify` in DSM 7.3
+  requires the positional `title` argument to be a registered mail-string key
+  and the `msg` argument to be a JSON object mapping placeholders to values.
+  The service now invokes
+  `synodsmnotify @administrators DSMSupportFormCustomMessage '{"CUSTOM_MSG":"…"}'`,
+  which uses the built-in `DSMSupportFormCustomMessage` template (a single
+  `%CUSTOM_MSG%` placeholder, no hardcoded subject/title). Notifications appear
+  in DSM's notification center and are routed through the user's configured
+  Synology notification channels (mail, push, SMS, …). Previously this
+  segfaulted (`rc=-11`) or returned `title: '…' is neither mail string key nor
+  i18n format.`.
+
 ## [0.9.17] - 2026-04-19
 
 ### Changed
