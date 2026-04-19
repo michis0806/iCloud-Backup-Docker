@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.16] - 2026-04-19
+
+### Fixed
+- **SMS-2FA zeigt wieder Telefonnummern an** – Der SMS-Reiter lädt vertrauenswürdige Rufnummern für moderne Apple-Accounts (HSA2) jetzt robuster und fällt bei leeren `pyicloud`-Metadaten auf Apples Auth-Optionen zurück.
+- **SMS-Code-Verifikation für HSA2 korrigiert** – Die Bestätigung eines per SMS erhaltenen 2FA-Codes läuft jetzt über Apples Phone-Verification-Endpoint statt über den Geräte-Code-Pfad.
+
+### Added
+- Unit-Tests für Telefonnummern-Ermittlung, SMS-Versand und SMS-Code-Verifikation im HSA2-Flow.
+
 ## [0.9.14] 2026-04-04
 
 - Bump pyicloud dependency to version 2.5.0
