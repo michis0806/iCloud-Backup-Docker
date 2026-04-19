@@ -10,23 +10,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.9.17] - 2026-04-19
 
 ### Changed
-- **iCloud-Speicherinfo wird gecached** – Die Aufteilung der iCloud-Nutzung (Fotos, Drive, Backups, Mail, …) wird jetzt automatisch nach jedem Backup aktualisiert und persistent unter `/config/.icloud-storage-cache-<account>.json` gespeichert. Das Dashboard lädt die Anzeige damit ohne erneuten API-Call an Apple. Mit `GET /api/accounts/<id>/icloud-storage?refresh=true` lässt sich die Anzeige manuell auffrischen.
-- **Benachrichtigungen werden in der Web-UI konfiguriert** – DSM- und Pushover-Einstellungen werden nicht mehr über `DSM_NOTIFY` / `PUSHOVER_*` in `docker-compose.yml` gesetzt, sondern über den neuen Menüpunkt **Einstellungen**. Die Konfiguration landet im bestehenden `/config/config.yaml`. Secrets werden beim Auslesen der API nicht mehr zurückgegeben und können durch leere Eingabe erhalten bleiben.
+- **Cached iCloud storage usage** – The iCloud usage breakdown (photos, drive, backups, mail, …) is now refreshed automatically after every backup and persisted to `/config/.icloud-storage-cache-<account>.json`. The dashboard renders the breakdown from the cache instead of calling Apple on every page load. A manual refresh is available via `GET /api/accounts/<id>/icloud-storage?refresh=true`.
+- **Notifications are configured in the web UI** – DSM and Pushover settings are no longer set via `DSM_NOTIFY` / `PUSHOVER_*` in `docker-compose.yml`; they live under the new **Einstellungen** menu and are stored in the existing `/config/config.yaml`. The API never returns stored secrets, and submitting an empty value preserves the previously saved secret.
 
 ### Added
-- Unit-Tests für den neuen Speicher-Cache (`tests/test_storage_cache.py`) und die Benachrichtigungs-API (`tests/test_notifications_settings.py`).
+- **Test buttons for DSM and Pushover** – The settings page now offers a "Testbenachrichtigung senden" button per backend that triggers a one-off notification (bypassing the enabled toggle) and shows the result inline. Backed by `POST /api/settings/notifications/test` with `{"backend": "dsm"|"pushover"}`.
+- Unit tests for the new storage cache (`tests/test_storage_cache.py`) and the notification settings API (`tests/test_notifications_settings.py`).
 
 ### Removed
-- Environment-Variablen `DSM_NOTIFY`, `PUSHOVER_ENABLED`, `PUSHOVER_API_TOKEN`, `PUSHOVER_USER_KEY`, `PUSHOVER_DEVICES` sind nicht mehr wirksam. Werte aus bestehenden `docker-compose.yml` werden ignoriert – bitte einmalig in der Web-UI setzen.
+- Environment variables `DSM_NOTIFY`, `PUSHOVER_ENABLED`, `PUSHOVER_API_TOKEN`, `PUSHOVER_USER_KEY`, and `PUSHOVER_DEVICES` are no longer effective. Any values left in an existing `docker-compose.yml` are ignored – please re-enter them once in the web UI.
 
 ## [0.9.16] - 2026-04-19
 
 ### Fixed
-- **SMS-2FA zeigt wieder Telefonnummern an** – Der SMS-Reiter lädt vertrauenswürdige Rufnummern für moderne Apple-Accounts (HSA2) jetzt robuster und fällt bei leeren `pyicloud`-Metadaten auf Apples Auth-Optionen zurück.
-- **SMS-Code-Verifikation für HSA2 korrigiert** – Die Bestätigung eines per SMS erhaltenen 2FA-Codes läuft jetzt über Apples Phone-Verification-Endpoint statt über den Geräte-Code-Pfad.
+- **SMS 2FA shows phone numbers again** – The SMS tab now loads trusted phone numbers for modern Apple accounts (HSA2) more reliably and falls back to Apple's auth options when `pyicloud` metadata is empty.
+- **SMS code verification fixed for HSA2** – Confirming an SMS-delivered 2FA code now goes through Apple's phone verification endpoint instead of the device-code path.
 
 ### Added
-- Unit-Tests für Telefonnummern-Ermittlung, SMS-Versand und SMS-Code-Verifikation im HSA2-Flow.
+- Unit tests for phone-number lookup, SMS dispatch, and SMS code verification in the HSA2 flow.
 
 ## [0.9.14] 2026-04-04
 

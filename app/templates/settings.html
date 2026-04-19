@@ -38,6 +38,20 @@
                     </div>
                 </div>
 
+                <div class="d-flex align-items-center gap-2 mb-3">
+                    <button type="button" class="btn btn-outline-secondary btn-sm"
+                            @click="sendTest('dsm')" :disabled="testing.dsm">
+                        <span x-show="testing.dsm" class="spinner-border spinner-border-sm me-1"></span>
+                        <i class="bi bi-send me-1" x-show="!testing.dsm"></i>
+                        Testbenachrichtigung senden
+                    </button>
+                    <span x-show="testResult.dsm" x-transition
+                          class="small"
+                          :class="testResult.dsm && testResult.dsm.success ? 'text-success' : 'text-danger'"
+                          x-text="testResult.dsm ? testResult.dsm.message : ''">
+                    </span>
+                </div>
+
                 <hr>
 
                 <!-- Pushover -->
@@ -82,6 +96,24 @@
                     </div>
                 </div>
 
+                <div class="d-flex align-items-center gap-2 mb-3">
+                    <button type="button" class="btn btn-outline-secondary btn-sm"
+                            @click="sendTest('pushover')" :disabled="testing.pushover">
+                        <span x-show="testing.pushover" class="spinner-border spinner-border-sm me-1"></span>
+                        <i class="bi bi-send me-1" x-show="!testing.pushover"></i>
+                        Testbenachrichtigung senden
+                    </button>
+                    <span x-show="testResult.pushover" x-transition
+                          class="small"
+                          :class="testResult.pushover && testResult.pushover.success ? 'text-success' : 'text-danger'"
+                          x-text="testResult.pushover ? testResult.pushover.message : ''">
+                    </span>
+                </div>
+                <div class="form-text mb-3">
+                    Testbenachrichtigungen verwenden die gespeicherten Werte –
+                    bitte vorher speichern, falls du gerade etwas geändert hast.
+                </div>
+
                 <div class="d-flex align-items-center gap-3">
                     <button type="submit" class="btn btn-primary" :disabled="saving">
                         <span x-show="saving" class="spinner-border spinner-border-sm me-1"></span>
@@ -107,6 +139,8 @@ function notificationSettings() {
         saving: false,
         saved: false,
         error: '',
+        testing: { dsm: false, pushover: false },
+        testResult: { dsm: null, pushover: null },
         current: {
             dsm_notify: false,
             pushover_enabled: false,
@@ -147,10 +181,41 @@ function notificationSettings() {
             this.loading = false;
         },
 
+        async sendTest(backend) {
+            this.testing[backend] = true;
+            this.testResult[backend] = null;
+            try {
+                const res = await fetch('/api/settings/notifications/test', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ backend }),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    this.testResult[backend] = {
+                        success: false,
+                        message: data.detail || ('HTTP ' + res.status),
+                    };
+                } else {
+                    this.testResult[backend] = {
+                        success: !!data.success,
+                        message: data.message || '',
+                    };
+                }
+            } catch (e) {
+                this.testResult[backend] = {
+                    success: false,
+                    message: 'Netzwerkfehler: ' + e.message,
+                };
+            }
+            this.testing[backend] = false;
+        },
+
         async save() {
             this.saving = true;
             this.saved = false;
             this.error = '';
+            this.testResult = { dsm: null, pushover: null };
             try {
                 const res = await fetch('/api/settings/notifications', {
                     method: 'POST',

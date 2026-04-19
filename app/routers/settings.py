@@ -1,11 +1,14 @@
 """API routes for global application settings (notifications, ...)."""
 
+import asyncio
 import logging
+from typing import Literal
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from app import config_store
+from app.services import notification
 
 log = logging.getLogger("icloud-backup")
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -72,3 +75,24 @@ async def update_notification_settings(data: NotificationSettings):
         merged["pushover_user_key"] = data.pushover_user_key
     saved = config_store.save_notifications(merged)
     return _to_response(saved)
+
+
+class NotificationTestRequest(BaseModel):
+    backend: Literal["dsm", "pushover"]
+
+
+class NotificationTestResponse(BaseModel):
+    success: bool
+    message: str
+
+
+@router.post("/notifications/test", response_model=NotificationTestResponse)
+async def test_notification(data: NotificationTestRequest):
+    """Send a one-off test notification via the selected backend."""
+    if data.backend == "dsm":
+        result = await asyncio.to_thread(notification.test_dsm)
+    elif data.backend == "pushover":
+        result = await asyncio.to_thread(notification.test_pushover)
+    else:  # pragma: no cover – pydantic already enforces this
+        raise HTTPException(status_code=400, detail="Unbekannter Backend-Typ.")
+    return NotificationTestResponse(**result)
