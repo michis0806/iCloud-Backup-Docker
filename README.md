@@ -13,8 +13,9 @@ A Docker-based backup service for **iCloud Drive**, **iCloud Photos**, **iCloud 
 - **Exclusions** – Flexible exclusion patterns (glob patterns, paths)
 - **Scheduled Backups** – Configurable via cron expressions
 - **2FA Support** – Two-factor authentication directly through the web UI (device push & SMS)
-- **Pushover Notifications** – Push notifications for backup errors and expiring tokens via [Pushover](https://pushover.net)
-- **Synology Notifications** – Optional notifications via `synodsmnotify` on Synology NAS
+- **Pushover Notifications** – Push notifications for backup errors and expiring tokens via [Pushover](https://pushover.net), configurable in the web UI
+- **Synology Notifications** – Optional notifications via `synodsmnotify` on Synology NAS, configurable in the web UI
+- **Cached iCloud Storage** – Storage breakdown is refreshed automatically after every backup and cached on disk
 - **Password Protection** – Web UI secured with password authentication
 - **Dark Mode UI** – Modern, responsive web interface
 - **Etag Caching** – Only changed folders are re-scanned
@@ -75,12 +76,11 @@ Zusätzlich wird die Version in der Web-UI im Footer angezeigt.
 | `ARCHIVE_PATH` | `./archive` | Host path for archived files (used when sync policy is set to "archive") |
 | `CONFIG_PATH` | `./config` | Host path for configuration & sessions |
 | `LOG_LEVEL` | `INFO` | Log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
-| `DSM_NOTIFY` | `false` | Enable Synology DSM notifications via `synodsmnotify` (`true`/`false`) |
-| `PUSHOVER_ENABLED` | `false` | Enable [Pushover](https://pushover.net) push notifications (`true`/`false`) |
-| `PUSHOVER_API_TOKEN` | – | Pushover application API token |
-| `PUSHOVER_USER_KEY` | – | Pushover user key |
-| `PUSHOVER_DEVICES` | *(all)* | Comma-separated device names to notify (empty = all devices) |
 | `TZ` | `Europe/Berlin` | Timezone |
+
+> Notification settings (DSM and Pushover) are configured in the web UI under
+> **Einstellungen** and stored in `/config/config.yaml`. They are no longer
+> set via environment variables.
 
 ### Volumes
 
@@ -111,11 +111,8 @@ services:
     environment:
       - TZ=${TZ:-Europe/Berlin}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - DSM_NOTIFY=${DSM_NOTIFY:-false}
-      # - PUSHOVER_ENABLED=true
-      # - PUSHOVER_API_TOKEN=your-app-token
-      # - PUSHOVER_USER_KEY=your-user-key
-      # - PUSHOVER_DEVICES=                    # optional: comma-separated device names
+      # Notifications (DSM / Pushover) are configured in the web UI
+      # under "Einstellungen" and stored in /config/config.yaml.
       # - AUTH_PASSWORD=my-secure-password
       # - SECRET_KEY=...  # Optional; falls back to AUTH_PASSWORD if not set
 ```
@@ -186,8 +183,11 @@ services:
        environment:
          - TZ=Europe/Berlin
          - AUTH_PASSWORD=my-secure-password
-         - DSM_NOTIFY=true
    ```
+
+   > To enable DSM notifications, open the web UI → **Einstellungen** and
+   > toggle "DSM-Benachrichtigungen aktivieren". The mounts above
+   > (`synodsmnotify` + `/usr/lib`) are still required.
 
 5. **Start the project** → Container Manager builds and starts the container
 

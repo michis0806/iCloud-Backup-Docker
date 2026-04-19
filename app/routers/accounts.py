@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException
 
 from app import config_store
 from app.schemas import AccountCreate, AccountResponse, ReconnectRequest, SmsSendRequest, TwoFactorSubmit, TwoStepSubmit
-from app.services import icloud_service
+from app.services import icloud_service, storage_cache
 from app.services.notification import notify_token_expired
 
 log = logging.getLogger("icloud-backup")
@@ -203,15 +203,32 @@ async def check_connection(apple_id: str):
 
 
 @router.get("/{apple_id}/icloud-storage")
-async def get_icloud_storage(apple_id: str):
-    """Return iCloud storage quota and per-media usage."""
+async def get_icloud_storage(apple_id: str, refresh: bool = False):
+    """Return iCloud storage quota and per-media usage.
+
+    Reads from the on-disk cache by default (populated after every backup).
+    Set ``?refresh=true`` to force a fresh fetch from Apple.
+    """
     account = config_store.get_account(apple_id)
     if account is None:
         raise HTTPException(status_code=404, detail="Account nicht gefunden.")
-    if account["status"] != "authenticated":
-        raise HTTPException(status_code=400, detail="Account nicht authentifiziert.")
 
-    data = icloud_service.get_storage_usage(apple_id)
+    if refresh:
+        if account["status"] != "authenticated":
+            raise HTTPException(status_code=400, detail="Account nicht authentifiziert.")
+        data = storage_cache.refresh(apple_id)
+        if data is None:
+            raise HTTPException(status_code=503, detail="Speicherinfo nicht verfügbar.")
+        return data
+
+    cached = storage_cache.load_cache(apple_id)
+    if cached is not None:
+        return cached
+
+    # No cache yet – try a one-shot fetch so the UI has something to show.
+    if account["status"] != "authenticated":
+        raise HTTPException(status_code=503, detail="Speicherinfo nicht verfügbar.")
+    data = storage_cache.refresh(apple_id)
     if data is None:
         raise HTTPException(status_code=503, detail="Speicherinfo nicht verfügbar.")
     return data
@@ -223,6 +240,7 @@ async def delete_account(apple_id: str):
         raise HTTPException(status_code=404, detail="Account nicht gefunden.")
 
     icloud_service.disconnect(apple_id)
+    storage_cache.delete_cache(apple_id)
     return {"message": "Account gelöscht."}
 
 

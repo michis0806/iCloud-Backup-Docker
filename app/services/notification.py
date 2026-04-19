@@ -1,4 +1,8 @@
-"""Notification service – supports DSM (synodsmnotify) and Pushover."""
+"""Notification service – supports DSM (synodsmnotify) and Pushover.
+
+Settings are stored in the YAML config (``config_store.get_notifications``)
+so they can be edited from the web UI instead of docker-compose.yml.
+"""
 
 import json
 import logging
@@ -8,7 +12,7 @@ import subprocess
 import urllib.request
 import urllib.error
 
-from app.config import settings
+from app import config_store
 
 log = logging.getLogger("icloud-backup")
 
@@ -30,7 +34,7 @@ def send_dsm_notification(title: str, message: str) -> None:
 
     Does nothing when DSM_NOTIFY is disabled or the binary is missing.
     """
-    if not settings.dsm_notify:
+    if not config_store.get_notifications().get("dsm_notify"):
         return
 
     if not _binary_available():
@@ -83,26 +87,30 @@ _PUSHOVER_API_URL = "https://api.pushover.net/1/messages.json"
 def send_pushover_notification(title: str, message: str) -> None:
     """Send a push notification via the Pushover API.
 
-    Does nothing when PUSHOVER_ENABLED is false or credentials are missing.
+    Does nothing when Pushover is disabled or credentials are missing.
     """
-    if not settings.pushover_enabled:
+    notif = config_store.get_notifications()
+    if not notif.get("pushover_enabled"):
         return
 
-    if not settings.pushover_api_token or not settings.pushover_user_key:
+    token = notif.get("pushover_api_token") or ""
+    user = notif.get("pushover_user_key") or ""
+    devices = notif.get("pushover_devices") or ""
+    if not token or not user:
         log.warning(
-            "PUSHOVER_ENABLED ist aktiviert, aber PUSHOVER_API_TOKEN oder "
-            "PUSHOVER_USER_KEY fehlt."
+            "Pushover ist aktiviert, aber API-Token oder User-Key fehlt. "
+            "Bitte in den Benachrichtigungseinstellungen ergänzen."
         )
         return
 
     data = {
-        "token": settings.pushover_api_token,
-        "user": settings.pushover_user_key,
+        "token": token,
+        "user": user,
         "title": title,
         "message": message,
     }
-    if settings.pushover_devices:
-        data["device"] = settings.pushover_devices
+    if devices:
+        data["device"] = devices
 
     payload = json.dumps(data).encode()
 

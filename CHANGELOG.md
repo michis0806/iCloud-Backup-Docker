@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **iCloud-Speicherinfo wird gecached** – Die Aufteilung der iCloud-Nutzung (Fotos, Drive, Backups, Mail, …) wird jetzt automatisch nach jedem Backup aktualisiert und persistent unter `/config/.icloud-storage-cache-<account>.json` gespeichert. Das Dashboard lädt die Anzeige damit ohne erneuten API-Call an Apple. Mit `GET /api/accounts/<id>/icloud-storage?refresh=true` lässt sich die Anzeige manuell auffrischen.
+- **Benachrichtigungen werden in der Web-UI konfiguriert** – DSM- und Pushover-Einstellungen werden nicht mehr über `DSM_NOTIFY` / `PUSHOVER_*` in `docker-compose.yml` gesetzt, sondern über den neuen Menüpunkt **Einstellungen**. Die Konfiguration landet im bestehenden `/config/config.yaml`. Secrets werden beim Auslesen der API nicht mehr zurückgegeben und können durch leere Eingabe erhalten bleiben.
+
+### Removed
+- Environment-Variablen `DSM_NOTIFY`, `PUSHOVER_ENABLED`, `PUSHOVER_API_TOKEN`, `PUSHOVER_USER_KEY`, `PUSHOVER_DEVICES` sind nicht mehr wirksam. Werte aus bestehenden `docker-compose.yml` werden ignoriert – bitte einmalig in der Web-UI setzen.
+
 ## [0.9.16] - 2026-04-19
 
 ### Fixed
