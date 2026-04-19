@@ -15,11 +15,6 @@ class Settings(BaseSettings):
     archive_path: Path = Path("/archive")
     cookie_directory: Path = Path("/config/sessions")
     log_level: str = "INFO"
-    dsm_notify: bool = False
-    pushover_enabled: bool = False
-    pushover_api_token: str = ""
-    pushover_user_key: str = ""
-    pushover_devices: str = ""
 
     model_config = {"env_prefix": ""}
 

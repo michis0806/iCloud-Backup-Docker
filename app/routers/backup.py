@@ -11,7 +11,7 @@ from app.schemas import (
     BackupConfigCreate, BackupConfigResponse, BackupTriggerResponse,
     ScheduleUpdate, ScheduleResponse,
 )
-from app.services import backup_service, icloud_service
+from app.services import backup_service, icloud_service, storage_cache
 from app.services.notification import notify_backup_result, notify_token_expired
 from app.services.scheduler import check_token_expiry_for_account, sync_scheduled_jobs
 
@@ -119,6 +119,12 @@ async def trigger_backup(apple_id: str):
             apple_id, status=status, message=message, stats=stats,
             at=end_time.isoformat(), duration_seconds=duration,
         )
+        # Refresh cached iCloud storage breakdown so the dashboard shows
+        # up-to-date numbers without hitting Apple on every page load.
+        try:
+            await asyncio.to_thread(storage_cache.refresh, apple_id)
+        except Exception:
+            log.debug("Speicher-Cache-Refresh für %s fehlgeschlagen", apple_id, exc_info=True)
         notify_backup_result(apple_id, status, message)
 
     asyncio.create_task(_run())
@@ -208,6 +214,10 @@ async def trigger_all_backups():
                 apple_id, status=status, message=message, stats=stats,
                 at=end_time.isoformat(), duration_seconds=duration,
             )
+            try:
+                await asyncio.to_thread(storage_cache.refresh, apple_id)
+            except Exception:
+                log.debug("Speicher-Cache-Refresh für %s fehlgeschlagen", apple_id, exc_info=True)
             notify_backup_result(apple_id, status, message)
 
         asyncio.create_task(_run())

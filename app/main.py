@@ -14,7 +14,7 @@ from fastapi.templating import Jinja2Templates
 from app.auth import AuthMiddleware, _COOKIE_NAME, create_session_cookie
 from app import config_store
 from app.config import settings
-from app.routers import accounts, backup
+from app.routers import accounts, backup, settings as settings_router
 from app.services.log_handler import log_buffer
 from app.services.scheduler import start_scheduler, stop_scheduler, sync_scheduled_jobs
 
@@ -112,6 +112,7 @@ app.add_middleware(AuthMiddleware)
 # API routers
 app.include_router(accounts.router)
 app.include_router(backup.router)
+app.include_router(settings_router.router)
 
 
 # ---------------------------------------------------------------------------
@@ -198,3 +199,8 @@ async def account_detail(request: Request, apple_id: str):
 @app.get("/logs")
 async def logs_page(request: Request):
     return templates.TemplateResponse(name="logs.html", request=request, context={"build": _build_info()})
+
+
+@app.get("/settings")
+async def settings_page(request: Request):
+    return templates.TemplateResponse(name="settings.html", request=request, context={"build": _build_info()})

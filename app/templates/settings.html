@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+{% block title %}iCloud Backup – Einstellungen{% endblock %}
+
+{% block content %}
+<div x-data="notificationSettings()" x-init="init()">
+    <h1 class="h3 mb-4">Einstellungen</h1>
+
+    <div class="card mb-4">
+        <div class="card-header d-flex align-items-center gap-2">
+            <i class="bi bi-bell fs-5"></i>
+            <strong>Benachrichtigungen</strong>
+        </div>
+        <div class="card-body">
+            <p class="text-body-secondary small">
+                Benachrichtigungen werden bei fehlerhaften Backups und
+                ablaufenden iCloud-Tokens versendet. Die Konfiguration wird in
+                <code>/config/config.yaml</code> gespeichert.
+            </p>
+
+            <div x-show="loading" class="text-center py-3">
+                <span class="spinner-border spinner-border-sm"></span>
+                Lade Einstellungen…
+            </div>
+
+            <form x-show="!loading" @submit.prevent="save()" class="mt-2">
+                <!-- DSM -->
+                <h6 class="mt-2">Synology DSM</h6>
+                <div class="form-check form-switch mb-3">
+                    <input class="form-check-input" type="checkbox" id="dsmNotify"
+                           x-model="form.dsm_notify">
+                    <label class="form-check-label" for="dsmNotify">
+                        DSM-Benachrichtigungen aktivieren
+                    </label>
+                    <div class="form-text">
+                        Erfordert eingehängte Volumes
+                        <code>/usr/syno/bin/synodsmnotify</code> und
+                        <code>/usr/lib</code> (siehe README).
+                    </div>
+                </div>
+
+                <hr>
+
+                <!-- Pushover -->
+                <h6 class="mt-2">Pushover</h6>
+                <div class="form-check form-switch mb-3">
+                    <input class="form-check-input" type="checkbox" id="pushoverEnabled"
+                           x-model="form.pushover_enabled">
+                    <label class="form-check-label" for="pushoverEnabled">
+                        Pushover-Push-Benachrichtigungen aktivieren
+                    </label>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">API-Token</label>
+                    <input type="password" class="form-control font-monospace"
+                           x-model="form.pushover_api_token"
+                           :placeholder="current.pushover_api_token_set ? current.pushover_api_token_hint + ' (gespeichert – leer lassen um beizubehalten)' : 'a1b2c3d4...'">
+                    <div class="form-text">
+                        Application-Token aus deiner
+                        <a href="https://pushover.net/apps" target="_blank">Pushover-App</a>.
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">User-Key</label>
+                    <input type="password" class="form-control font-monospace"
+                           x-model="form.pushover_user_key"
+                           :placeholder="current.pushover_user_key_set ? current.pushover_user_key_hint + ' (gespeichert – leer lassen um beizubehalten)' : 'u1v2w3x4...'">
+                    <div class="form-text">
+                        Dein persönlicher User-Key (siehe
+                        <a href="https://pushover.net/" target="_blank">Pushover-Dashboard</a>).
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">Geräte (optional)</label>
+                    <input type="text" class="form-control"
+                           x-model="form.pushover_devices"
+                           placeholder="iphone,ipad">
+                    <div class="form-text">
+                        Kommaseparierte Geräte-Namen. Leer = alle Geräte.
+                    </div>
+                </div>
+
+                <div class="d-flex align-items-center gap-3">
+                    <button type="submit" class="btn btn-primary" :disabled="saving">
+                        <span x-show="saving" class="spinner-border spinner-border-sm me-1"></span>
+                        <i class="bi bi-check-lg me-1" x-show="!saving"></i>
+                        Speichern
+                    </button>
+                    <span x-show="saved" x-transition class="text-success small">
+                        <i class="bi bi-check-lg"></i> Gespeichert
+                    </span>
+                    <span x-show="error" x-transition class="text-danger small" x-text="error"></span>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function notificationSettings() {
+    return {
+        loading: true,
+        saving: false,
+        saved: false,
+        error: '',
+        current: {
+            dsm_notify: false,
+            pushover_enabled: false,
+            pushover_api_token_set: false,
+            pushover_user_key_set: false,
+            pushover_api_token_hint: '',
+            pushover_user_key_hint: '',
+            pushover_devices: '',
+        },
+        form: {
+            dsm_notify: false,
+            pushover_enabled: false,
+            pushover_api_token: '',
+            pushover_user_key: '',
+            pushover_devices: '',
+        },
+
+        async init() {
+            await this.load();
+        },
+
+        async load() {
+            this.loading = true;
+            try {
+                const res = await fetch('/api/settings/notifications');
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                const data = await res.json();
+                this.current = data;
+                this.form.dsm_notify = data.dsm_notify;
+                this.form.pushover_enabled = data.pushover_enabled;
+                this.form.pushover_devices = data.pushover_devices || '';
+                // Secrets are never returned – keep inputs empty so submit keeps current values.
+                this.form.pushover_api_token = '';
+                this.form.pushover_user_key = '';
+            } catch (e) {
+                this.error = 'Einstellungen konnten nicht geladen werden: ' + e.message;
+            }
+            this.loading = false;
+        },
+
+        async save() {
+            this.saving = true;
+            this.saved = false;
+            this.error = '';
+            try {
+                const res = await fetch('/api/settings/notifications', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(this.form),
+                });
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({}));
+                    throw new Error(err.detail || ('HTTP ' + res.status));
+                }
+                const data = await res.json();
+                this.current = data;
+                this.form.pushover_api_token = '';
+                this.form.pushover_user_key = '';
+                this.saved = true;
+                setTimeout(() => this.saved = false, 3000);
+            } catch (e) {
+                this.error = 'Speichern fehlgeschlagen: ' + e.message;
+            }
+            this.saving = false;
+        },
+    };
+}
+</script>
+{% endblock %}
