@@ -4,6 +4,7 @@ services:
   icloud-backup:
     build: .
     container_name: icloud-backup
+    init: true
     restart: unless-stopped
     mem_limit: 512m
     # cpus: 1.0  # Requires kernel CFS scheduler support (not available on all Synology models)

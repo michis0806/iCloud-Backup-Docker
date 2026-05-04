@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Zombie `[curl] <defunct>` Prozesse** – Der Container lief mit `uvicorn`
+  als PID 1 ohne Init. Die Docker `HEALTHCHECK`-Aufrufe von `curl` (alle 30 s
+  via `sh -c`) wurden nach Beenden ihrer Shell-Wrapper an PID 1 reparented,
+  aber von uvicorn nicht reaped, sodass sich Hunderte Zombies ansammeln
+  konnten. Das Image installiert jetzt `tini` und nutzt es als
+  `ENTRYPOINT`, der Kindprozesse korrekt reaped. Zusätzlich aktiviert
+  `docker-compose.yml` `init: true` als Defense-in-Depth.
+
 ## [0.9.20] - 2026-04-19
 
 ### Removed
