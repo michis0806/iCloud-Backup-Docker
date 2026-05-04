@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.9.19] - 2026-05-04
+## [0.9.21] - 2026-05-04
 
 ### Fixed
 - **Zombie `[curl] <defunct>` Prozesse** – Der Container lief mit `uvicorn`
