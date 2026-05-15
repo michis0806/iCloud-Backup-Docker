@@ -7,6 +7,51 @@
 
     <div class="card mb-4">
         <div class="card-header d-flex align-items-center gap-2">
+            <i class="bi bi-archive fs-5"></i>
+            <strong>Archiv</strong>
+        </div>
+        <div class="card-body">
+            <p class="text-body-secondary small mb-3">
+                Archivierte Dateien werden pro Backup-Lauf in einen
+                eigenen Ordner <code>/archive/YYYY-MM-DD_HH-MM/&lt;account&gt;/…</code>
+                gelegt. Ordner, die älter als die hier angegebene Anzahl
+                Tage sind, werden nach jedem Backup-Lauf gelöscht.
+            </p>
+            <form @submit.prevent="saveArchive()" class="row g-3 align-items-end">
+                <div class="col-sm-5">
+                    <label class="form-label">Aufbewahrung (Tage)</label>
+                    <input type="number" min="0" step="1" class="form-control"
+                           x-model.number="archiveForm.retention_days">
+                    <div class="form-text">
+                        <code>0</code> deaktiviert das automatische Löschen.
+                    </div>
+                </div>
+                <div class="col-sm-7 d-flex flex-wrap align-items-center gap-2">
+                    <button type="submit" class="btn btn-primary" :disabled="archiveSaving">
+                        <span x-show="archiveSaving" class="spinner-border spinner-border-sm me-1"></span>
+                        <i class="bi bi-check-lg me-1" x-show="!archiveSaving"></i>
+                        Speichern
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary"
+                            @click="pruneNow()" :disabled="archivePruning || !archiveForm.retention_days">
+                        <span x-show="archivePruning" class="spinner-border spinner-border-sm me-1"></span>
+                        <i class="bi bi-trash me-1" x-show="!archivePruning"></i>
+                        Jetzt aufräumen
+                    </button>
+                    <span x-show="archiveSaved" x-transition class="text-success small">
+                        <i class="bi bi-check-lg"></i> Gespeichert
+                    </span>
+                    <span x-show="archivePruneResult" x-transition class="small text-body-secondary"
+                          x-text="archivePruneResult"></span>
+                    <span x-show="archiveError" x-transition class="text-danger small"
+                          x-text="archiveError"></span>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header d-flex align-items-center gap-2">
             <i class="bi bi-bell fs-5"></i>
             <strong>Benachrichtigungen</strong>
         </div>
@@ -125,8 +170,76 @@ function notificationSettings() {
             pushover_devices: '',
         },
 
+        archiveForm: { retention_days: 30 },
+        archiveSaving: false,
+        archiveSaved: false,
+        archivePruning: false,
+        archivePruneResult: '',
+        archiveError: '',
+
         async init() {
-            await this.load();
+            await Promise.all([
+                this.load(),
+                this.loadArchive(),
+            ]);
+        },
+
+        async loadArchive() {
+            try {
+                const res = await fetch('/api/settings/archive');
+                if (res.ok) {
+                    const data = await res.json();
+                    this.archiveForm.retention_days = data.retention_days ?? 30;
+                }
+            } catch (e) {
+                this.archiveError = 'Archiv-Einstellungen konnten nicht geladen werden: ' + e.message;
+            }
+        },
+
+        async saveArchive() {
+            this.archiveSaving = true;
+            this.archiveSaved = false;
+            this.archiveError = '';
+            this.archivePruneResult = '';
+            try {
+                const res = await fetch('/api/settings/archive', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        retention_days: Number(this.archiveForm.retention_days) || 0,
+                    }),
+                });
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({}));
+                    throw new Error(err.detail || ('HTTP ' + res.status));
+                }
+                const data = await res.json();
+                this.archiveForm.retention_days = data.retention_days;
+                this.archiveSaved = true;
+                setTimeout(() => this.archiveSaved = false, 3000);
+            } catch (e) {
+                this.archiveError = 'Speichern fehlgeschlagen: ' + e.message;
+            }
+            this.archiveSaving = false;
+        },
+
+        async pruneNow() {
+            this.archivePruning = true;
+            this.archivePruneResult = '';
+            this.archiveError = '';
+            try {
+                const res = await fetch('/api/settings/archive/prune', { method: 'POST' });
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({}));
+                    throw new Error(err.detail || ('HTTP ' + res.status));
+                }
+                const data = await res.json();
+                this.archivePruneResult = data.message || '';
+                setTimeout(() => this.archivePruneResult = '', 5000);
+            } catch (e) {
+                this.archiveError = 'Aufräumen fehlgeschlagen: ' + e.message;
+            }
+            this.archivePruning = false;
         },
 
         async load() {

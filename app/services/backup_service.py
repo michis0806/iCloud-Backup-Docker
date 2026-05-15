@@ -8,7 +8,7 @@ import os
 import re
 import shutil
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from fnmatch import fnmatch
 from pathlib import Path
 from shutil import copyfileobj
@@ -18,6 +18,52 @@ from app.models import SyncPolicy
 from app.services import icloud_service
 
 log = logging.getLogger("icloud-backup")
+
+
+# Format used for the per-run archive sub-directory (local time, filesystem-safe).
+ARCHIVE_TIMESTAMP_FORMAT = "%Y-%m-%d_%H-%M"
+_ARCHIVE_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}$")
+
+
+def current_archive_timestamp() -> str:
+    """Return the timestamp used for the current backup-run archive sub-dir."""
+    return datetime.now().strftime(ARCHIVE_TIMESTAMP_FORMAT)
+
+
+def prune_old_archives(retention_days: int) -> int:
+    """Delete archive run-directories older than *retention_days*.
+
+    Top-level directories under ``settings.archive_path`` whose name matches
+    the ``YYYY-MM-DD_HH-MM`` pattern and whose parsed timestamp is older
+    than the cutoff are removed. ``retention_days <= 0`` disables pruning.
+
+    Returns the number of directories that were removed.
+    """
+    if retention_days is None or retention_days <= 0:
+        return 0
+
+    base = settings.archive_path
+    if not base.exists():
+        return 0
+
+    cutoff = datetime.now() - timedelta(days=retention_days)
+    removed = 0
+    for entry in base.iterdir():
+        if not entry.is_dir() or not _ARCHIVE_TIMESTAMP_RE.match(entry.name):
+            continue
+        try:
+            entry_dt = datetime.strptime(entry.name, ARCHIVE_TIMESTAMP_FORMAT)
+        except ValueError:
+            continue
+        if entry_dt >= cutoff:
+            continue
+        try:
+            shutil.rmtree(entry)
+            removed += 1
+            log.info("Archiv gelöscht (älter als %d Tage): %s", retention_days, entry)
+        except OSError as exc:
+            log.error("Konnte Archiv %s nicht löschen: %s", entry, exc)
+    return removed
 
 
 # ---------------------------------------------------------------------------
@@ -663,6 +709,7 @@ def sync_drive_folder(
     dry_run: bool = False,
     config_id: str | None = None,
     sync_policy: str = SyncPolicy.DELETE,
+    archive_base: Path | None = None,
 ) -> dict:
     """Synchronise a single iCloud Drive folder to *destination_path*.
 
@@ -832,7 +879,8 @@ def sync_drive_folder(
 
     # Handle local files that no longer exist remotely
     if not dry_run and sync_policy != SyncPolicy.KEEP:
-        archive_dest = settings.archive_path / destination_key / "drive" / folder_name
+        archive_root = archive_base or (settings.archive_path / destination_key)
+        archive_dest = archive_root / "drive" / folder_name
         for local_file in dest.rglob("*"):
             if local_file.is_file() and not local_file.name.endswith(".tmp"):
                 rel = str(local_file.relative_to(dest))
@@ -896,6 +944,7 @@ def run_drive_backup(
     dry_run: bool = False,
     config_id: str | None = None,
     sync_policy: str = SyncPolicy.DELETE,
+    archive_base: Path | None = None,
 ) -> dict:
     """Run a full iCloud Drive backup for the given folders."""
     folders = _resolve_drive_folders(apple_id, folders)
@@ -923,6 +972,7 @@ def run_drive_backup(
         stats = sync_drive_folder(
             apple_id, folder, dest_path, destination, excludes, dry_run, config_id,
             sync_policy=sync_policy,
+            archive_base=archive_base,
         )
         for k in total:
             total[k] += stats.get(k, 0)
@@ -1218,6 +1268,7 @@ def run_photos_backup(
     dry_run: bool = False,
     config_id: str | None = None,
     sync_policy: str = SyncPolicy.KEEP,
+    archive_base: Path | None = None,
 ) -> dict:
     """Download iCloud Photos (and optionally shared/family library) to *destination*."""
     stats = {"downloaded": 0, "skipped": 0, "deleted": 0, "archived": 0, "errors": 0}
@@ -1230,11 +1281,13 @@ def run_photos_backup(
     dest_path = settings.backup_path / destination / "photos"
     dest_path.mkdir(parents=True, exist_ok=True)
 
+    archive_root = archive_base or (settings.archive_path / destination)
+
     # ---- Personal library via api.photos.all ----
     log.info("Sichere iCloud Fotos (Mediathek) für %s", apple_id)
 
     mediathek_dir = dest_path / "Mediathek"
-    archive_mediathek = settings.archive_path / destination / "photos" / "Mediathek"
+    archive_mediathek = archive_root / "photos" / "Mediathek"
     processed, _ = _backup_photo_library(
         api, api.photos.all, mediathek_dir, "Mediathek",
         excludes, stats, dry_run, config_id, sync_policy, archive_mediathek,
@@ -1254,7 +1307,7 @@ def run_photos_backup(
                 )
             else:
                 shared_dir = dest_path / "Geteilte Mediathek"
-                archive_shared = settings.archive_path / destination / "photos" / "Geteilte Mediathek"
+                archive_shared = archive_root / "photos" / "Geteilte Mediathek"
                 _backup_photo_library(
                     api, shared_lib.all if hasattr(shared_lib, "all") else [],
                     shared_dir, "Geteilte Mediathek",
@@ -1435,6 +1488,7 @@ def run_contacts_backup(
     destination: str,
     config_id: str | None = None,
     sync_policy: str = SyncPolicy.ARCHIVE,
+    archive_base: Path | None = None,
 ) -> dict:
     """Backup all iCloud contacts as VCF files.
 
@@ -1562,7 +1616,8 @@ def run_contacts_backup(
         current_files = {f"{fn}.vcf" for fn in written_filenames}
         current_files.add("all_contacts.vcf")
         current_files.add("contacts.json")
-        archive_dest = settings.archive_path / destination / "contacts"
+        archive_root = archive_base or (settings.archive_path / destination)
+        archive_dest = archive_root / "contacts"
         for existing in dest_path.iterdir():
             if existing.is_file() and existing.name.lower() not in current_files:
                 _apply_sync_policy(
@@ -1920,6 +1975,10 @@ def run_backup(
     if not destination:
         destination = apple_id.replace("@", "_at_").replace(".", "_")
 
+    # Each backup run gets its own timestamped archive sub-directory so
+    # archived files are grouped per run and can later be pruned by age.
+    archive_base = settings.archive_path / current_archive_timestamp() / destination
+
     # Early session check – abort with a clear message when the token
     # has expired so callers can send the appropriate notification.
     api = icloud_service.get_session(apple_id)
@@ -1946,6 +2005,7 @@ def run_backup(
             drive_stats = run_drive_backup(
                 apple_id, drive_folders, destination, exclusions, dry_run, config_id,
                 sync_policy=drive_sync_policy,
+                archive_base=archive_base,
             )
             result["drive_stats"] = drive_stats
             if drive_stats["errors"] > 0:
@@ -1958,6 +2018,7 @@ def run_backup(
                 shared_library_id=shared_library_id,
                 excludes=exclusions, dry_run=dry_run, config_id=config_id,
                 sync_policy=photos_sync_policy,
+                archive_base=archive_base,
             )
             result["photos_stats"] = photos_stats
             if photos_stats["errors"] > 0:
@@ -1968,6 +2029,7 @@ def run_backup(
             contacts_stats = run_contacts_backup(
                 apple_id, destination, config_id=config_id,
                 sync_policy=contacts_sync_policy,
+                archive_base=archive_base,
             )
             result["contacts_stats"] = contacts_stats
             if contacts_stats["errors"] > 0:
@@ -1988,6 +2050,24 @@ def run_backup(
     finally:
         if config_id is not None:
             _clear_progress(config_id)
+        # Drop the per-run archive directory if it ended up empty so we
+        # don't litter the archive root with empty timestamp folders.
+        try:
+            if archive_base.is_dir() and not any(archive_base.iterdir()):
+                archive_base.rmdir()
+                parent = archive_base.parent
+                if parent.is_dir() and parent != settings.archive_path and not any(parent.iterdir()):
+                    parent.rmdir()
+        except OSError:
+            pass
+        # Apply retention policy after every run (best-effort).
+        try:
+            from app import config_store
+            retention = int(config_store.get_archive_settings().get("retention_days") or 0)
+            if retention > 0:
+                prune_old_archives(retention)
+        except Exception:
+            log.debug("Archiv-Retention konnte nicht angewendet werden.", exc_info=True)
 
     parts = []
     if cancelled:

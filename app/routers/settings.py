@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from app import config_store
-from app.services import notification
+from app.services import backup_service, notification
 
 log = logging.getLogger("icloud-backup")
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -90,3 +90,34 @@ async def test_notification(data: NotificationTestRequest):
     else:  # pragma: no cover – pydantic already enforces this
         raise HTTPException(status_code=400, detail="Unbekannter Backend-Typ.")
     return NotificationTestResponse(**result)
+
+
+class ArchiveSettings(BaseModel):
+    retention_days: int = 30
+
+
+@router.get("/archive", response_model=ArchiveSettings)
+async def get_archive_settings():
+    return ArchiveSettings(**config_store.get_archive_settings())
+
+
+@router.post("/archive", response_model=ArchiveSettings)
+async def update_archive_settings(data: ArchiveSettings):
+    if data.retention_days < 0:
+        raise HTTPException(status_code=400, detail="retention_days darf nicht negativ sein.")
+    saved = config_store.save_archive_settings(data.model_dump())
+    return ArchiveSettings(**saved)
+
+
+@router.post("/archive/prune")
+async def prune_archive_now():
+    """Manually trigger archive pruning using the stored retention policy."""
+    retention = config_store.get_archive_settings().get("retention_days") or 0
+    if retention <= 0:
+        return {"removed": 0, "retention_days": 0, "message": "Aufbewahrung deaktiviert."}
+    removed = await asyncio.to_thread(backup_service.prune_old_archives, retention)
+    return {
+        "removed": removed,
+        "retention_days": retention,
+        "message": f"{removed} Archiv-Ordner entfernt.",
+    }
