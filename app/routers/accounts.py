@@ -49,6 +49,13 @@ async def add_account(data: AccountCreate):
     status = auth_result["status"]
     message = auth_result["message"]
 
+    # If 2FA is needed, explicitly ask Apple to push the code to trusted
+    # devices so the user sees the prompt immediately on their phone/Mac.
+    if status == "requires_2fa":
+        api = icloud_service._sessions.get(data.apple_id)
+        if api:
+            icloud_service._request_device_push(api)
+
     try:
         account = config_store.add_account(
             data.apple_id,
