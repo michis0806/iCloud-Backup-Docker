@@ -573,10 +573,22 @@ function dashboard() {
                     this.addLoading = false;
                     return;
                 }
+                const account = await res.json();
+                if (account.status === 'error') {
+                    this.addError = account.status_message || 'Anmeldung fehlgeschlagen.';
+                    this.addLoading = false;
+                    return;
+                }
+                const newAppleId = this.newAppleId;
                 this.newAppleId = '';
                 this.newPassword = '';
                 bootstrap.Modal.getInstance(this.$refs.addModal).hide();
                 await this.loadAccounts();
+                if (account.status === 'requires_2fa') {
+                    // Open 2FA modal directly so the user can complete the flow
+                    // in one go without visiting the account detail page.
+                    this.show2FA({ apple_id: newAppleId });
+                }
             } catch (e) {
                 this.addError = 'Netzwerkfehler: ' + e.message;
             }
@@ -655,6 +667,10 @@ function dashboard() {
                 if (data.status === 'authenticated') {
                     bootstrap.Modal.getInstance(this.$refs.tfaModal).hide();
                     await this.loadAccounts();
+                    await Promise.all([
+                        this.loadBackupStatuses(),
+                        this.loadIcloudStorage(),
+                    ]);
                 } else {
                     this.tfaError = data.status_message || 'Code ungültig.';
                 }
@@ -681,6 +697,10 @@ function dashboard() {
                 if (data.status === 'authenticated') {
                     bootstrap.Modal.getInstance(this.$refs.tfaModal).hide();
                     await this.loadAccounts();
+                    await Promise.all([
+                        this.loadBackupStatuses(),
+                        this.loadIcloudStorage(),
+                    ]);
                 } else {
                     this.tfaError = data.status_message || 'Code ungültig.';
                 }
