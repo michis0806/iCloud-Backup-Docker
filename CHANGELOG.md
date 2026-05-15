@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Backup mount disk-usage indicator** – The dashboard now shows a compact
+  card with total / used / free space for the filesystem hosting
+  `BACKUP_PATH` (default `/backups`), along with a coloured progress bar
+  (green / amber / red as utilisation approaches 100 %). Handy when the
+  backup target is a remote mount (CIFS, NFS) and free space matters.
+  Powered by a new `GET /api/backup/disk-usage` endpoint that uses
+  `shutil.disk_usage` under the hood.
+- **Per-run archive folders with retention policy** – Files that the sync
+  policy moves into the archive are now grouped per backup run under
+  `/archive/YYYY-MM-DD_HH-MM/<account>/<type>/…` instead of being mixed
+  into a single account-scoped directory. A new global setting
+  *Aufbewahrung (Tage)* (default `30`, `0` disables pruning) controls how
+  long these run folders are kept; entries older than the cutoff are
+  removed automatically after every backup run. A "Jetzt aufräumen"
+  button in the settings page triggers a one-shot prune via the new
+  `POST /api/settings/archive/prune` endpoint. Empty per-run folders are
+  cleaned up automatically so the archive root stays tidy when nothing
+  was archived during a run.
+
 ## [0.9.22] - 2026-05-15
 
 ### Fixed

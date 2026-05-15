@@ -2,11 +2,13 @@
 
 import asyncio
 import logging
+import shutil
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException
 
 from app import config_store
+from app.config import settings
 from app.schemas import (
     BackupConfigCreate, BackupConfigResponse, BackupTriggerResponse,
     ScheduleUpdate, ScheduleResponse,
@@ -284,3 +286,30 @@ async def update_schedule(data: ScheduleUpdate):
     result = config_store.save_schedule(enabled=data.enabled, cron=data.cron)
     await sync_scheduled_jobs()
     return result
+
+
+@router.get("/disk-usage")
+async def get_disk_usage():
+    """Return disk-usage stats for the configured backup mount.
+
+    Reports total / used / free space on the filesystem hosting
+    ``settings.backup_path`` – useful when the backup target is a
+    remote mount (e.g. CIFS, NFS) and the user wants to see how much
+    headroom is left.
+    """
+    path = settings.backup_path
+    try:
+        usage = shutil.disk_usage(path)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Backup-Verzeichnis nicht gefunden.")
+    except OSError as exc:
+        raise HTTPException(status_code=503, detail=f"Speicherinfo nicht verfügbar: {exc}")
+
+    used_percent = (usage.used / usage.total * 100) if usage.total else 0
+    return {
+        "path": str(path),
+        "total_bytes": usage.total,
+        "used_bytes": usage.used,
+        "available_bytes": usage.free,
+        "used_percent": round(used_percent, 1),
+    }

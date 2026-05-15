@@ -112,6 +112,13 @@ def _default_notifications() -> dict:
     }
 
 
+def _default_archive_settings() -> dict:
+    return {
+        # Days to keep timestamped archive sub-folders. 0 disables pruning.
+        "retention_days": 30,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Public API – accounts
 # ---------------------------------------------------------------------------
@@ -346,6 +353,41 @@ def save_notifications(settings_dict: dict) -> dict:
     with _lock:
         data = _read()
         data["notifications"] = clean
+        _write(data)
+    return clean
+
+
+# ---------------------------------------------------------------------------
+# Public API – archive settings
+# ---------------------------------------------------------------------------
+
+def get_archive_settings() -> dict:
+    """Return archive retention settings, applying defaults for missing keys."""
+    with _lock:
+        data = _read()
+    stored = data.get("archive") or {}
+    merged = _default_archive_settings()
+    for k in merged:
+        if k in stored:
+            merged[k] = stored[k]
+    try:
+        merged["retention_days"] = max(0, int(merged["retention_days"]))
+    except (TypeError, ValueError):
+        merged["retention_days"] = _default_archive_settings()["retention_days"]
+    return merged
+
+
+def save_archive_settings(settings_dict: dict) -> dict:
+    """Persist archive retention settings."""
+    defaults = _default_archive_settings()
+    clean = dict(defaults)
+    try:
+        clean["retention_days"] = max(0, int(settings_dict.get("retention_days", defaults["retention_days"])))
+    except (TypeError, ValueError):
+        clean["retention_days"] = defaults["retention_days"]
+    with _lock:
+        data = _read()
+        data["archive"] = clean
         _write(data)
     return clean
 
