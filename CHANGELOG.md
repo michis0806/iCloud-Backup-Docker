@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Backup mount disk-usage indicator** – The dashboard now shows a compact
+  card with total / used / free space for the filesystem hosting
+  `BACKUP_PATH` (default `/backups`), along with a coloured progress bar
+  (green / amber / red as utilisation approaches 100 %). Handy when the
+  backup target is a remote mount (CIFS, NFS) and free space matters.
+  Powered by a new `GET /api/backup/disk-usage` endpoint that uses
+  `shutil.disk_usage` under the hood.
+
 ## [0.9.22] - 2026-05-15
 
 ### Fixed
