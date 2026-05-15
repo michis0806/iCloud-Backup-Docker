@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.23] - 2026-05-15
+
 ### Added
 - **Backup mount disk-usage indicator** – The dashboard now shows a compact
   card with total / used / free space for the filesystem hosting
