@@ -10,15 +10,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.9.22] - 2026-05-15
 
 ### Fixed
-- **Zähflüssiger 2FA-Flow beim Anlegen eines Accounts** – Bisher schloss
-  das Dashboard nach Eingabe von Apple-ID und Passwort einfach das Modal,
-  ohne den `requires_2fa`-Status der Antwort zu beachten. Der Push an die
-  Apple-Geräte wurde erst beim Aufruf der Detailseite ausgelöst, was eine
-  zweite Passwort-Eingabe nötig machte. `POST /api/accounts` triggert die
-  Push-Benachrichtigung jetzt direkt nach der Authentifizierung (analog zu
-  `reconnect`), und das Dashboard öffnet das 2FA-Modal automatisch im
-  Anschluss. Nach erfolgreichem Code-Submit werden Backup-Status und
-  iCloud-Speicherinfo direkt nachgeladen.
+- **Clunky 2FA flow when adding a new account** – Previously the dashboard
+  simply closed the modal after the Apple ID and password were submitted,
+  ignoring the `requires_2fa` status in the response. The push to the
+  user's Apple devices was only triggered when opening the account detail
+  page, which forced the user to enter the password a second time.
+  `POST /api/accounts` now triggers the push notification directly after
+  authentication (matching the `reconnect` behaviour), and the dashboard
+  opens the 2FA modal automatically afterwards. Once the code is
+  submitted, backup status and iCloud storage info are refreshed
+  immediately.
 
 ## [0.9.21] - 2026-05-04
 
