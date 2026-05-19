@@ -2,7 +2,9 @@
 
 import asyncio
 import logging
+import os
 from datetime import datetime
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -16,7 +18,35 @@ _TOKEN_WARNING_DAYS = 50
 
 log = logging.getLogger("icloud-backup")
 
-scheduler = AsyncIOScheduler(job_defaults={"misfire_grace_time": 3600})
+
+def _resolve_timezone():
+    """Resolve the scheduler timezone from the ``TZ`` env var.
+
+    Falls back to UTC (with a warning) when ``TZ`` is unset or refers to a
+    zone that is not installed in the container. This prevents APScheduler
+    from silently scheduling jobs in UTC while the user assumes the cron
+    expression is interpreted in their local timezone.
+    """
+    tz_name = os.getenv("TZ", "").strip()
+    if not tz_name:
+        log.warning("TZ-Umgebungsvariable nicht gesetzt – Zeitplan läuft in UTC.")
+        return ZoneInfo("UTC")
+    try:
+        tz = ZoneInfo(tz_name)
+        log.info("Zeitzone für Zeitplan: %s", tz_name)
+        return tz
+    except ZoneInfoNotFoundError:
+        log.error(
+            "TZ=%s konnte nicht aufgelöst werden (tzdata fehlt?). Falle auf UTC zurück.",
+            tz_name,
+        )
+        return ZoneInfo("UTC")
+
+
+scheduler = AsyncIOScheduler(
+    job_defaults={"misfire_grace_time": 3600},
+    timezone=_resolve_timezone(),
+)
 
 _BACKUP_JOB_ID = "backup_all"
 
@@ -168,6 +198,7 @@ async def sync_scheduled_jobs() -> None:
             day=parts[2] if len(parts) > 2 else "*",
             month=parts[3] if len(parts) > 3 else "*",
             day_of_week=parts[4] if len(parts) > 4 else "*",
+            timezone=scheduler.timezone,
         )
         scheduler.add_job(
             _run_all_backups,
@@ -176,7 +207,11 @@ async def sync_scheduled_jobs() -> None:
             replace_existing=True,
             name="Backup alle Accounts",
         )
-        log.info("Zentraler Zeitplan registriert: %s", cron_expr)
+        next_run = scheduler.get_job(_BACKUP_JOB_ID).next_run_time
+        log.info(
+            "Zentraler Zeitplan registriert: %s (TZ=%s, nächster Lauf: %s)",
+            cron_expr, scheduler.timezone, next_run,
+        )
     except Exception as exc:
         log.error("Ungültiger Cron-Ausdruck '%s': %s", cron_expr, exc)
 

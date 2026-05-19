@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Scheduled backups silently ran in UTC** – APScheduler was initialised
+  without an explicit timezone and the `python:3.12-slim` base image ships
+  without `tzdata`, so even with `TZ=Europe/Berlin` in the compose file
+  `tzlocal` fell back to UTC. A cron like `0 2 * * *` therefore fired at
+  02:00 UTC (03:00 / 04:00 local time) instead of 02:00 Berlin time. The
+  image now installs `tzdata`, and the scheduler resolves the timezone
+  explicitly from the `TZ` env var via `zoneinfo.ZoneInfo`, falling back
+  to UTC with an explicit log warning when `TZ` is unset or unknown. The
+  cron trigger is bound to the same timezone and the next run time is
+  logged when the schedule is registered.
+
 ### Added
 - **Backup mount disk-usage indicator** – The dashboard now shows a compact
   card with total / used / free space for the filesystem hosting
