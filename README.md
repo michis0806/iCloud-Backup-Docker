@@ -121,7 +121,7 @@ services:
 ### 1. Add an Account
 - Open the web interface and log in
 - Click "Account hinzufügen" (Add Account)
-- Enter your Apple ID and password (app-specific password recommended)
+- Enter your Apple ID and your **regular** account password (app-specific passwords are not supported by pyicloud)
 - Confirm the 2FA code from your Apple device, or request an SMS code to a trusted phone number
 
 ### 2. Configure Backup
@@ -218,8 +218,8 @@ sudo docker compose up -d
 
 ## Notes
 
-- **2FA tokens** expire after approximately 2 months and need to be renewed
-- It is recommended to use an **app-specific password** ([create one here](https://support.apple.com/en-us/102654))
+- **2FA session tokens** expire after approximately **1 month (~30 days)** and need to be renewed
+- **Use your regular Apple ID password.** App-specific passwords do **not** work with pyicloud – the iCloud web services it uses reject them, so authentication will fail. Enter the normal account password; it is only used once for the initial login.
 - The password is **not stored** – only pyicloud's session tokens in the `/config/sessions` directory
 - **Etag cache files** are stored in `/config/` and significantly speed up repeated backups
 - **Special characters in folder names:** Folders with `#`, `%`, `?`, `&` or `+` in their name may cause download errors. The backup service includes fallback strategies, but renaming the folder is the safest fix.

@@ -260,12 +260,12 @@
                         <div class="mb-3">
                             <label class="form-label">Passwort</label>
                             <input type="password" class="form-control" x-model="newPassword"
-                                   placeholder="App-spezifisches Passwort empfohlen" required>
+                                   placeholder="Reguläres Apple-ID-Passwort" required>
                             <div class="form-text">
-                                Das Passwort wird nur zur Erstanmeldung verwendet und
-                                <strong>nicht gespeichert</strong>. Wir empfehlen ein
-                                <a href="https://support.apple.com/de-de/102654" target="_blank">
-                                    app-spezifisches Passwort</a>.
+                                Bitte das <strong>reguläre Apple-ID-Passwort</strong> verwenden.
+                                App-spezifische Passwörter funktionieren nicht, da der Login über
+                                die Zwei-Faktor-Authentifizierung läuft. Das Passwort wird nur zur
+                                Erstanmeldung verwendet und <strong>nicht gespeichert</strong>.
                             </div>
                         </div>
                         <button type="submit" class="btn btn-primary w-100" :disabled="addLoading">
