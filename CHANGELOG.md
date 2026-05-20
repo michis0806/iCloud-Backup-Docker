@@ -7,14 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-05-20
+
 ### Fixed
 - **Misleading app-specific password hint** – The add-account form and the
   README recommended an app-specific password, but those do not work with
   pyicloud: the iCloud web-service login goes through the 2FA/HSA2
   challenge, which app-specific passwords cannot satisfy. The UI now asks
   for the regular Apple ID password and explains why.
-
-## [0.10.0] - 2026-05-20
 
 ### Added
 - **iCloud Notes & Reminders backup** – Two new backup sources can be
