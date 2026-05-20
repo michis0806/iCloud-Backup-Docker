@@ -2075,17 +2075,27 @@ def run_reminders_backup(
 # iCloud Notes backup
 # ---------------------------------------------------------------------------
 
+def _note_attachments(note: dict) -> list[dict]:
+    """Return the attachment dicts of a note, tolerating shape variations."""
+    atts = note.get("attachments")
+    if isinstance(atts, list):
+        return [a for a in atts if isinstance(a, dict)]
+    return []
+
+
 def run_notes_backup(
     apple_id: str,
     destination: str,
     config_id: str | None = None,
 ) -> dict:
-    """Backup all iCloud notes as HTML + plain text, plus a JSON dump.
+    """Backup all iCloud notes, one folder per note, plus a JSON dump.
 
-    Creates:
-      - {destination}/notes/{folder}/{title}.html (rendered note)
-      - {destination}/notes/{folder}/{title}.txt (plain text)
-      - {destination}/notes/notes.json (full metadata + text)
+    Creates::
+
+        {destination}/notes/{folder}/{title}/note.html
+        {destination}/notes/{folder}/{title}/note.txt
+        {destination}/notes/{folder}/{title}/attachments/{filename}
+        {destination}/notes/notes.json   (full metadata + text)
 
     Locked notes are recorded in notes.json but skipped for file export
     since their content cannot be decrypted server-side.
@@ -2123,7 +2133,8 @@ def run_notes_backup(
             pass
 
     new_hashes: dict[str, str] = {}
-    written_files: set[str] = set()
+    # Note directories (relative to dest_path) we expect to exist after this run.
+    expected_dirs: set[str] = set()
 
     log.info(
         "Notizen-Backup für %s: %d Ordner, %d Notizen gefunden",
@@ -2137,6 +2148,9 @@ def run_notes_backup(
         note_id = note.get("id", "")
         title = note.get("title") or "Ohne Titel"
         folder_name = _safe_filename(note.get("folder_name") or "Notizen")
+        safe_title = _safe_filename(title)
+        note_rel = f"{folder_name}/{safe_title}"
+        note_dir = dest_path / folder_name / safe_title
 
         if config_id is not None:
             _set_progress(config_id, {
@@ -2153,31 +2167,53 @@ def run_notes_backup(
             stats["skipped"] += 1
             continue
 
-        folder_dir = dest_path / folder_name
-        safe_title = _safe_filename(title)
+        expected_dirs.add(note_rel)
+
         html = note.get("html") or ""
         text = note.get("text") or ""
+        attachments = _note_attachments(note)
 
-        # Compute content hash for change detection
-        content_hash = hashlib.sha256((html + "\0" + text).encode()).hexdigest()[:16]
+        # Hash content + attachment identity so new/changed attachments
+        # also trigger a re-download.
+        att_sig = "|".join(
+            f"{a.get('id', '')}:{a.get('size', '')}" for a in attachments
+        )
+        content_hash = hashlib.sha256(
+            (html + "\0" + text + "\0" + att_sig).encode()
+        ).hexdigest()[:16]
         new_hashes[note_id] = content_hash
 
-        rel_html = f"{folder_name}/{safe_title}.html"
-        rel_txt = f"{folder_name}/{safe_title}.txt"
-        written_files.add(rel_html)
-        written_files.add(rel_txt)
-
-        html_path = folder_dir / f"{safe_title}.html"
+        html_path = note_dir / "note.html"
         if old_hashes.get(note_id) == content_hash and html_path.exists():
             stats["skipped"] += 1
             continue
 
         try:
-            folder_dir.mkdir(parents=True, exist_ok=True)
+            note_dir.mkdir(parents=True, exist_ok=True)
             if html:
                 html_path.write_text(html, encoding="utf-8")
             if text:
-                (folder_dir / f"{safe_title}.txt").write_text(text, encoding="utf-8")
+                (note_dir / "note.txt").write_text(text, encoding="utf-8")
+
+            # Download attachments into a per-note subfolder.
+            if attachments:
+                att_dir = note_dir / "attachments"
+                att_dir.mkdir(parents=True, exist_ok=True)
+                used_names: set[str] = set()
+                for att in attachments:
+                    url = att.get("download_url") or att.get("preview_url") or att.get("thumbnail_url")
+                    if not url:
+                        continue
+                    raw_name = att.get("filename") or att.get("id") or "anhang"
+                    fname = _safe_filename(raw_name)
+                    # Avoid clobbering when two attachments share a name.
+                    if fname in used_names:
+                        stem, dot, ext = fname.partition(".")
+                        fname = f"{stem}_{att.get('id', '')[:6]}{dot}{ext}"
+                    used_names.add(fname)
+                    if not icloud_service.download_note_asset(apple_id, url, att_dir / fname):
+                        stats["errors"] += 1
+
             stats["downloaded"] += 1
         except Exception as exc:
             log.error("Fehler beim Schreiben der Notiz '%s': %s", title, exc)
@@ -2193,6 +2229,27 @@ def run_notes_backup(
     except Exception as exc:
         log.error("Fehler beim Schreiben von notes.json: %s", exc)
         stats["errors"] += 1
+
+    # Remove note directories for notes that were renamed or deleted.
+    for folder_dir in dest_path.iterdir():
+        if not folder_dir.is_dir():
+            continue
+        for note_dir in folder_dir.iterdir():
+            if not note_dir.is_dir():
+                continue
+            rel = f"{folder_dir.name}/{note_dir.name}"
+            if rel not in expected_dirs:
+                try:
+                    shutil.rmtree(note_dir)
+                    log.debug("Verwaiste Notiz entfernt: %s", rel)
+                except OSError:
+                    pass
+        # Drop now-empty folder dirs.
+        try:
+            if not any(folder_dir.iterdir()):
+                folder_dir.rmdir()
+        except OSError:
+            pass
 
     try:
         cache_file.write_text(json.dumps(new_hashes, ensure_ascii=False))

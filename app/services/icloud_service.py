@@ -909,7 +909,7 @@ def get_notes(apple_id: str) -> dict | None:
                 continue
             if not meta.get("is_locked") and note_id:
                 try:
-                    full = api.notes.get(note_id)
+                    full = api.notes.get(note_id, with_attachments=True)
                     meta = _model_to_dict(full)
                 except Exception as exc:
                     log.warning("Notiz %s konnte nicht geladen werden: %s", note_id, exc)
@@ -918,6 +918,35 @@ def get_notes(apple_id: str) -> dict | None:
     except Exception as exc:
         log.error("Fehler beim Abrufen der Notizen für %s: %s", apple_id, exc)
         return None
+
+
+def download_note_asset(apple_id: str, url: str, dest_path) -> bool:
+    """Download a single Notes attachment URL to *dest_path*.
+
+    Uses pyicloud's raw CloudKit asset downloader when available (it knows
+    how to follow the signed asset URLs), falling back to a plain session
+    GET. Returns True on success.
+    """
+    api = get_session(apple_id)
+    if api is None or not url:
+        return False
+
+    raw = getattr(getattr(api, "notes", None), "_raw", None)
+    try:
+        if raw is not None and hasattr(raw, "download_asset_stream"):
+            with open(dest_path, "wb") as fh:
+                for chunk in raw.download_asset_stream(url):
+                    fh.write(chunk)
+            return True
+        resp = api.session.get(url)
+        if resp.ok:
+            with open(dest_path, "wb") as fh:
+                fh.write(resp.content)
+            return True
+        log.warning("Anhang-Download fehlgeschlagen (HTTP %s): %s", resp.status_code, url)
+    except Exception as exc:
+        log.warning("Anhang konnte nicht geladen werden (%s): %s", url, exc)
+    return False
 
 
 def disconnect(apple_id: str) -> None:
