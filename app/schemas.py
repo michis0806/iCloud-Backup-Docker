@@ -36,6 +36,8 @@ class BackupConfigCreate(BaseModel):
     backup_photos: bool = False
     backup_contacts: bool = False
     backup_calendar: bool = False
+    backup_notes: bool = False
+    backup_reminders: bool = False
     drive_config_mode: DriveConfigMode = DriveConfigMode.SIMPLE
     drive_folders_simple: list[str] | None = None
     drive_folders_advanced: str | None = None
@@ -54,6 +56,8 @@ class BackupConfigResponse(BaseModel):
     backup_photos: bool
     backup_contacts: bool = False
     backup_calendar: bool = False
+    backup_notes: bool = False
+    backup_reminders: bool = False
     drive_config_mode: DriveConfigMode
     drive_folders_simple: list[str] | None = None
     drive_folders_advanced: str | None = None

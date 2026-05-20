@@ -1336,7 +1336,7 @@ def get_backup_storage_stats(destination: str) -> dict:
     """
     base = settings.backup_path / destination
     result = {}
-    for subdir in ("photos", "drive", "contacts", "calendar"):
+    for subdir in ("photos", "drive", "contacts", "calendar", "reminders", "notes"):
         path = base / subdir
         if not path.exists():
             result[subdir] = {"count": 0, "size_bytes": 0}
@@ -1949,6 +1949,264 @@ def run_calendar_backup(
 
 
 # ---------------------------------------------------------------------------
+# iCloud Reminders backup
+# ---------------------------------------------------------------------------
+
+def run_reminders_backup(
+    apple_id: str,
+    destination: str,
+    config_id: str | None = None,
+) -> dict:
+    """Backup all iCloud reminders as JSON.
+
+    Creates:
+      - {destination}/reminders/reminders.json (combined lists + reminders)
+      - {destination}/reminders/{list_title}.json (per list)
+
+    Returns stats dict with downloaded, skipped, errors counts.
+    """
+    stats = {"downloaded": 0, "skipped": 0, "errors": 0}
+
+    if config_id is not None:
+        _set_progress(config_id, {
+            "phase": "reminders",
+            "folder": "",
+            "current_file": "Erinnerungen werden abgerufen...",
+            "downloaded": 0, "skipped": 0, "errors": 0,
+        })
+
+    data = icloud_service.get_reminders(apple_id)
+    if data is None:
+        log.error("Erinnerungen für %s konnten nicht abgerufen werden.", apple_id)
+        stats["errors"] += 1
+        return stats
+
+    lists = data.get("lists", [])
+    reminders = data.get("reminders", [])
+
+    dest_path = settings.backup_path / destination / "reminders"
+    dest_path.mkdir(parents=True, exist_ok=True)
+
+    cache_file = settings.config_path / f".icloud-reminders-cache-{destination}.json"
+    old_hashes: dict[str, str] = {}
+    if cache_file.exists():
+        try:
+            old_hashes = json.loads(cache_file.read_text())
+        except Exception:
+            pass
+
+    new_hashes: dict[str, str] = {}
+    written_files: set[str] = set()
+
+    log.info(
+        "Erinnerungen-Backup für %s: %d Listen, %d Erinnerungen gefunden",
+        apple_id, len(lists), len(reminders),
+    )
+
+    # Group reminders by list_id
+    by_list: dict[str, list[dict]] = {}
+    for rem in reminders:
+        by_list.setdefault(rem.get("list_id", ""), []).append(rem)
+
+    # Per-list JSON files
+    for lst in lists:
+        if _is_cancelled(config_id):
+            raise BackupCancelled()
+        list_id = lst.get("id", "")
+        title = lst.get("title") or "Unbenannt"
+        list_reminders = by_list.get(list_id, [])
+        payload = {"list": lst, "reminders": list_reminders}
+        try:
+            content = json.dumps(payload, ensure_ascii=False, indent=2, default=str)
+        except Exception as exc:
+            log.error("Fehler beim Serialisieren der Liste '%s': %s", title, exc)
+            stats["errors"] += 1
+            continue
+
+        filename = f"{_safe_filename(title)}.json"
+        written_files.add(filename)
+        file_path = dest_path / filename
+        content_hash = hashlib.sha256(content.encode()).hexdigest()[:16]
+        new_hashes[list_id] = content_hash
+        if old_hashes.get(list_id) == content_hash and file_path.exists():
+            stats["skipped"] += 1
+            continue
+        try:
+            file_path.write_text(content, encoding="utf-8")
+            stats["downloaded"] += 1
+        except Exception as exc:
+            log.error("Fehler beim Schreiben von %s: %s", filename, exc)
+            stats["errors"] += 1
+
+    # Combined dump
+    try:
+        combined_path = dest_path / "reminders.json"
+        written_files.add("reminders.json")
+        combined_path.write_text(
+            json.dumps(data, ensure_ascii=False, indent=2, default=str),
+            encoding="utf-8",
+        )
+    except Exception as exc:
+        log.error("Fehler beim Schreiben von reminders.json: %s", exc)
+        stats["errors"] += 1
+
+    # Remove stale files for deleted lists
+    for existing in dest_path.iterdir():
+        if existing.is_file() and existing.name not in written_files:
+            try:
+                existing.unlink()
+                log.debug("Gelöschte Erinnerungsliste entfernt: %s", existing.name)
+            except OSError:
+                pass
+
+    try:
+        cache_file.write_text(json.dumps(new_hashes, ensure_ascii=False))
+    except Exception:
+        pass
+
+    log.info(
+        "Erinnerungen-Backup für %s abgeschlossen: %d geschrieben, %d übersprungen, %d Fehler",
+        apple_id, stats["downloaded"], stats["skipped"], stats["errors"],
+    )
+    return stats
+
+
+# ---------------------------------------------------------------------------
+# iCloud Notes backup
+# ---------------------------------------------------------------------------
+
+def run_notes_backup(
+    apple_id: str,
+    destination: str,
+    config_id: str | None = None,
+) -> dict:
+    """Backup all iCloud notes as HTML + plain text, plus a JSON dump.
+
+    Creates:
+      - {destination}/notes/{folder}/{title}.html (rendered note)
+      - {destination}/notes/{folder}/{title}.txt (plain text)
+      - {destination}/notes/notes.json (full metadata + text)
+
+    Locked notes are recorded in notes.json but skipped for file export
+    since their content cannot be decrypted server-side.
+
+    Returns stats dict with downloaded, skipped, errors counts.
+    """
+    stats = {"downloaded": 0, "skipped": 0, "errors": 0}
+
+    if config_id is not None:
+        _set_progress(config_id, {
+            "phase": "notes",
+            "folder": "",
+            "current_file": "Notizen werden abgerufen...",
+            "downloaded": 0, "skipped": 0, "errors": 0,
+        })
+
+    data = icloud_service.get_notes(apple_id)
+    if data is None:
+        log.error("Notizen für %s konnten nicht abgerufen werden.", apple_id)
+        stats["errors"] += 1
+        return stats
+
+    notes = data.get("notes", [])
+    folders = data.get("folders", [])
+
+    dest_path = settings.backup_path / destination / "notes"
+    dest_path.mkdir(parents=True, exist_ok=True)
+
+    cache_file = settings.config_path / f".icloud-notes-cache-{destination}.json"
+    old_hashes: dict[str, str] = {}
+    if cache_file.exists():
+        try:
+            old_hashes = json.loads(cache_file.read_text())
+        except Exception:
+            pass
+
+    new_hashes: dict[str, str] = {}
+    written_files: set[str] = set()
+
+    log.info(
+        "Notizen-Backup für %s: %d Ordner, %d Notizen gefunden",
+        apple_id, len(folders), len(notes),
+    )
+
+    for note in notes:
+        if _is_cancelled(config_id):
+            raise BackupCancelled()
+
+        note_id = note.get("id", "")
+        title = note.get("title") or "Ohne Titel"
+        folder_name = _safe_filename(note.get("folder_name") or "Notizen")
+
+        if config_id is not None:
+            _set_progress(config_id, {
+                "phase": "notes",
+                "folder": folder_name,
+                "current_file": title,
+                "downloaded": stats["downloaded"],
+                "skipped": stats["skipped"],
+                "errors": stats["errors"],
+            })
+
+        if note.get("is_locked"):
+            # Cannot decrypt – counts as skipped but still kept in JSON.
+            stats["skipped"] += 1
+            continue
+
+        folder_dir = dest_path / folder_name
+        safe_title = _safe_filename(title)
+        html = note.get("html") or ""
+        text = note.get("text") or ""
+
+        # Compute content hash for change detection
+        content_hash = hashlib.sha256((html + "\0" + text).encode()).hexdigest()[:16]
+        new_hashes[note_id] = content_hash
+
+        rel_html = f"{folder_name}/{safe_title}.html"
+        rel_txt = f"{folder_name}/{safe_title}.txt"
+        written_files.add(rel_html)
+        written_files.add(rel_txt)
+
+        html_path = folder_dir / f"{safe_title}.html"
+        if old_hashes.get(note_id) == content_hash and html_path.exists():
+            stats["skipped"] += 1
+            continue
+
+        try:
+            folder_dir.mkdir(parents=True, exist_ok=True)
+            if html:
+                html_path.write_text(html, encoding="utf-8")
+            if text:
+                (folder_dir / f"{safe_title}.txt").write_text(text, encoding="utf-8")
+            stats["downloaded"] += 1
+        except Exception as exc:
+            log.error("Fehler beim Schreiben der Notiz '%s': %s", title, exc)
+            stats["errors"] += 1
+
+    # Combined JSON dump
+    try:
+        json_path = dest_path / "notes.json"
+        json_path.write_text(
+            json.dumps(data, ensure_ascii=False, indent=2, default=str),
+            encoding="utf-8",
+        )
+    except Exception as exc:
+        log.error("Fehler beim Schreiben von notes.json: %s", exc)
+        stats["errors"] += 1
+
+    try:
+        cache_file.write_text(json.dumps(new_hashes, ensure_ascii=False))
+    except Exception:
+        pass
+
+    log.info(
+        "Notizen-Backup für %s abgeschlossen: %d geschrieben, %d übersprungen, %d Fehler",
+        apple_id, stats["downloaded"], stats["skipped"], stats["errors"],
+    )
+    return stats
+
+
+# ---------------------------------------------------------------------------
 # Combined backup runner
 # ---------------------------------------------------------------------------
 
@@ -1958,6 +2216,8 @@ def run_backup(
     backup_photos: bool = False,
     backup_contacts: bool = False,
     backup_calendar: bool = False,
+    backup_notes: bool = False,
+    backup_reminders: bool = False,
     drive_folders: list[str] | None = None,
     photos_include_family: bool = False,
     shared_library_id: str | None = None,
@@ -1970,7 +2230,11 @@ def run_backup(
     photos_sync_policy: str = SyncPolicy.KEEP,
 ) -> dict:
     """Run a complete backup for one account based on its configuration."""
-    result = {"drive_stats": None, "photos_stats": None, "contacts_stats": None, "calendar_stats": None, "success": True, "message": ""}
+    result = {
+        "drive_stats": None, "photos_stats": None, "contacts_stats": None,
+        "calendar_stats": None, "notes_stats": None, "reminders_stats": None,
+        "success": True, "message": "",
+    }
 
     if not destination:
         destination = apple_id.replace("@", "_at_").replace(".", "_")
@@ -2043,6 +2307,24 @@ def run_backup(
             result["calendar_stats"] = calendar_stats
             if calendar_stats["errors"] > 0:
                 result["success"] = False
+
+        if backup_reminders:
+            log.info("Starte iCloud Erinnerungen Backup für %s", apple_id)
+            reminders_stats = run_reminders_backup(
+                apple_id, destination, config_id=config_id,
+            )
+            result["reminders_stats"] = reminders_stats
+            if reminders_stats["errors"] > 0:
+                result["success"] = False
+
+        if backup_notes:
+            log.info("Starte iCloud Notizen Backup für %s", apple_id)
+            notes_stats = run_notes_backup(
+                apple_id, destination, config_id=config_id,
+            )
+            result["notes_stats"] = notes_stats
+            if notes_stats["errors"] > 0:
+                result["success"] = False
     except BackupCancelled:
         cancelled = True
         log.info("Backup für %s wurde vom Benutzer abgebrochen.", apple_id)
@@ -2102,6 +2384,14 @@ def run_backup(
     if result["calendar_stats"]:
         k = result["calendar_stats"]
         summary = f"Kalender: {k['downloaded']} geschrieben, {k['skipped']} übersprungen, {k['errors']} Fehler"
+        parts.append(summary)
+    if result["reminders_stats"]:
+        r = result["reminders_stats"]
+        summary = f"Erinnerungen: {r['downloaded']} geschrieben, {r['skipped']} übersprungen, {r['errors']} Fehler"
+        parts.append(summary)
+    if result["notes_stats"]:
+        n = result["notes_stats"]
+        summary = f"Notizen: {n['downloaded']} geschrieben, {n['skipped']} übersprungen, {n['errors']} Fehler"
         parts.append(summary)
 
     result["message"] = " | ".join(parts) if parts else "Nichts zu sichern."

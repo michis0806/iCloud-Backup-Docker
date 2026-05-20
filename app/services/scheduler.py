@@ -94,6 +94,8 @@ async def _run_backup_job(apple_id: str) -> None:
             backup_photos=cfg.get("backup_photos", False),
             backup_contacts=cfg.get("backup_contacts", False),
             backup_calendar=cfg.get("backup_calendar", False),
+            backup_notes=cfg.get("backup_notes", False),
+            backup_reminders=cfg.get("backup_reminders", False),
             drive_folders=folders,
             photos_include_family=cfg.get("photos_include_family", False),
             shared_library_id=cfg.get("shared_library_id"),

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **iCloud Notes & Reminders backup** – Two new backup sources can be
+  toggled per account. Reminders are written as JSON
+  (`reminders/reminders.json` plus one `reminders/<list>.json` per list).
+  Notes are exported per folder as `notes/<folder>/<title>.html` and
+  `.txt`, plus a complete `notes/notes.json` dump; locked notes are listed
+  in the JSON but skipped for file export since they can't be decrypted
+  server-side. Both use a content-hash cache for change detection (so
+  unchanged items are skipped on subsequent runs) and appear in the
+  per-run progress, the backup summary, and the local storage stats.
+
 ### Changed
 - **Token-lifetime estimate lowered from 60 to 30 days** – Apple now expires
   iCloud session tokens after roughly 30 days, so the re-auth countdown,
