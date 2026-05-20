@@ -2,7 +2,9 @@
 
 import asyncio
 import logging
+import os
 from datetime import datetime
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -11,12 +13,42 @@ from app import config_store
 from app.services import backup_service
 from app.services.notification import notify_backup_result, notify_token_expired, notify_token_expiring
 
-# Token age (in days) at which a warning notification is sent.
-_TOKEN_WARNING_DAYS = 50
+# Estimated iCloud session-token lifetime (in days) before re-auth is needed.
+_TOKEN_LIFETIME_DAYS = 30
+# Days of remaining validity at which a warning notification is sent.
+_TOKEN_WARNING_REMAINING_DAYS = 7
 
 log = logging.getLogger("icloud-backup")
 
-scheduler = AsyncIOScheduler(job_defaults={"misfire_grace_time": 3600})
+
+def _resolve_timezone():
+    """Resolve the scheduler timezone from the ``TZ`` env var.
+
+    Falls back to UTC (with a warning) when ``TZ`` is unset or refers to a
+    zone that is not installed in the container. This prevents APScheduler
+    from silently scheduling jobs in UTC while the user assumes the cron
+    expression is interpreted in their local timezone.
+    """
+    tz_name = os.getenv("TZ", "").strip()
+    if not tz_name:
+        log.warning("TZ-Umgebungsvariable nicht gesetzt – Zeitplan läuft in UTC.")
+        return ZoneInfo("UTC")
+    try:
+        tz = ZoneInfo(tz_name)
+        log.info("Zeitzone für Zeitplan: %s", tz_name)
+        return tz
+    except ZoneInfoNotFoundError:
+        log.error(
+            "TZ=%s konnte nicht aufgelöst werden (tzdata fehlt?). Falle auf UTC zurück.",
+            tz_name,
+        )
+        return ZoneInfo("UTC")
+
+
+scheduler = AsyncIOScheduler(
+    job_defaults={"misfire_grace_time": 3600},
+    timezone=_resolve_timezone(),
+)
 
 _BACKUP_JOB_ID = "backup_all"
 
@@ -62,6 +94,8 @@ async def _run_backup_job(apple_id: str) -> None:
             backup_photos=cfg.get("backup_photos", False),
             backup_contacts=cfg.get("backup_contacts", False),
             backup_calendar=cfg.get("backup_calendar", False),
+            backup_notes=cfg.get("backup_notes", False),
+            backup_reminders=cfg.get("backup_reminders", False),
             drive_folders=folders,
             photos_include_family=cfg.get("photos_include_family", False),
             shared_library_id=cfg.get("shared_library_id"),
@@ -114,8 +148,8 @@ def check_token_expiry_for_account(apple_id: str) -> None:
     except (ValueError, TypeError):
         return
 
-    remaining = 60 - age_days
-    if 0 < remaining <= (60 - _TOKEN_WARNING_DAYS):
+    remaining = _TOKEN_LIFETIME_DAYS - age_days
+    if 0 < remaining <= _TOKEN_WARNING_REMAINING_DAYS:
         log.warning(
             "Token für %s ist %d Tage alt (noch ~%d Tage gültig)",
             apple_id, age_days, remaining,
@@ -168,6 +202,7 @@ async def sync_scheduled_jobs() -> None:
             day=parts[2] if len(parts) > 2 else "*",
             month=parts[3] if len(parts) > 3 else "*",
             day_of_week=parts[4] if len(parts) > 4 else "*",
+            timezone=scheduler.timezone,
         )
         scheduler.add_job(
             _run_all_backups,
@@ -176,7 +211,11 @@ async def sync_scheduled_jobs() -> None:
             replace_existing=True,
             name="Backup alle Accounts",
         )
-        log.info("Zentraler Zeitplan registriert: %s", cron_expr)
+        next_run = scheduler.get_job(_BACKUP_JOB_ID).next_run_time
+        log.info(
+            "Zentraler Zeitplan registriert: %s (TZ=%s, nächster Lauf: %s)",
+            cron_expr, scheduler.timezone, next_run,
+        )
     except Exception as exc:
         log.error("Ungültiger Cron-Ausdruck '%s': %s", cron_expr, exc)
 

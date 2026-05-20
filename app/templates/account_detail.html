@@ -61,11 +61,25 @@
                                 <i class="bi bi-person-vcard me-1"></i> iCloud Kontakte
                             </label>
                         </div>
-                        <div class="form-check form-switch">
+                        <div class="form-check form-switch mb-3">
                             <input class="form-check-input" type="checkbox" id="backupCalendar"
                                    x-model="config.backup_calendar">
                             <label class="form-check-label" for="backupCalendar">
                                 <i class="bi bi-calendar-event me-1"></i> iCloud Kalender
+                            </label>
+                        </div>
+                        <div class="form-check form-switch mb-3">
+                            <input class="form-check-input" type="checkbox" id="backupReminders"
+                                   x-model="config.backup_reminders">
+                            <label class="form-check-label" for="backupReminders">
+                                <i class="bi bi-check2-square me-1"></i> iCloud Erinnerungen
+                            </label>
+                        </div>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="backupNotes"
+                                   x-model="config.backup_notes">
+                            <label class="form-check-label" for="backupNotes">
+                                <i class="bi bi-journal-text me-1"></i> iCloud Notizen
                             </label>
                         </div>
                     </div>
@@ -611,6 +625,44 @@
                                     </div>
                                 </div>
                             </template>
+                            <template x-if="backupStatus.stats?.reminders">
+                                <div class="border-top pt-2 mt-2">
+                                    <strong>Erinnerungen:</strong>
+                                    <div class="d-flex flex-wrap gap-3 mt-1">
+                                        <div>
+                                            <span class="text-success" x-text="backupStatus.stats.reminders.downloaded"></span>
+                                            <span class="text-body-secondary">geschrieben</span>
+                                        </div>
+                                        <div>
+                                            <span class="text-body-secondary" x-text="backupStatus.stats.reminders.skipped"></span>
+                                            <span class="text-body-secondary">übersprungen</span>
+                                        </div>
+                                        <div>
+                                            <span class="text-danger" x-text="backupStatus.stats.reminders.errors"></span>
+                                            <span class="text-body-secondary">Fehler</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
+                            <template x-if="backupStatus.stats?.notes">
+                                <div class="border-top pt-2 mt-2">
+                                    <strong>Notizen:</strong>
+                                    <div class="d-flex flex-wrap gap-3 mt-1">
+                                        <div>
+                                            <span class="text-success" x-text="backupStatus.stats.notes.downloaded"></span>
+                                            <span class="text-body-secondary">geschrieben</span>
+                                        </div>
+                                        <div>
+                                            <span class="text-body-secondary" x-text="backupStatus.stats.notes.skipped"></span>
+                                            <span class="text-body-secondary">übersprungen</span>
+                                        </div>
+                                        <div>
+                                            <span class="text-danger" x-text="backupStatus.stats.notes.errors"></span>
+                                            <span class="text-body-secondary">Fehler</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
                         </div>
                     </div>
                 </div>
@@ -753,6 +805,8 @@ function accountConfig(appleId) {
             backup_photos: false,
             backup_contacts: false,
             backup_calendar: false,
+            backup_notes: false,
+            backup_reminders: false,
             drive_config_mode: 'simple',
             drive_folders_simple: [],
             drive_folders_advanced: '',
@@ -847,6 +901,8 @@ function accountConfig(appleId) {
                     backup_photos: c.backup_photos,
                     backup_contacts: c.backup_contacts || false,
                     backup_calendar: c.backup_calendar || false,
+                    backup_notes: c.backup_notes || false,
+                    backup_reminders: c.backup_reminders || false,
                     drive_config_mode: c.drive_config_mode,
                     drive_folders_simple: c.drive_folders_simple || [],
                     drive_folders_advanced: c.drive_folders_advanced || '',
@@ -951,6 +1007,8 @@ function accountConfig(appleId) {
                 'photos': 'iCloud Fotos',
                 'contacts': 'iCloud Kontakte',
                 'calendar': 'iCloud Kalender',
+                'reminders': 'iCloud Erinnerungen',
+                'notes': 'iCloud Notizen',
             }[phase] || phase || '';
         },
 
@@ -1260,20 +1318,20 @@ function accountConfig(appleId) {
 
         tokenProgressPercent(iso) {
             const days = this._tokenAgeDays(iso);
-            // 60 days = ~2 months token lifetime
-            return Math.min(100, (days / 60) * 100);
+            // ~30 days estimated token lifetime
+            return Math.min(100, (days / 30) * 100);
         },
 
         tokenProgressClass(iso) {
             const days = this._tokenAgeDays(iso);
-            if (days < 40) return 'bg-success';
-            if (days < 55) return 'bg-warning';
+            if (days < 20) return 'bg-success';
+            if (days < 25) return 'bg-warning';
             return 'bg-danger';
         },
 
         tokenExpiryEstimate(iso) {
             const days = Math.floor(this._tokenAgeDays(iso));
-            const remaining = 60 - days;
+            const remaining = 30 - days;
             if (remaining <= 0) return 'Token ist wahrscheinlich abgelaufen.';
             if (remaining === 1) return 'Geschätzt noch ~1 Tag gültig.';
             return `Geschätzt noch ~${remaining} Tage gültig.`;

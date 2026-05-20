@@ -855,6 +855,100 @@ def get_calendar_events(
         return None
 
 
+def _model_to_dict(obj):
+    """Best-effort conversion of a pyicloud pydantic model / object to a dict."""
+    for attr in ("model_dump", "dict"):
+        fn = getattr(obj, attr, None)
+        if callable(fn):
+            try:
+                return fn()
+            except Exception:
+                pass
+    if isinstance(obj, dict):
+        return obj
+    return {k: v for k, v in vars(obj).items() if not k.startswith("_")}
+
+
+def get_reminders(apple_id: str) -> dict | None:
+    """Fetch all reminder lists and reminders for the given account.
+
+    Returns ``{"lists": [...], "reminders": [...]}`` (each a plain dict) or
+    None when no session is available / the service is unreachable.
+    """
+    api = get_session(apple_id)
+    if api is None:
+        return None
+
+    try:
+        lists = [_model_to_dict(lst) for lst in api.reminders.lists()]
+        reminders = [_model_to_dict(rem) for rem in api.reminders.reminders()]
+        return {"lists": lists, "reminders": reminders}
+    except Exception as exc:
+        log.error("Fehler beim Abrufen der Erinnerungen für %s: %s", apple_id, exc)
+        return None
+
+
+def get_notes(apple_id: str) -> dict | None:
+    """Fetch all Notes folders and notes (with text/html) for the account.
+
+    Returns ``{"folders": [...], "notes": [...]}`` or None when no session is
+    available. Locked notes are included as metadata but without content,
+    since they cannot be decrypted server-side.
+    """
+    api = get_session(apple_id)
+    if api is None:
+        return None
+
+    try:
+        folders = [_model_to_dict(f) for f in api.notes.folders()]
+        notes: list[dict] = []
+        for summary in api.notes.iter_all():
+            meta = _model_to_dict(summary)
+            note_id = meta.get("id")
+            if meta.get("is_deleted"):
+                continue
+            if not meta.get("is_locked") and note_id:
+                try:
+                    full = api.notes.get(note_id, with_attachments=True)
+                    meta = _model_to_dict(full)
+                except Exception as exc:
+                    log.warning("Notiz %s konnte nicht geladen werden: %s", note_id, exc)
+            notes.append(meta)
+        return {"folders": folders, "notes": notes}
+    except Exception as exc:
+        log.error("Fehler beim Abrufen der Notizen für %s: %s", apple_id, exc)
+        return None
+
+
+def download_note_asset(apple_id: str, url: str, dest_path) -> bool:
+    """Download a single Notes attachment URL to *dest_path*.
+
+    Uses pyicloud's raw CloudKit asset downloader when available (it knows
+    how to follow the signed asset URLs), falling back to a plain session
+    GET. Returns True on success.
+    """
+    api = get_session(apple_id)
+    if api is None or not url:
+        return False
+
+    raw = getattr(getattr(api, "notes", None), "_raw", None)
+    try:
+        if raw is not None and hasattr(raw, "download_asset_stream"):
+            with open(dest_path, "wb") as fh:
+                for chunk in raw.download_asset_stream(url):
+                    fh.write(chunk)
+            return True
+        resp = api.session.get(url)
+        if resp.ok:
+            with open(dest_path, "wb") as fh:
+                fh.write(resp.content)
+            return True
+        log.warning("Anhang-Download fehlgeschlagen (HTTP %s): %s", resp.status_code, url)
+    except Exception as exc:
+        log.warning("Anhang konnte nicht geladen werden (%s): %s", url, exc)
+    return False
+
+
 def disconnect(apple_id: str) -> None:
     """Remove a session from the in-memory cache."""
     _sessions.pop(apple_id, None)

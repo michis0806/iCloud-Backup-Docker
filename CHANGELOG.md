@@ -7,9 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-05-20
 ## [0.9.23] - 2026-05-15
 
 ### Added
+- **iCloud Notes & Reminders backup** – Two new backup sources can be
+  toggled per account. Reminders are written as JSON
+  (`reminders/reminders.json` plus one `reminders/<list>.json` per list).
+  Each note gets its own folder
+  `notes/<folder>/<title>/` containing `note.html`, `note.txt` and an
+  `attachments/` subfolder with the note's downloaded attachments, plus a
+  complete `notes/notes.json` dump; locked notes are listed in the JSON
+  but skipped for file export since they can't be decrypted server-side.
+  Both use a content-hash cache for change detection (note attachments are
+  part of the hash, so new attachments trigger a re-download) and appear
+  in the per-run progress, the backup summary, and the local storage
+  stats. Renamed/deleted notes have their stale folders cleaned up.
 - **Backup mount disk-usage indicator** – The dashboard now shows a compact
   card with total / used / free space for the filesystem hosting
   `BACKUP_PATH` (default `/backups`), along with a coloured progress bar
@@ -28,6 +41,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `POST /api/settings/archive/prune` endpoint. Empty per-run folders are
   cleaned up automatically so the archive root stays tidy when nothing
   was archived during a run.
+
+### Changed
+- **Token-lifetime estimate lowered from 60 to 30 days** – Apple now expires
+  iCloud session tokens after roughly 30 days, so the re-auth countdown,
+  the token-age progress bar/colour thresholds on the account detail page,
+  and the "~N Tage verbleibend" labels on the dashboard were all off by 2×.
+  The expiry warning notification now fires when ~7 days of validity
+  remain (previously ~10 days against the 60-day assumption).
+
+### Fixed
+- **Scheduled backups silently ran in UTC** – APScheduler was initialised
+  without an explicit timezone and the `python:3.12-slim` base image ships
+  without `tzdata`, so even with `TZ=Europe/Berlin` in the compose file
+  `tzlocal` fell back to UTC. A cron like `0 2 * * *` therefore fired at
+  02:00 UTC (03:00 / 04:00 local time) instead of 02:00 Berlin time. The
+  image now installs `tzdata`, and the scheduler resolves the timezone
+  explicitly from the `TZ` env var via `zoneinfo.ZoneInfo`, falling back
+  to UTC with an explicit log warning when `TZ` is unset or unknown. The
+  cron trigger is bound to the same timezone and the next run time is
+  logged when the schedule is registered.
 
 ## [0.9.22] - 2026-05-15
 

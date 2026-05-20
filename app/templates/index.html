@@ -825,7 +825,7 @@ function dashboard() {
 
         tokenRemainingLabel(iso) {
             const days = this.tokenDaysOld(iso);
-            const remaining = 60 - days;
+            const remaining = 30 - days;
             if (remaining <= 0) return 'wahrscheinlich abgelaufen';
             if (remaining === 1) return '~1 Tag verbleibend';
             return `~${remaining} Tage verbleibend`;
