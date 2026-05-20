@@ -13,8 +13,10 @@ from app import config_store
 from app.services import backup_service
 from app.services.notification import notify_backup_result, notify_token_expired, notify_token_expiring
 
-# Token age (in days) at which a warning notification is sent.
-_TOKEN_WARNING_DAYS = 50
+# Estimated iCloud session-token lifetime (in days) before re-auth is needed.
+_TOKEN_LIFETIME_DAYS = 30
+# Days of remaining validity at which a warning notification is sent.
+_TOKEN_WARNING_REMAINING_DAYS = 7
 
 log = logging.getLogger("icloud-backup")
 
@@ -144,8 +146,8 @@ def check_token_expiry_for_account(apple_id: str) -> None:
     except (ValueError, TypeError):
         return
 
-    remaining = 60 - age_days
-    if 0 < remaining <= (60 - _TOKEN_WARNING_DAYS):
+    remaining = _TOKEN_LIFETIME_DAYS - age_days
+    if 0 < remaining <= _TOKEN_WARNING_REMAINING_DAYS:
         log.warning(
             "Token für %s ist %d Tage alt (noch ~%d Tage gültig)",
             apple_id, age_days, remaining,

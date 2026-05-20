@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Token-lifetime estimate lowered from 60 to 30 days** – Apple now expires
+  iCloud session tokens after roughly 30 days, so the re-auth countdown,
+  the token-age progress bar/colour thresholds on the account detail page,
+  and the "~N Tage verbleibend" labels on the dashboard were all off by 2×.
+  The expiry warning notification now fires when ~7 days of validity
+  remain (previously ~10 days against the 60-day assumption).
+
 ### Fixed
 - **Scheduled backups silently ran in UTC** – APScheduler was initialised
   without an explicit timezone and the `python:3.12-slim` base image ships

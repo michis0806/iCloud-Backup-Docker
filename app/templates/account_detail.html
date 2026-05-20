@@ -1260,20 +1260,20 @@ function accountConfig(appleId) {
 
         tokenProgressPercent(iso) {
             const days = this._tokenAgeDays(iso);
-            // 60 days = ~2 months token lifetime
-            return Math.min(100, (days / 60) * 100);
+            // ~30 days estimated token lifetime
+            return Math.min(100, (days / 30) * 100);
         },
 
         tokenProgressClass(iso) {
             const days = this._tokenAgeDays(iso);
-            if (days < 40) return 'bg-success';
-            if (days < 55) return 'bg-warning';
+            if (days < 20) return 'bg-success';
+            if (days < 25) return 'bg-warning';
             return 'bg-danger';
         },
 
         tokenExpiryEstimate(iso) {
             const days = Math.floor(this._tokenAgeDays(iso));
-            const remaining = 60 - days;
+            const remaining = 30 - days;
             if (remaining <= 0) return 'Token ist wahrscheinlich abgelaufen.';
             if (remaining === 1) return 'Geschätzt noch ~1 Tag gültig.';
             return `Geschätzt noch ~${remaining} Tage gültig.`;
