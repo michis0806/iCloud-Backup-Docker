@@ -2200,6 +2200,7 @@ def run_notes_backup(
                 att_dir = note_dir / "attachments"
                 att_dir.mkdir(parents=True, exist_ok=True)
                 used_names: set[str] = set()
+                att_failed = False
                 for att in attachments:
                     url = att.get("download_url") or att.get("preview_url") or att.get("thumbnail_url")
                     if not url:
@@ -2213,6 +2214,11 @@ def run_notes_backup(
                     used_names.add(fname)
                     if not icloud_service.download_note_asset(apple_id, url, att_dir / fname):
                         stats["errors"] += 1
+                        att_failed = True
+                if att_failed:
+                    # Hash verwerfen, damit die Anhänge beim nächsten Lauf
+                    # erneut versucht werden statt übersprungen zu werden.
+                    new_hashes.pop(note_id, None)
 
             stats["downloaded"] += 1
         except Exception as exc:

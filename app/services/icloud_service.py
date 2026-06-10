@@ -899,6 +899,14 @@ def get_notes(apple_id: str) -> dict | None:
     if api is None:
         return None
 
+    # pyicloud cached Anhang-Metadaten samt signierter Download-URLs im
+    # Speicher. Die Signaturen laufen nach wenigen Stunden ab, daher liefert
+    # eine wiederverwendete Session beim nächsten Lauf nur noch 410 Gone.
+    # Cache vor jedem Abruf leeren, damit frische URLs geholt werden.
+    att_cache = getattr(getattr(api, "notes", None), "_attachment_meta_cache", None)
+    if isinstance(att_cache, dict):
+        att_cache.clear()
+
     try:
         folders = [_model_to_dict(f) for f in api.notes.folders()]
         notes: list[dict] = []

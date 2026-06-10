@@ -146,3 +146,30 @@ def test_submit_2sa_code_for_hsa2_posts_phone_securitycode(monkeypatch):
         "securityCode": {"code": "123456"},
         "mode": "sms",
     }
+
+
+def test_get_notes_clears_stale_attachment_url_cache(monkeypatch):
+    """Signed attachment URLs expire; a reused session must not serve them."""
+    apple_id = "notes@icloud.com"
+
+    class DummyNotes:
+        def __init__(self):
+            self._attachment_meta_cache = {"att-1": object()}
+
+        def folders(self):
+            return []
+
+        def iter_all(self):
+            return []
+
+    class DummyNotesApi:
+        def __init__(self):
+            self.notes = DummyNotes()
+
+    api = DummyNotesApi()
+    monkeypatch.setattr(icloud_service, "get_session", lambda _: api)
+
+    result = icloud_service.get_notes(apple_id)
+
+    assert result == {"folders": [], "notes": []}
+    assert api.notes._attachment_meta_cache == {}
