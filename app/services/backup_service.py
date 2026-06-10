@@ -2200,6 +2200,7 @@ def run_notes_backup(
                 att_dir = note_dir / "attachments"
                 att_dir.mkdir(parents=True, exist_ok=True)
                 used_names: set[str] = set()
+                att_failed = False
                 for att in attachments:
                     url = att.get("download_url") or att.get("preview_url") or att.get("thumbnail_url")
                     if not url:
@@ -2213,6 +2214,11 @@ def run_notes_backup(
                     used_names.add(fname)
                     if not icloud_service.download_note_asset(apple_id, url, att_dir / fname):
                         stats["errors"] += 1
+                        att_failed = True
+                if att_failed:
+                    # Hash verwerfen, damit die Anhänge beim nächsten Lauf
+                    # erneut versucht werden statt übersprungen zu werden.
+                    new_hashes.pop(note_id, None)
 
             stats["downloaded"] += 1
         except Exception as exc:
@@ -2300,14 +2306,20 @@ def run_backup(
     # archived files are grouped per run and can later be pruned by age.
     archive_base = settings.archive_path / current_archive_timestamp() / destination
 
-    # Early session check – abort with a clear message when the token
-    # has expired so callers can send the appropriate notification.
-    api = icloud_service.get_session(apple_id)
-    if api is None:
-        log.error("Keine gültige Sitzung für %s – Token vermutlich abgelaufen.", apple_id)
+    # Validate the session against Apple before starting – a cached session
+    # may look fine locally while the token has long expired server-side.
+    # check_connection() reconnects from the saved cookies and verifies the
+    # session with a real API call.
+    check = icloud_service.check_connection(apple_id)
+    if not check["valid"]:
+        if check.get("requires_2fa") or check.get("requires_password"):
+            log.error("Keine gültige Sitzung für %s – Token abgelaufen.", apple_id)
+            result["message"] = "Token abgelaufen – Zwei-Faktor-Authentifizierung erforderlich."
+            result["auth_expired"] = True
+        else:
+            log.error("Verbindungscheck für %s fehlgeschlagen: %s", apple_id, check["message"])
+            result["message"] = check["message"]
         result["success"] = False
-        result["message"] = "Token abgelaufen – Zwei-Faktor-Authentifizierung erforderlich."
-        result["auth_expired"] = True
         return result
 
     if config_id is not None:

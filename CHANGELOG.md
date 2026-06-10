@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.5] 2026-06-10
+
+### Fixed
+- **Notes attachments failed with "Gone (410)" on scheduled runs** – pyicloud
+  caches attachment metadata including the signed CloudKit download URLs
+  inside its notes service, and the app keeps the iCloud session alive
+  between backup runs. The signed URLs expire after a few hours, so every
+  follow-up run tried to download attachments through stale links and
+  logged one `410 Gone` warning per attachment. The attachment cache is
+  now cleared before each notes fetch so every run gets freshly signed
+  URLs. Notes whose attachment download failed are also no longer recorded
+  in the content-hash cache, so their attachments are retried on the next
+  run instead of being skipped as "unchanged".
+
+### Changed
+- **Re-authorization works without password, like `icloudpd --auth-only`** –
+  The "Neu autorisieren" button (which always demanded the Apple ID
+  password first) is gone. "Verbindung prüfen" now drives the whole flow:
+  it validates the saved session against Apple and, when the trust token
+  has expired, directly triggers the device push and opens the 2FA dialog.
+  The password form only appears in the rare case that Apple requires a
+  full re-login. The account detail page starts this flow automatically
+  when the account needs re-authorization.
+- **Session is validated against Apple before every backup run** – Scheduled
+  and manual backups now begin with a real connection check (reconnect from
+  the saved cookies plus a lightweight API call) instead of trusting a
+  cached in-memory session. An expired token aborts the run immediately
+  with a clear message, sets the account to `requires_2fa` and sends the
+  "Token abgelaufen" notification once instead of failing mid-backup.
+
+### Added
+- **"Alle prüfen" button on the dashboard** – Checks the connection of all
+  accounts in one go, shows a compact summary (e.g. "2 OK, 1× 2FA nötig")
+  and then walks through every account that needs re-authorization: the
+  2FA dialog opens for each one in turn, right on the dashboard.
+
+### Removed
+- **Token-age heuristic** – The ~30-day lifetime estimate (token-age
+  progress bar, "geschätzt noch ~N Tage gültig" labels, "läuft bald ab"
+  warning notification) has been removed. The trust token cannot be
+  renewed ahead of time anyway, and the real per-backup validation plus
+  the expiry notification make the guesswork obsolete. The account pages
+  still show the timestamp of the last token refresh.
+
 ## [0.10.4] 2026-06-10
 
 - Bump pyicloud dependency to version 2.6.5

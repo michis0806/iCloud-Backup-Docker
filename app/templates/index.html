@@ -30,7 +30,18 @@
             <div x-show="scheduleSaved" x-transition class="text-success small">
                 <i class="bi bi-check-lg"></i> Gespeichert
             </div>
-            <div class="ms-auto">
+            <div class="ms-auto d-flex align-items-center gap-2">
+                <span class="text-muted small" x-show="checkAllSummary" x-transition
+                      x-text="checkAllSummary"></span>
+                <button class="btn btn-outline-secondary btn-sm"
+                        :disabled="checkAllLoading"
+                        @click="checkAllConnections()"
+                        title="Verbindung aller Accounts prüfen und bei Bedarf neu autorisieren">
+                    <span x-show="checkAllLoading" class="spinner-border spinner-border-sm me-1"></span>
+                    <i class="bi bi-plug me-1" x-show="!checkAllLoading"></i>
+                    <span x-show="!checkAllLoading">Alle prüfen</span>
+                    <span x-show="checkAllLoading">Wird geprüft...</span>
+                </button>
                 <button class="btn btn-outline-success btn-sm"
                         :disabled="runAllLoading"
                         @click="runAllBackups()"
@@ -148,12 +159,8 @@
                         <!-- Token status -->
                         <template x-if="account.last_token_refresh_at && account.status === 'authenticated'">
                             <div class="mt-2 small d-flex align-items-center gap-2">
-                                <i class="bi bi-key"
-                                   :class="tokenDaysOld(account.last_token_refresh_at) < 40 ? 'text-success' : tokenDaysOld(account.last_token_refresh_at) < 55 ? 'text-warning' : 'text-danger'"></i>
+                                <i class="bi bi-key text-body-secondary"></i>
                                 <span>Token: <span x-text="tokenAgeLabel(account.last_token_refresh_at)"></span></span>
-                                <span class="text-body-secondary">
-                                    (<span x-text="tokenRemainingLabel(account.last_token_refresh_at)"></span>)
-                                </span>
                             </div>
                         </template>
 
@@ -409,6 +416,11 @@ function dashboard() {
         backupStatuses: {},
         statusPollInterval: null,
 
+        // Global connection check
+        checkAllLoading: false,
+        checkAllSummary: '',
+        reauthQueue: [],
+
         // Add account
         newAppleId: '',
         newPassword: '',
@@ -643,6 +655,53 @@ function dashboard() {
             this.addLoading = false;
         },
 
+        async checkAllConnections() {
+            // Validate every account against Apple via passwordless reconnect.
+            // Accounts whose trust token expired get queued for the 2FA flow.
+            this.checkAllLoading = true;
+            this.checkAllSummary = '';
+            this.reauthQueue = [];
+            let ok = 0, reauth = 0, password = 0, failed = 0;
+            for (const account of this.accounts) {
+                try {
+                    const res = await fetch(`/api/accounts/${encodeURIComponent(account.apple_id)}/reconnect`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({}),
+                    });
+                    const data = await res.json();
+                    if (data.status === 'authenticated') {
+                        ok++;
+                    } else if (data.status === 'requires_2fa') {
+                        reauth++;
+                        this.reauthQueue.push(account.apple_id);
+                    } else if (data.requires_password) {
+                        password++;
+                    } else {
+                        failed++;
+                    }
+                } catch (e) {
+                    failed++;
+                }
+            }
+            await this.loadAccounts();
+            const parts = [`${ok} OK`];
+            if (reauth) parts.push(`${reauth}× 2FA nötig`);
+            if (password) parts.push(`${password}× Passwort nötig`);
+            if (failed) parts.push(`${failed}× Fehler`);
+            this.checkAllSummary = parts.join(', ');
+            this.checkAllLoading = false;
+            this.processReauthQueue();
+        },
+
+        processReauthQueue() {
+            // Open the 2FA modal for the next account that needs re-auth.
+            const next = this.reauthQueue.shift();
+            if (next) {
+                this.show2FA({ apple_id: next });
+            }
+        },
+
         show2FA(account) {
             this.tfaAppleId = account.apple_id;
             this.tfaCode = '';
@@ -719,6 +778,7 @@ function dashboard() {
                         this.loadBackupStatuses(),
                         this.loadIcloudStorage(),
                     ]);
+                    this.processReauthQueue();
                 } else {
                     this.tfaError = data.status_message || 'Code ungültig.';
                 }
@@ -749,6 +809,7 @@ function dashboard() {
                         this.loadBackupStatuses(),
                         this.loadIcloudStorage(),
                     ]);
+                    this.processReauthQueue();
                 } else {
                     this.tfaError = data.status_message || 'Code ungültig.';
                 }
@@ -821,14 +882,6 @@ function dashboard() {
             if (days === 0) return 'heute erneuert';
             if (days === 1) return '1 Tag alt';
             return `${days} Tage alt`;
-        },
-
-        tokenRemainingLabel(iso) {
-            const days = this.tokenDaysOld(iso);
-            const remaining = 30 - days;
-            if (remaining <= 0) return 'wahrscheinlich abgelaufen';
-            if (remaining === 1) return '~1 Tag verbleibend';
-            return `~${remaining} Tage verbleibend`;
         },
 
         statusBadge(status) {

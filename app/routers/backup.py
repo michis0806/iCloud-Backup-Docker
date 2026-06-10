@@ -15,7 +15,7 @@ from app.schemas import (
 )
 from app.services import backup_service, icloud_service, storage_cache
 from app.services.notification import notify_backup_result, notify_token_expired
-from app.services.scheduler import check_token_expiry_for_account, sync_scheduled_jobs
+from app.services.scheduler import sync_scheduled_jobs
 
 log = logging.getLogger("icloud-backup")
 router = APIRouter(prefix="/api/backup", tags=["backup"])
@@ -66,9 +66,6 @@ async def trigger_backup(apple_id: str):
     else:
         text = cfg.get("drive_folders_advanced") or ""
         folders = [line.strip() for line in text.splitlines() if line.strip()]
-
-    # Check token expiry before starting
-    check_token_expiry_for_account(apple_id)
 
     # Run backup in background thread
     async def _run():
@@ -156,8 +153,6 @@ async def trigger_all_backups():
         # Check if already running
         if backup_service.get_progress(apple_id) is not None:
             continue
-
-        check_token_expiry_for_account(apple_id)
 
         run_start_time = datetime.now(timezone.utc)
         config_store.update_backup_status(
