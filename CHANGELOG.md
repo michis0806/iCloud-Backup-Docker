@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.4] 2026-06-10
+
+- Bump pyicloud dependency to version 2.6.5
+
 ## [0.10.3] 2026-05-30
 
 - Bump pyicloud dependency to version 2.6.4
