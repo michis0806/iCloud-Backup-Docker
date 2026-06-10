@@ -198,7 +198,8 @@ async def check_connection(apple_id: str):
             status="requires_2fa",
             status_message=result["message"],
         )
-        notify_token_expired(apple_id)
+        if account["status"] == "authenticated":
+            notify_token_expired(apple_id)
     else:
         config_store.update_account_status(
             apple_id,

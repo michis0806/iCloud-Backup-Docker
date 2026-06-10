@@ -82,15 +82,6 @@ def notify_backup_result(apple_id: str, status: str, message: str) -> None:
     _send("iCloud Backup fehlgeschlagen", f"{apple_id}: {message}")
 
 
-def notify_token_expiring(apple_id: str, days_remaining: int) -> None:
-    """Warn that an iCloud token is about to expire."""
-    _send(
-        "iCloud Token läuft bald ab",
-        f"{apple_id}: Token läuft in ca. {days_remaining} Tagen ab. "
-        "Bitte erneuern Sie die Verbindung.",
-    )
-
-
 def notify_token_expired(apple_id: str) -> None:
     """Notify that an iCloud token has expired and 2FA is required."""
     _send(

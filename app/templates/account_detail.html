@@ -324,26 +324,9 @@
                     </div>
                     <div class="card-body">
                         <template x-if="account.last_token_refresh_at">
-                            <div>
-                                <div class="mb-2 small">
-                                    <strong>Letztes Token-Refresh:</strong><br>
-                                    <span x-text="formatDate(account.last_token_refresh_at)"></span>
-                                </div>
-                                <div class="mb-2 small">
-                                    <strong>Token-Alter:</strong><br>
-                                    <span x-text="tokenAge(account.last_token_refresh_at)"></span>
-                                </div>
-                                <div class="mb-3">
-                                    <div class="progress" style="height: 6px;">
-                                        <div class="progress-bar"
-                                             :class="tokenProgressClass(account.last_token_refresh_at)"
-                                             :style="'width: ' + tokenProgressPercent(account.last_token_refresh_at) + '%'"
-                                             role="progressbar"></div>
-                                    </div>
-                                    <div class="form-text small mt-1">
-                                        <span x-text="tokenExpiryEstimate(account.last_token_refresh_at)"></span>
-                                    </div>
-                                </div>
+                            <div class="mb-3 small">
+                                <strong>Letztes Token-Refresh:</strong><br>
+                                <span x-text="formatDate(account.last_token_refresh_at)"></span>
                             </div>
                         </template>
                         <template x-if="!account.last_token_refresh_at">
@@ -368,14 +351,9 @@
                             </div>
                         </div>
 
-                        <!-- Re-authenticate section -->
-                        <div class="mt-3 border-top pt-3">
-                            <template x-if="!showReauthForm">
-                                <button type="button" class="btn btn-outline-warning btn-sm w-100"
-                                        @click="showReauthForm = true">
-                                    <i class="bi bi-arrow-repeat me-1"></i> Neu autorisieren
-                                </button>
-                            </template>
+                        <!-- Password fallback – only shown when Apple requires
+                             a full re-login that cannot use the saved token. -->
+                        <div class="mt-3 border-top pt-3" x-show="showReauthForm">
                             <template x-if="showReauthForm">
                                 <div>
                                     <div class="alert alert-danger py-1 px-2 small" x-show="reauthError" x-text="reauthError"></div>
@@ -384,7 +362,8 @@
                                                x-model="reauthPassword"
                                                placeholder="Passwort eingeben">
                                         <div class="form-text small">
-                                            Wird nur zur Anmeldung verwendet, nicht gespeichert.
+                                            Apple verlangt für die erneute Anmeldung das Passwort.
+                                            Es wird nur zur Anmeldung verwendet, nicht gespeichert.
                                         </div>
                                     </div>
                                     <div class="d-flex gap-2">
@@ -864,9 +843,10 @@ function accountConfig(appleId) {
                     this.loadPhotoLibraries(),
                 ]);
             }
-            // Auto-show reauth form if account needs reconnection
+            // Start the re-auth workflow automatically when the account
+            // needs it – password is only requested if Apple demands it.
             if (this.account.status === 'requires_2fa' || this.account.status === 'error') {
-                this.showReauthForm = true;
+                await this.submitReauth(true);
             }
             // Poll backup status every 10 seconds
             this.statusInterval = setInterval(() => this.loadBackupStatus(), 10000);
@@ -1139,7 +1119,11 @@ function accountConfig(appleId) {
                 const res = await fetch(`/api/accounts/${this.encodedId()}/check-connection`, { method: 'POST' });
                 this.connectionResult = await res.json();
                 await this.loadAccount();
-                if (this.connectionResult.requires_2fa || this.connectionResult.requires_password) {
+                if (this.connectionResult.requires_2fa) {
+                    // Session liegt im Backend bereit – direkt den MFA-Flow
+                    // ohne Passwort starten (löst den Geräte-Push aus).
+                    await this.submitReauth(true);
+                } else if (this.connectionResult.requires_password) {
                     this.showReauthForm = true;
                 }
             } catch (e) {
@@ -1148,14 +1132,17 @@ function accountConfig(appleId) {
             this.checkingConnection = false;
         },
 
-        async submitReauth() {
+        async submitReauth(withoutPassword = false) {
+            // Erst passwortlos über das gespeicherte Token versuchen; das
+            // Passwort-Formular erscheint nur, wenn Apple es wirklich braucht.
             this.reauthLoading = true;
             this.reauthError = '';
             try {
+                const body = withoutPassword ? {} : { password: this.reauthPassword };
                 const res = await fetch(`/api/accounts/${this.encodedId()}/reconnect`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ password: this.reauthPassword }),
+                    body: JSON.stringify(body),
                 });
                 const data = await res.json();
                 if (data.status === 'requires_2fa') {
@@ -1168,8 +1155,12 @@ function accountConfig(appleId) {
                     this.tfaSmsDeviceIndex = null;
                     this.tfaSmsSuccess = '';
                     new bootstrap.Modal(this.$refs.tfaModal).show();
+                } else if (data.requires_password) {
+                    this.showReauthForm = true;
+                    this.reauthError = data.status_message || 'Session abgelaufen – bitte Passwort eingeben.';
                 } else if (data.status === 'error') {
                     this.reauthError = data.status_message || 'Anmeldung fehlgeschlagen.';
+                    this.showReauthForm = true;
                 } else if (data.status === 'authenticated') {
                     this.showReauthForm = false;
                     this.reauthPassword = '';
@@ -1179,6 +1170,7 @@ function accountConfig(appleId) {
                 await this.loadAccount();
             } catch (e) {
                 this.reauthError = 'Netzwerkfehler: ' + e.message;
+                this.showReauthForm = true;
             }
             this.reauthLoading = false;
         },
@@ -1301,40 +1293,6 @@ function accountConfig(appleId) {
                 this.tfaError = 'Netzwerkfehler: ' + e.message;
             }
             this.tfaLoading = false;
-        },
-
-        _tokenAgeDays(iso) {
-            if (!iso) return 0;
-            const diff = Date.now() - new Date(iso).getTime();
-            return Math.max(0, diff / (1000 * 60 * 60 * 24));
-        },
-
-        tokenAge(iso) {
-            const days = Math.floor(this._tokenAgeDays(iso));
-            if (days === 0) return 'Heute erneuert';
-            if (days === 1) return '1 Tag';
-            return `${days} Tage`;
-        },
-
-        tokenProgressPercent(iso) {
-            const days = this._tokenAgeDays(iso);
-            // ~30 days estimated token lifetime
-            return Math.min(100, (days / 30) * 100);
-        },
-
-        tokenProgressClass(iso) {
-            const days = this._tokenAgeDays(iso);
-            if (days < 20) return 'bg-success';
-            if (days < 25) return 'bg-warning';
-            return 'bg-danger';
-        },
-
-        tokenExpiryEstimate(iso) {
-            const days = Math.floor(this._tokenAgeDays(iso));
-            const remaining = 30 - days;
-            if (remaining <= 0) return 'Token ist wahrscheinlich abgelaufen.';
-            if (remaining === 1) return 'Geschätzt noch ~1 Tag gültig.';
-            return `Geschätzt noch ~${remaining} Tage gültig.`;
         },
 
         formatDate(iso) {
