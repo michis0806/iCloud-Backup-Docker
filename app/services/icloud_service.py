@@ -1,5 +1,6 @@
 """Wrapper around pyicloud for iCloud authentication and API access."""
 
+import json
 import logging
 import re
 from pathlib import Path
@@ -869,11 +870,33 @@ def _model_to_dict(obj):
     return {k: v for k, v in vars(obj).items() if not k.startswith("_")}
 
 
+def _is_missing_zone_error(exc: Exception) -> bool:
+    """Return True when the error means the account has no Notes/Reminders zone.
+
+    Accounts that never used Notes or Reminders have no CloudKit zone, so Apple
+    answers with ``ZONE_NOT_FOUND``. pyicloud surfaces this either directly in
+    the message (Notes: ``Not Found (404): … ZONE_NOT_FOUND``) or wrapped as a
+    response-validation error whose ``payload`` still carries the raw marker
+    (Reminders: ``Changes response validation failed``). This is a benign
+    "empty" condition, not a real backup failure.
+    """
+    markers = ("ZONE_NOT_FOUND", "Zone does not exist")
+    haystack = str(exc)
+    payload = getattr(exc, "payload", None)
+    if payload is not None:
+        try:
+            haystack += json.dumps(payload, default=str)
+        except Exception:
+            haystack += repr(payload)
+    return any(marker in haystack for marker in markers)
+
+
 def get_reminders(apple_id: str) -> dict | None:
     """Fetch all reminder lists and reminders for the given account.
 
     Returns ``{"lists": [...], "reminders": [...]}`` (each a plain dict) or
-    None when no session is available / the service is unreachable.
+    None when no session is available / the service is unreachable. An account
+    without a Reminders zone yields empty lists rather than an error.
     """
     api = get_session(apple_id)
     if api is None:
@@ -884,6 +907,9 @@ def get_reminders(apple_id: str) -> dict | None:
         reminders = [_model_to_dict(rem) for rem in api.reminders.reminders()]
         return {"lists": lists, "reminders": reminders}
     except Exception as exc:
+        if _is_missing_zone_error(exc):
+            log.info("Account %s hat keine Erinnerungen (Zone nicht vorhanden).", apple_id)
+            return {"lists": [], "reminders": []}
         log.error("Fehler beim Abrufen der Erinnerungen für %s: %s", apple_id, exc)
         return None
 
@@ -924,6 +950,9 @@ def get_notes(apple_id: str) -> dict | None:
             notes.append(meta)
         return {"folders": folders, "notes": notes}
     except Exception as exc:
+        if _is_missing_zone_error(exc):
+            log.info("Account %s hat keine Notizen (Zone nicht vorhanden).", apple_id)
+            return {"folders": [], "notes": []}
         log.error("Fehler beim Abrufen der Notizen für %s: %s", apple_id, exc)
         return None
 
