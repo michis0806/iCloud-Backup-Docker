@@ -173,3 +173,100 @@ def test_get_notes_clears_stale_attachment_url_cache(monkeypatch):
 
     assert result == {"folders": [], "notes": []}
     assert api.notes._attachment_meta_cache == {}
+
+
+class _FakeApiError(Exception):
+    """Mimics pyicloud's NotesApiError/RemindersApiError (message + payload)."""
+
+    def __init__(self, message, payload=None):
+        super().__init__(message)
+        self.payload = payload
+
+
+def test_get_reminders_missing_zone_returns_empty(monkeypatch):
+    """An account without a Reminders zone is empty, not a backup failure."""
+
+    class DummyReminders:
+        def lists(self):
+            # Reminders surface the missing zone as a wrapped validation error;
+            # the ZONE_NOT_FOUND marker only lives in the payload.
+            raise _FakeApiError(
+                "Changes response validation failed",
+                payload={
+                    "zones": [
+                        {"serverErrorCode": "ZONE_NOT_FOUND", "reason": "Zone does not exist"}
+                    ]
+                },
+            )
+
+        def reminders(self):
+            return []
+
+    class DummyApi:
+        reminders = DummyReminders()
+
+    monkeypatch.setattr(icloud_service, "get_session", lambda _: DummyApi())
+
+    assert icloud_service.get_reminders("empty@icloud.com") == {"lists": [], "reminders": []}
+
+
+def test_get_reminders_real_error_returns_none(monkeypatch):
+    class DummyReminders:
+        def lists(self):
+            raise _FakeApiError("Internal server error (500)")
+
+        def reminders(self):
+            return []
+
+    class DummyApi:
+        reminders = DummyReminders()
+
+    monkeypatch.setattr(icloud_service, "get_session", lambda _: DummyApi())
+
+    assert icloud_service.get_reminders("broken@icloud.com") is None
+
+
+def test_get_notes_missing_zone_returns_empty(monkeypatch):
+    """An account without a Notes zone is empty, not a backup failure."""
+
+    class DummyNotes:
+        def __init__(self):
+            self._attachment_meta_cache = {}
+
+        def folders(self):
+            # Notes carry the marker directly in the 404 message.
+            raise _FakeApiError(
+                'Not Found (404): { "serverErrorCode" : "ZONE_NOT_FOUND", '
+                '"reason" : "Zone does not exist" }'
+            )
+
+        def iter_all(self):
+            return []
+
+    class DummyApi:
+        def __init__(self):
+            self.notes = DummyNotes()
+
+    monkeypatch.setattr(icloud_service, "get_session", lambda _: DummyApi())
+
+    assert icloud_service.get_notes("empty@icloud.com") == {"folders": [], "notes": []}
+
+
+def test_get_notes_real_error_returns_none(monkeypatch):
+    class DummyNotes:
+        def __init__(self):
+            self._attachment_meta_cache = {}
+
+        def folders(self):
+            raise _FakeApiError("Service temporarily unavailable (503)")
+
+        def iter_all(self):
+            return []
+
+    class DummyApi:
+        def __init__(self):
+            self.notes = DummyNotes()
+
+    monkeypatch.setattr(icloud_service, "get_session", lambda _: DummyApi())
+
+    assert icloud_service.get_notes("broken@icloud.com") is None

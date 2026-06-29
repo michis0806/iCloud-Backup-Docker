@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.6] 2026-06-29
+
+### Fixed
+- **Backups failed for accounts without Notes or Reminders** – When an
+  account never used Notes or Reminders, the corresponding CloudKit zone
+  does not exist and Apple answers with `ZONE_NOT_FOUND` (Notes surface it
+  as a `404`, Reminders as a wrapped "Changes response validation failed").
+  Both were treated as hard errors, which marked the whole backup as failed
+  and triggered the failure notification. A missing zone is now recognised
+  as a benign empty result (zero items, no error), so the backup succeeds
+  and only the genuinely failing sources count as errors.
+
 ## [0.10.5] 2026-06-10
 
 ### Fixed
