@@ -102,6 +102,9 @@ async def _run_backup_job(apple_id: str) -> None:
             photos_sync_policy=cfg.get("photos_sync_policy", "keep"),
         )
 
+        if result.get("skipped_already_running"):
+            log.info("Backup für %s übersprungen – läuft bereits.", apple_id)
+            return
         status = "success" if result["success"] else "error"
         message = result["message"]
         dest = cfg.get("destination", "") or apple_id.replace("@", "_at_").replace(".", "_")

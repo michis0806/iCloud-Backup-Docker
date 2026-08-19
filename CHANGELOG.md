@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.2] 2026-08-19
+
+### Fixed
+- **Photo backup crashed with `[Errno 2] No such file or directory` on a
+  date folder** – two backups for the same account could run at the same
+  time (the manual trigger had no "already running" guard, unlike the
+  scheduler). One run's photo reconciliation removes empty `YYYY/MM/DD`
+  folders while the other run is still scanning them, aborting the whole
+  backup with an unhandled `FileNotFoundError`. Concurrent runs per
+  account are now rejected at both the API level (HTTP 409) and inside
+  `run_backup()` itself; a rejected second start no longer overwrites
+  the running backup's status or sends a failure notification.
+- **Photo reconciliation could delete local photos after a broken
+  iteration** – when the photo listing aborted mid-way (e.g. an Apple
+  API error), the reconciliation still ran against the incomplete remote
+  list, so with sync policy "delete"/"archive" it would remove local
+  photos that still exist in iCloud. Reconciliation is now skipped
+  whenever the iteration did not complete cleanly.
+- The empty-directory cleanup after photo reconciliation now tolerates
+  paths vanishing mid-walk instead of aborting the backup.
+
 ## [0.11.1] 2026-08-19
 
 ### Fixed

@@ -1164,17 +1164,26 @@ def _reconcile_photos(
     if not local_dir.exists():
         return
 
-    for local_file in local_dir.rglob("*"):
-        if not local_file.is_file() or local_file.name.endswith(".tmp"):
-            continue
-        rel = str(local_file.relative_to(local_dir))
-        if rel not in remote_files:
-            _apply_sync_policy(local_file, rel, sync_policy, archive_dest, stats)
+    try:
+        for local_file in local_dir.rglob("*"):
+            if not local_file.is_file() or local_file.name.endswith(".tmp"):
+                continue
+            rel = str(local_file.relative_to(local_dir))
+            if rel not in remote_files:
+                _apply_sync_policy(local_file, rel, sync_policy, archive_dest, stats)
 
-    # Clean up empty directories
-    for dirpath in sorted(local_dir.rglob("*"), reverse=True):
-        if dirpath.is_dir() and not any(dirpath.iterdir()):
-            dirpath.rmdir()
+        # Clean up empty directories. Entries can vanish while we walk the
+        # tree (e.g. an external process touching the backup volume), so a
+        # missing path is skipped instead of aborting the whole backup.
+        for dirpath in sorted(local_dir.rglob("*"), reverse=True):
+            try:
+                if dirpath.is_dir() and not any(dirpath.iterdir()):
+                    dirpath.rmdir()
+            except OSError:
+                continue
+    except OSError as exc:
+        log.error("Fehler beim Abgleich lokaler Fotos in %s: %s", local_dir, exc)
+        stats["errors"] += 1
 
 
 def _backup_photo_library(
@@ -1253,8 +1262,16 @@ def _backup_photo_library(
             log.info("Photo-Cache aktualisiert für %s: %d Einträge (+%d neu)",
                      label, len(photo_cache), new_entries)
 
-    if processed > 0 and sync_policy != SyncPolicy.KEEP:
+    # Never reconcile after a broken iteration: remote_files would be
+    # incomplete and photos that still exist in iCloud would be
+    # deleted/archived locally.
+    if processed > 0 and not had_errors and sync_policy != SyncPolicy.KEEP:
         _reconcile_photos(dest_dir, remote_files, sync_policy, archive_base, stats, dry_run)
+    elif had_errors and sync_policy != SyncPolicy.KEEP:
+        log.warning(
+            "%s: Abgleich übersprungen, da die Foto-Liste unvollständig ist "
+            "(Fehler beim Iterieren).", label,
+        )
 
     return processed, remote_files
 
@@ -2273,7 +2290,35 @@ def run_notes_backup(
 # Combined backup runner
 # ---------------------------------------------------------------------------
 
-def run_backup(
+_ACTIVE_BACKUPS_LOCK = threading.Lock()
+_ACTIVE_BACKUPS: set[str] = set()
+
+
+def run_backup(apple_id: str, **kwargs) -> dict:
+    """Run a complete backup for one account, guarding against concurrent runs.
+
+    Two backups writing the same directory tree race each other – the photo
+    reconciliation removes empty date folders while the other run is still
+    scanning them – so a second start for the same account is rejected.
+    """
+    with _ACTIVE_BACKUPS_LOCK:
+        if apple_id in _ACTIVE_BACKUPS:
+            log.warning("Backup für %s läuft bereits – zweiter Start übersprungen.", apple_id)
+            return {
+                "drive_stats": None, "photos_stats": None, "contacts_stats": None,
+                "calendar_stats": None, "notes_stats": None, "reminders_stats": None,
+                "success": False, "message": "Backup läuft bereits.",
+                "skipped_already_running": True,
+            }
+        _ACTIVE_BACKUPS.add(apple_id)
+    try:
+        return _run_backup_impl(apple_id, **kwargs)
+    finally:
+        with _ACTIVE_BACKUPS_LOCK:
+            _ACTIVE_BACKUPS.discard(apple_id)
+
+
+def _run_backup_impl(
     apple_id: str,
     backup_drive: bool = False,
     backup_photos: bool = False,

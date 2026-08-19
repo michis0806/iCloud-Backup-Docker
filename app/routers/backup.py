@@ -52,6 +52,11 @@ async def trigger_backup(apple_id: str):
     if cfg is None or (not cfg.get("backup_drive") and not cfg.get("backup_photos") and not cfg.get("backup_contacts") and not cfg.get("backup_calendar") and not cfg.get("backup_notes") and not cfg.get("backup_reminders")):
         raise HTTPException(status_code=400, detail="Keine Backup-Konfiguration vorhanden.")
 
+    # Reject a second start while a backup for this account is running –
+    # concurrent runs race on the same directory tree.
+    if backup_service.get_progress(apple_id) is not None:
+        raise HTTPException(status_code=409, detail="Backup läuft bereits.")
+
     # Mark as running
     start_time = datetime.now(timezone.utc)
     config_store.update_backup_status(
@@ -89,6 +94,9 @@ async def trigger_backup(apple_id: str):
                 drive_sync_policy=cfg.get("drive_sync_policy", "delete"),
                 photos_sync_policy=cfg.get("photos_sync_policy", "keep"),
             )
+            if result.get("skipped_already_running"):
+                log.info("Backup für %s übersprungen – läuft bereits.", apple_id)
+                return
             status = "success" if result["success"] else "error"
             message = result["message"]
             # Scan local backup dirs for file counts and sizes
@@ -184,6 +192,9 @@ async def trigger_all_backups():
                     drive_sync_policy=cfg.get("drive_sync_policy", "delete"),
                     photos_sync_policy=cfg.get("photos_sync_policy", "keep"),
                 )
+                if result.get("skipped_already_running"):
+                    log.info("Backup für %s übersprungen – läuft bereits.", apple_id)
+                    return
                 status = "success" if result["success"] else "error"
                 message = result["message"]
                 dest = cfg.get("destination", "") or apple_id.replace("@", "_at_").replace(".", "_")
