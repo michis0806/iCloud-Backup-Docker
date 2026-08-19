@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.1] 2026-08-19
+
+### Fixed
+- **2FA codes were rejected during re-authentication with a stored
+  password** – every entry point (account detail page load, "Verbindung
+  prüfen", the dashboard bulk check, the scheduler's pre-backup check)
+  started its own fresh Apple login once a password was stored. Apple
+  invalidates the previously sent verification code on each new login,
+  so users received unsolicited pushes/SMS and every code they entered
+  was already void. A session that is waiting for a 2FA code is now
+  detected and reused across all entry points: `check_connection()` and
+  the stored-password login no longer replace it, and the reconnect
+  endpoint re-triggers the device push on the pending session instead
+  of logging in again (falling back to a fresh login only when the
+  pending session went stale).
+
 ## [0.11.0] 2026-08-19
 
 ### Added

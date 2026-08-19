@@ -477,6 +477,25 @@ def submit_2sa_code(apple_id: str, device_index: int, code: str) -> dict:
     }
 
 
+def get_pending_2fa_session(apple_id: str) -> PyiCloudService | None:
+    """Return the cached session that is waiting for a 2FA code, if any.
+
+    While such a session exists, no new full login must be started for the
+    account: every fresh SRP login makes Apple invalidate the previously
+    sent verification code, so a competing login would break the code the
+    user is about to enter.
+    """
+    api = _sessions.get(apple_id)
+    if api is None:
+        return None
+    try:
+        if api.requires_2fa or api.requires_2sa:
+            return api
+    except Exception:
+        return None
+    return None
+
+
 def _stored_password_login(apple_id: str) -> PyiCloudService | None:
     """Attempt a fresh full login using the stored (opt-in) account password.
 
@@ -484,6 +503,10 @@ def _stored_password_login(apple_id: str) -> PyiCloudService | None:
     which case it is also cached so a device push can be triggered on it –
     or None when no password is stored or the login failed.
     """
+    pending = get_pending_2fa_session(apple_id)
+    if pending is not None:
+        return pending
+
     password = config_store.get_account_password(apple_id)
     if not password:
         return None
@@ -717,6 +740,15 @@ def check_connection(apple_id: str) -> dict:
         - message: human-readable status
         - requires_2fa: bool – whether re-authentication with 2FA is needed
     """
+    # A pending 2FA session must not be replaced by a fresh login – that
+    # would invalidate the verification code the user is about to enter.
+    if get_pending_2fa_session(apple_id) is not None:
+        return {
+            "valid": False,
+            "message": "Zwei-Faktor-Authentifizierung ausstehend – bitte Code eingeben.",
+            "requires_2fa": True,
+        }
+
     # Drop cached session to force a fresh reconnect from saved tokens
     _sessions.pop(apple_id, None)
 

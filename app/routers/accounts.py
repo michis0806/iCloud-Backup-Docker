@@ -169,8 +169,19 @@ async def reconnect_account(apple_id: str, body: ReconnectRequest | None = None)
     password = body.password if body else None
     entered_password = password
     if not password:
-        # No password supplied – use the stored (opt-in) one so the reauth
-        # runs without prompting, exactly like the passwordless token path.
+        # A pending 2FA session means a code is already underway – reuse it
+        # and just re-trigger the push. Starting a competing login would
+        # invalidate the code the user is about to enter.
+        pending = icloud_service.get_pending_2fa_session(apple_id)
+        if pending is not None and icloud_service._request_device_push(pending):
+            updated = config_store.update_account_status(
+                apple_id,
+                status="requires_2fa",
+                status_message="Zwei-Faktor-Code wurde erneut an Ihre Geräte gesendet.",
+            )
+            return dict(updated)
+        # No pending session (or it went stale and the push failed):
+        # fall back to the stored (opt-in) password for a fresh login.
         password = config_store.get_account_password(apple_id)
 
     auth_result = icloud_service.authenticate(apple_id, password=password)
