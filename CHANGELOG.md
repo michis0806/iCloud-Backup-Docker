@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Constrain the pyicloud dependency to `>=2.6.5,<3.0`. The app relies on
+  pyicloud internals (`_get_auth_headers`, `_auth_data`, `session_data`,
+  attachment caches), so a future pyicloud 3.0 must not slip into image
+  builds untested.
+
 ## [0.11.0] 2026-08-19
 
 ### Added
