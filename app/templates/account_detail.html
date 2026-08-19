@@ -335,6 +335,19 @@
                                 Kein Token-Refresh-Zeitpunkt bekannt.
                             </div>
                         </template>
+                        <template x-if="account.password_saved">
+                            <div class="small mb-3 d-flex align-items-center justify-content-between">
+                                <span>
+                                    <i class="bi bi-lock-fill me-1 text-success"></i>
+                                    Passwort verschlüsselt gespeichert
+                                </span>
+                                <button type="button" class="btn btn-link btn-sm p-0 text-danger"
+                                        @click="deleteStoredPassword()"
+                                        title="Gespeichertes Passwort entfernen">
+                                    entfernen
+                                </button>
+                            </div>
+                        </template>
                         <button type="button" class="btn btn-outline-secondary btn-sm w-100"
                                 @click="checkConnection()"
                                 :disabled="checkingConnection">
@@ -363,8 +376,15 @@
                                                placeholder="Passwort eingeben">
                                         <div class="form-text small">
                                             Apple verlangt für die erneute Anmeldung das Passwort.
-                                            Es wird nur zur Anmeldung verwendet, nicht gespeichert.
                                         </div>
+                                    </div>
+                                    <div class="mb-2 form-check">
+                                        <input type="checkbox" class="form-check-input" id="reauthRemember"
+                                               x-model="reauthRemember">
+                                        <label class="form-check-label small" for="reauthRemember">
+                                            Passwort verschlüsselt speichern, damit künftige
+                                            Re-Authentifizierungen ohne Passworteingabe laufen
+                                        </label>
                                     </div>
                                     <div class="d-flex gap-2">
                                         <button type="button" class="btn btn-warning btn-sm flex-grow-1"
@@ -817,6 +837,7 @@ function accountConfig(appleId) {
         connectionResult: null,
         showReauthForm: false,
         reauthPassword: '',
+        reauthRemember: false,
         reauthLoading: false,
         reauthError: '',
         tfaCode: '',
@@ -1138,7 +1159,9 @@ function accountConfig(appleId) {
             this.reauthLoading = true;
             this.reauthError = '';
             try {
-                const body = withoutPassword ? {} : { password: this.reauthPassword };
+                const body = withoutPassword
+                    ? {}
+                    : { password: this.reauthPassword, remember_password: this.reauthRemember };
                 const res = await fetch(`/api/accounts/${this.encodedId()}/reconnect`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -1164,6 +1187,7 @@ function accountConfig(appleId) {
                 } else if (data.status === 'authenticated') {
                     this.showReauthForm = false;
                     this.reauthPassword = '';
+                    this.reauthRemember = false;
                     this.connectionResult = null;
                     this.successMsg = 'Erfolgreich neu autorisiert.';
                 }
@@ -1173,6 +1197,17 @@ function accountConfig(appleId) {
                 this.showReauthForm = true;
             }
             this.reauthLoading = false;
+        },
+
+        async deleteStoredPassword() {
+            try {
+                const res = await fetch(`/api/accounts/${this.encodedId()}/password`, { method: 'DELETE' });
+                const data = await res.json();
+                this.successMsg = data.message || 'Gespeichertes Passwort entfernt.';
+                await this.loadAccount();
+            } catch (e) {
+                this.errorMsg = 'Netzwerkfehler: ' + e.message;
+            }
         },
 
         async triggerDevicePush() {

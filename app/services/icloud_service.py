@@ -8,6 +8,7 @@ from pathlib import Path
 from pyicloud import PyiCloudService
 from pyicloud.exceptions import PyiCloudFailedLoginException
 
+from app import config_store
 from app.config import settings
 
 log = logging.getLogger("icloud-backup")
@@ -476,6 +477,41 @@ def submit_2sa_code(apple_id: str, device_index: int, code: str) -> dict:
     }
 
 
+def _stored_password_login(apple_id: str) -> PyiCloudService | None:
+    """Attempt a fresh full login using the stored (opt-in) account password.
+
+    Returns the resulting session – possibly in ``requires_2fa`` state, in
+    which case it is also cached so a device push can be triggered on it –
+    or None when no password is stored or the login failed.
+    """
+    password = config_store.get_account_password(apple_id)
+    if not password:
+        return None
+
+    try:
+        api = PyiCloudService(
+            apple_id=apple_id,
+            password=password,
+            cookie_directory=_cookie_dir_for(apple_id),
+            verify=True,
+        )
+    except Exception as exc:
+        log.warning(
+            "Automatische Neuanmeldung mit gespeichertem Passwort für %s fehlgeschlagen: %s",
+            apple_id,
+            exc,
+        )
+        return None
+
+    log.info(
+        "Automatische Neuanmeldung mit gespeichertem Passwort für %s (requires_2fa=%s)",
+        apple_id,
+        api.requires_2fa or api.requires_2sa,
+    )
+    _sessions[apple_id] = api
+    return api
+
+
 def get_session(apple_id: str) -> PyiCloudService | None:
     """Return an active PyiCloudService session, attempting reconnection if needed."""
     api = _sessions.get(apple_id)
@@ -495,6 +531,12 @@ def get_session(apple_id: str) -> PyiCloudService | None:
             return api
     except Exception:
         pass
+
+    # Token reuse failed – if a password is stored, a fresh login may still
+    # succeed without 2FA while the trust cookie is valid.
+    api = _stored_password_login(apple_id)
+    if api is not None and not api.requires_2fa and not api.requires_2sa:
+        return api
 
     return None
 
@@ -686,17 +728,21 @@ def check_connection(apple_id: str) -> dict:
             verify=True,
         )
     except PyiCloudFailedLoginException as exc:
-        msg = str(exc)
-        if "No password" in msg or "password" in msg.lower():
-            msg = "Session abgelaufen – bitte erneut anmelden."
-        else:
-            msg = f"Login fehlgeschlagen: {exc}"
-        return {
-            "valid": False,
-            "message": msg,
-            "requires_2fa": False,
-            "requires_password": True,
-        }
+        # Saved token is dead – with a stored password, a fresh full login
+        # can renew the session without asking the user for anything.
+        api = _stored_password_login(apple_id)
+        if api is None:
+            msg = str(exc)
+            if "No password" in msg or "password" in msg.lower():
+                msg = "Session abgelaufen – bitte erneut anmelden."
+            else:
+                msg = f"Login fehlgeschlagen: {exc}"
+            return {
+                "valid": False,
+                "message": msg,
+                "requires_2fa": False,
+                "requires_password": True,
+            }
     except Exception as exc:
         return {
             "valid": False,

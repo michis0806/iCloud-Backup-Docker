@@ -70,6 +70,7 @@ Zusätzlich wird die Version in der Web-UI im Footer angezeigt.
 |----------|---------|-------------|
 | `AUTH_PASSWORD` | *(random, logged)* | Password for the web UI. If not set, a random password is generated and printed to the log on startup. |
 | `SECRET_KEY` | *(uses AUTH_PASSWORD)* | Secret for session cookie signing. Falls back to `AUTH_PASSWORD` if not set. |
+| `ICLOUD_SECRET_KEY` | *(uses SECRET_KEY / AUTH_PASSWORD)* | Key for encrypting stored iCloud passwords (opt-in "remember password" feature, Fernet). Falls back to `SECRET_KEY`, then `AUTH_PASSWORD`. If none of these is explicitly set, passwords cannot be stored. Changing the key invalidates already stored passwords. |
 | `WEB_PORT` | `8080` | Web UI port |
 | `BACKUP_PATH` | `./backups` | Host path for backup files |
 | `ARCHIVE_PATH` | `./archive` | Host path for archived files (used when sync policy is set to "archive") |

@@ -5,10 +5,12 @@ from app.models import AccountStatus, BackupStatus, DriveConfigMode, SyncPolicy
 class AccountCreate(BaseModel):
     apple_id: str
     password: str
+    remember_password: bool = False
 
 
 class ReconnectRequest(BaseModel):
     password: str | None = None
+    remember_password: bool = False
 
 
 class AccountResponse(BaseModel):
@@ -16,6 +18,7 @@ class AccountResponse(BaseModel):
     status: AccountStatus
     status_message: str | None = None
     last_token_refresh_at: str | None = None
+    password_saved: bool = False
 
 
 class TwoFactorSubmit(BaseModel):

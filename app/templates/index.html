@@ -271,8 +271,22 @@
                             <div class="form-text">
                                 Bitte das <strong>reguläre Apple-ID-Passwort</strong> verwenden.
                                 App-spezifische Passwörter funktionieren nicht, da der Login über
-                                die Zwei-Faktor-Authentifizierung läuft. Das Passwort wird nur zur
-                                Erstanmeldung verwendet und <strong>nicht gespeichert</strong>.
+                                die Zwei-Faktor-Authentifizierung läuft.
+                            </div>
+                        </div>
+                        <div class="mb-3 form-check">
+                            <input type="checkbox" class="form-check-input" id="newRememberPassword"
+                                   x-model="newRememberPassword">
+                            <label class="form-check-label" for="newRememberPassword">
+                                Passwort für automatische Re-Authentifizierung speichern
+                            </label>
+                            <div class="form-text">
+                                Wenn aktiviert, wird das Passwort <strong>verschlüsselt</strong>
+                                (Fernet, Schlüssel aus <code>ICLOUD_SECRET_KEY</code>) in der
+                                Konfiguration abgelegt. Läuft die Apple-Session ab, meldet sich
+                                das Tool automatisch neu an – Sie müssen nur noch den 2FA-Code
+                                bestätigen. Ohne Häkchen wird das Passwort nur zur Erstanmeldung
+                                verwendet und <strong>nicht gespeichert</strong>.
                             </div>
                         </div>
                         <button type="submit" class="btn btn-primary w-100" :disabled="addLoading">
@@ -424,6 +438,7 @@ function dashboard() {
         // Add account
         newAppleId: '',
         newPassword: '',
+        newRememberPassword: false,
         addLoading: false,
         addError: '',
 
@@ -625,6 +640,7 @@ function dashboard() {
                     body: JSON.stringify({
                         apple_id: this.newAppleId,
                         password: this.newPassword,
+                        remember_password: this.newRememberPassword,
                     }),
                 });
                 if (!res.ok) {
@@ -642,6 +658,7 @@ function dashboard() {
                 const newAppleId = this.newAppleId;
                 this.newAppleId = '';
                 this.newPassword = '';
+                this.newRememberPassword = false;
                 bootstrap.Modal.getInstance(this.$refs.addModal).hide();
                 await this.loadAccounts();
                 if (account.status === 'requires_2fa') {

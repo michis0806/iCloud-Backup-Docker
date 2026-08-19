@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] 2026-08-19
+
+### Added
+- **Opt-in stored account password for automatic re-authentication** –
+  Apple's session tokens expire regularly, and re-authenticating always
+  required typing the account password before the 2FA push could be
+  triggered. The add-account dialog and the re-auth form now offer a
+  "Passwort speichern" checkbox. When enabled, the password is stored
+  Fernet-encrypted in `/config/config.yaml` (key derived from the new
+  `ICLOUD_SECRET_KEY` environment variable, falling back to `SECRET_KEY`
+  or `AUTH_PASSWORD`). On an expired session the app then performs the
+  fresh password login itself and immediately triggers the device push –
+  only the 6-digit 2FA code needs to be confirmed, matching the flow of
+  a login where the token is still valid.
+- Stored passwords are also used by the scheduler path: `get_session()`
+  and `check_connection()` retry with a fresh password login when token
+  reuse fails, so scheduled backups survive an expired session token as
+  long as the trust cookie is still valid (no 2FA round-trip needed).
+- New endpoint `DELETE /api/accounts/{apple_id}/password` and a
+  matching "entfernen" action in the account detail page to delete a
+  stored password. The account API now reports `password_saved`.
+- New dependency: `cryptography` (Fernet encryption).
+
+### Changed
+- The default behaviour is unchanged: without the opt-in checkbox the
+  password is still used only for the initial login and never stored.
+- Passwords are only persisted after Apple accepted them (successful
+  login or reaching the 2FA stage), never on failed logins.
+
 ## [0.10.7] 2026-07-23
 
 - Bump pyicloud dependency to version 2.6.5

@@ -13,6 +13,7 @@ from pathlib import Path
 
 import yaml
 
+from app import crypto
 from app.config import settings
 
 log = logging.getLogger("icloud-backup")
@@ -134,6 +135,7 @@ def list_accounts() -> list[dict]:
             "status": acc.get("status", "pending"),
             "status_message": acc.get("status_message"),
             "last_token_refresh_at": acc.get("last_token_refresh_at"),
+            "password_saved": bool(acc.get("password_encrypted")),
         }
         for acc in data["accounts"]
     ]
@@ -150,6 +152,7 @@ def get_account(apple_id: str) -> dict | None:
         "status": acc.get("status", "pending"),
         "status_message": acc.get("status_message"),
         "last_token_refresh_at": acc.get("last_token_refresh_at"),
+        "password_saved": bool(acc.get("password_encrypted")),
     }
 
 
@@ -212,6 +215,61 @@ def delete_account(apple_id: str) -> bool:
         if len(data["accounts"]) == before:
             return False
         _write(data)
+    return True
+
+
+# ---------------------------------------------------------------------------
+# Public API – stored account passwords (encrypted, opt-in)
+# ---------------------------------------------------------------------------
+
+def set_account_password(apple_id: str, password: str) -> bool:
+    """Store *password* Fernet-encrypted on the account.
+
+    Returns False when no encryption key is configured (ICLOUD_SECRET_KEY /
+    SECRET_KEY / AUTH_PASSWORD all unset) or the account does not exist.
+    """
+    token = crypto.encrypt(password)
+    if token is None:
+        log.warning(
+            "Passwort für %s kann nicht gespeichert werden: kein stabiler "
+            "Schlüssel konfiguriert (ICLOUD_SECRET_KEY setzen).",
+            apple_id,
+        )
+        return False
+    with _lock:
+        data = _read()
+        acc = _find_account(data, apple_id)
+        if acc is None:
+            return False
+        acc["password_encrypted"] = token
+        _write(data)
+    log.info("Passwort für %s verschlüsselt gespeichert.", apple_id)
+    return True
+
+
+def get_account_password(apple_id: str) -> str | None:
+    """Return the stored password for *apple_id*, or None if unavailable."""
+    with _lock:
+        data = _read()
+        acc = _find_account(data, apple_id)
+    if acc is None:
+        return None
+    token = acc.get("password_encrypted")
+    if not token:
+        return None
+    return crypto.decrypt(token)
+
+
+def clear_account_password(apple_id: str) -> bool:
+    """Remove the stored password. Returns True if one was removed."""
+    with _lock:
+        data = _read()
+        acc = _find_account(data, apple_id)
+        if acc is None or not acc.get("password_encrypted"):
+            return False
+        acc.pop("password_encrypted", None)
+        _write(data)
+    log.info("Gespeichertes Passwort für %s entfernt.", apple_id)
     return True
 
 

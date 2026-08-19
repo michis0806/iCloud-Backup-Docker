@@ -140,6 +140,7 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8080
 |----------|---------|-------------|
 | `AUTH_PASSWORD` | *(random)* | Web UI password |
 | `SECRET_KEY` | *(uses AUTH_PASSWORD)* | Session cookie HMAC signing; falls back to `AUTH_PASSWORD` if not set |
+| `ICLOUD_SECRET_KEY` | *(uses SECRET_KEY / AUTH_PASSWORD)* | Fernet key source for opt-in stored iCloud passwords (`app/crypto.py`); without any explicitly set key the feature is disabled |
 | `BACKUP_PATH` | `./backups` | Host path for backup files |
 | `CONFIG_PATH` | `./config` | Host path for configuration & sessions |
 | `ARCHIVE_PATH` | `./archive` | Host path for archived files (sync policy = "archive") |

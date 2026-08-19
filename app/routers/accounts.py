@@ -43,7 +43,8 @@ async def add_account(data: AccountCreate):
     if config_store.get_account(data.apple_id) is not None:
         raise HTTPException(status_code=400, detail="Account existiert bereits.")
 
-    # Attempt authentication (password is only used here, not stored)
+    # Attempt authentication (password is only persisted when the user
+    # opted in via remember_password – encrypted, see app/crypto.py)
     auth_result = icloud_service.authenticate(data.apple_id, data.password)
 
     status = auth_result["status"]
@@ -65,6 +66,16 @@ async def add_account(data: AccountCreate):
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+    # Only store the password once Apple accepted it (login or 2FA stage).
+    if data.remember_password and status in ("authenticated", "requires_2fa"):
+        if config_store.set_account_password(data.apple_id, data.password):
+            account["password_saved"] = True
+        else:
+            account["status_message"] = (
+                f"{message} Hinweis: Passwort wurde nicht gespeichert – "
+                "ICLOUD_SECRET_KEY ist nicht konfiguriert."
+            )
 
     return account
 
@@ -104,6 +115,10 @@ async def request_2fa_push(apple_id: str, body: ReconnectRequest | None = None):
         raise HTTPException(status_code=404, detail="Account nicht gefunden.")
 
     password = body.password if body else None
+    if not password:
+        # Fall back to the stored (opt-in) password so the push works
+        # without re-entering credentials.
+        password = config_store.get_account_password(apple_id)
     result = icloud_service.request_2fa_push(apple_id, password=password)
 
     # Update account status if auth state changed
@@ -152,6 +167,11 @@ async def reconnect_account(apple_id: str, body: ReconnectRequest | None = None)
         raise HTTPException(status_code=404, detail="Account nicht gefunden.")
 
     password = body.password if body else None
+    entered_password = password
+    if not password:
+        # No password supplied – use the stored (opt-in) one so the reauth
+        # runs without prompting, exactly like the passwordless token path.
+        password = config_store.get_account_password(apple_id)
 
     auth_result = icloud_service.authenticate(apple_id, password=password)
 
@@ -160,6 +180,15 @@ async def reconnect_account(apple_id: str, body: ReconnectRequest | None = None)
         api = icloud_service._sessions.get(apple_id)
         if api:
             icloud_service._request_device_push(api)
+
+    # Persist a manually entered password once Apple accepted it.
+    if (
+        entered_password
+        and body is not None
+        and body.remember_password
+        and auth_result["status"] in ("authenticated", "requires_2fa")
+    ):
+        config_store.set_account_password(apple_id, entered_password)
 
     updated = config_store.update_account_status(
         apple_id,
@@ -240,6 +269,15 @@ async def get_icloud_storage(apple_id: str, refresh: bool = False):
     if data is None:
         raise HTTPException(status_code=503, detail="Speicherinfo nicht verfügbar.")
     return data
+
+
+@router.delete("/{apple_id}/password")
+async def delete_stored_password(apple_id: str):
+    """Remove the stored (encrypted) account password."""
+    if config_store.get_account(apple_id) is None:
+        raise HTTPException(status_code=404, detail="Account nicht gefunden.")
+    removed = config_store.clear_account_password(apple_id)
+    return {"removed": removed, "message": "Gespeichertes Passwort entfernt." if removed else "Kein Passwort gespeichert."}
 
 
 @router.delete("/{apple_id}")

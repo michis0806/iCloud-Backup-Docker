@@ -10,6 +10,7 @@ _SECRET_KEY_DEFAULT = "change-me-in-production"
 class Settings(BaseSettings):
     secret_key: str = _SECRET_KEY_DEFAULT
     auth_password: str = ""
+    icloud_secret_key: str = ""
     config_path: Path = Path("/config")
     backup_path: Path = Path("/backups")
     archive_path: Path = Path("/archive")
@@ -42,6 +43,20 @@ class Settings(BaseSettings):
         if self.secret_key != _SECRET_KEY_DEFAULT:
             return self.secret_key
         return self.get_auth_password()
+
+    def get_icloud_secret_key(self) -> str:
+        """Return the key used to encrypt stored iCloud passwords.
+
+        Priority: ICLOUD_SECRET_KEY > SECRET_KEY > AUTH_PASSWORD. Only
+        explicitly configured values qualify – the randomly generated
+        per-start password would break decryption after a restart, so an
+        empty string (feature disabled) is returned instead.
+        """
+        if self.icloud_secret_key:
+            return self.icloud_secret_key
+        if self.secret_key != _SECRET_KEY_DEFAULT:
+            return self.secret_key
+        return self.auth_password
 
 
 settings = Settings()
