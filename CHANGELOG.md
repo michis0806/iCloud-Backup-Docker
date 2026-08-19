@@ -7,12 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-- Constrain the pyicloud dependency to `>=2.6.5,<3.0`. The app relies on
-  pyicloud internals (`_get_auth_headers`, `_auth_data`, `session_data`,
-  attachment caches), so a future pyicloud 3.0 must not slip into image
-  builds untested.
-
 ## [0.11.0] 2026-08-19
 
 ### Added
@@ -41,6 +35,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   password is still used only for the initial login and never stored.
 - Passwords are only persisted after Apple accepted them (successful
   login or reaching the 2FA stage), never on failed logins.
+- Constrain the pyicloud dependency to `>=2.6.5,<3.0`. The app relies on
+  pyicloud internals (`_get_auth_headers`, `_auth_data`, `session_data`,
+  attachment caches), so a future pyicloud 3.0 must not slip into image
+  builds untested.
 
 ## [0.10.7] 2026-07-23
 
