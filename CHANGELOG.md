@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Container startete nicht mehr (`ModuleNotFoundError: No module named 'rich'`)** –
+  pyicloud 2.7.0 importiert beim Laden von `pyicloud.services.notes` das Paket
+  `rich`, deklariert es aber nicht als Dependency. Da der Import bereits in
+  `app/main.py` ausgelöst wird, brach uvicorn beim Start ab und der Container
+  lief in eine Restart-Schleife. `rich` ist jetzt explizit in
+  `requirements.txt` aufgeführt.
+
 ## [0.11.3] 2026-09-05
 
 - Bump pyicloud dependency to version 2.7.0
