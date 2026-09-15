@@ -15,6 +15,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   lief in eine Restart-Schleife. `rich` ist jetzt explizit in
   `requirements.txt` aufgeführt.
 
+### Changed
+- **CI: Image wird vor dem Push gegen `/health` smoke-getestet** – der
+  Release-Workflow hat das Image bisher ungetestet nach `:latest`
+  gepusht, sodass ein Container, der gar nicht startet, unbemerkt an
+  alle Nutzer ausgerollt wurde. `docker-publish.yml` baut jetzt zuerst
+  ein lokales amd64-Image, startet es und wartet auf eine Antwort von
+  `/health`; schlägt das fehl, bricht der Workflow mit den
+  Container-Logs ab, bevor irgendetwas gepusht wird.
+
 ## [0.11.3] 2026-09-05
 
 - Bump pyicloud dependency to version 2.7.0

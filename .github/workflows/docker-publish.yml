@@ -45,6 +45,48 @@ jobs:
         id: builddate
         run: echo "value=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
+      - name: Build test image (amd64, local)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: ${{ env.IMAGE_NAME }}:smoke-test
+          build-args: |
+            APP_VERSION=${{ steps.meta.outputs.version }}
+            APP_COMMIT=${{ github.sha }}
+            APP_BUILD_DATE=${{ steps.builddate.outputs.value }}
+          cache-from: type=gha
+
+      - name: Smoke test
+        run: |
+          set -uo pipefail
+          cleanup() { docker rm -f smoke-test >/dev/null 2>&1 || true; }
+          trap cleanup EXIT
+
+          docker run -d --name smoke-test -p 8080:8080 \
+            "${IMAGE_NAME}:smoke-test"
+
+          for _ in $(seq 1 30); do
+            if curl -fs --max-time 5 http://localhost:8080/health -o health.json; then
+              echo "Health endpoint responded:"
+              cat health.json
+              echo
+              exit 0
+            fi
+            if [ -z "$(docker ps -q -f name=smoke-test)" ]; then
+              echo "::error::Container exited during startup"
+              docker logs smoke-test
+              exit 1
+            fi
+            sleep 2
+          done
+
+          echo "::error::/health did not respond within 60s"
+          docker logs smoke-test
+          exit 1
+
       - name: Build and push Docker image
         uses: docker/build-push-action@v7
         with:
