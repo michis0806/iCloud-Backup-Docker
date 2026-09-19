@@ -675,31 +675,32 @@
         <div class="modal-dialog">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title">Zwei-Faktor-Code</h5>
+                    <h5 class="modal-title">Apple-Anmeldung bestaetigen</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
                     <div class="alert alert-danger" x-show="tfaError" x-text="tfaError"></div>
                     <div class="alert alert-success" x-show="tfaSmsSuccess" x-text="tfaSmsSuccess"></div>
 
-                    <!-- Tab navigation: Device / SMS -->
+                    <p class="text-muted small">Wie moechten Sie den Code erhalten? Erst die Auswahl fordert einen Code an.</p>
+                    <!-- Explicit channel selection -->
                     <ul class="nav nav-pills nav-fill mb-3">
                         <li class="nav-item">
-                            <a class="nav-link" :class="{ active: tfaMode === 'device' }"
-                               href="#" @click.prevent="tfaMode = 'device'">
-                                <i class="bi bi-phone me-1"></i> Geräte-Code
-                            </a>
+                            <button type="button" class="nav-link w-100" :class="{ active: tfaMode === 'device' }"
+                               :disabled="resendingCode || tfaSmsLoading || tfaLoading" @click="triggerDevicePush()">
+                                <i class="bi bi-phone me-1"></i> Apple Push anfordern
+                            </button>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link" :class="{ active: tfaMode === 'sms' }"
-                               href="#" @click.prevent="switchToSms()">
+                            <button type="button" class="nav-link w-100" :class="{ active: tfaMode === 'sms' }"
+                               :disabled="resendingCode || tfaSmsLoading || tfaLoading" @click="switchToSms()">
                                 <i class="bi bi-chat-dots me-1"></i> SMS-Code
-                            </a>
+                            </button>
                         </li>
                     </ul>
 
                     <!-- Device code tab -->
-                    <div x-show="tfaMode === 'device'">
+                    <div x-show="tfaMode === 'device' && tfaPushSent">
                         <div class="d-flex align-items-start gap-2 mb-3 p-2 rounded border border-info bg-info bg-opacity-10">
                             <i class="bi bi-info-circle text-info mt-1"></i>
                             <div class="small">
@@ -718,15 +719,6 @@
                                 Bestätigen
                             </button>
                         </form>
-                        <div class="text-center mt-3">
-                            <button type="button" class="btn btn-link btn-sm text-muted"
-                                    @click="triggerDevicePush()"
-                                    :disabled="resendingCode">
-                                <span x-show="resendingCode" class="spinner-border spinner-border-sm me-1"></span>
-                                <i class="bi bi-arrow-clockwise me-1" x-show="!resendingCode"></i>
-                                Keine Benachrichtigung erhalten? Erneut senden
-                            </button>
-                        </div>
                     </div>
 
                     <!-- SMS tab -->
@@ -843,7 +835,8 @@ function accountConfig(appleId) {
         tfaCode: '',
         tfaLoading: false,
         tfaError: '',
-        tfaMode: 'device',
+        tfaMode: 'choose',
+        tfaPushSent: false,
         tfaDevices: [],
         tfaDevicesLoading: false,
         tfaSmsLoading: false,
@@ -1141,8 +1134,7 @@ function accountConfig(appleId) {
                 this.connectionResult = await res.json();
                 await this.loadAccount();
                 if (this.connectionResult.requires_2fa) {
-                    // Session liegt im Backend bereit – direkt den MFA-Flow
-                    // ohne Passwort starten (löst den Geräte-Push aus).
+                    // Session liegt bereit; Auswahl ohne erneuten Codeversand.
                     await this.submitReauth(true);
                 } else if (this.connectionResult.requires_password) {
                     this.showReauthForm = true;
@@ -1172,7 +1164,8 @@ function accountConfig(appleId) {
                     this.showReauthForm = false;
                     this.tfaCode = '';
                     this.tfaError = '';
-                    this.tfaMode = 'device';
+                    this.tfaMode = 'choose';
+                    this.tfaPushSent = false;
                     this.tfaDevices = [];
                     this.tfaSmsSent = false;
                     this.tfaSmsDeviceIndex = null;
@@ -1211,8 +1204,10 @@ function accountConfig(appleId) {
         },
 
         async triggerDevicePush() {
+            if (this.resendingCode || this.tfaSmsLoading || this.tfaLoading) return;
             this.resendingCode = true;
             this.tfaError = '';
+            this.tfaSmsSuccess = '';
             try {
                 const res = await fetch(`/api/accounts/${this.encodedId()}/2fa/push`, {
                     method: 'POST',
@@ -1220,9 +1215,16 @@ function accountConfig(appleId) {
                     body: JSON.stringify({ password: this.reauthPassword }),
                 });
                 const data = await res.json();
-                if (data.success) {
+                if (data.status === 'authenticated') {
+                    bootstrap.Modal.getInstance(this.$refs.tfaModal)?.hide();
+                    this.successMsg = 'Erfolgreich neu autorisiert.';
+                    await this.loadAccount();
+                } else if (data.success) {
                     this.tfaCode = '';
                     this.tfaError = '';
+                    this.tfaMode = 'device';
+                    this.tfaPushSent = true;
+                    this.tfaSmsSent = false;
                 } else {
                     this.tfaError = data.message || 'Benachrichtigung fehlgeschlagen. Versuchen Sie SMS.';
                 }
@@ -1233,7 +1235,9 @@ function accountConfig(appleId) {
         },
 
         async switchToSms() {
+            if (this.resendingCode || this.tfaSmsLoading || this.tfaLoading) return;
             this.tfaMode = 'sms';
+            this.tfaCode = '';
             this.tfaError = '';
             this.tfaSmsSuccess = '';
             this.tfaSmsSent = false;
@@ -1256,6 +1260,7 @@ function accountConfig(appleId) {
         },
 
         async sendSmsCode(deviceIndex) {
+            if (this.resendingCode || this.tfaSmsLoading || this.tfaLoading) return;
             this.tfaSmsLoading = true;
             this.tfaError = '';
             this.tfaSmsSuccess = '';
@@ -1267,6 +1272,8 @@ function accountConfig(appleId) {
                 });
                 const data = await res.json();
                 if (data.success) {
+                    this.tfaCode = '';
+                    this.tfaPushSent = false;
                     this.tfaSmsDeviceIndex = deviceIndex;
                     this.tfaSmsSent = true;
                     this.tfaSmsSuccess = data.message || 'SMS-Code gesendet.';

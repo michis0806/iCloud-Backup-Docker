@@ -5,11 +5,11 @@ import logging
 import re
 from pathlib import Path
 
-from pyicloud import PyiCloudService
 from pyicloud.exceptions import PyiCloudFailedLoginException
 
 from app import config_store
 from app.config import settings
+from app.services.apple_auth import InteractiveICloudService as PyiCloudService
 
 log = logging.getLogger("icloud-backup")
 
@@ -31,114 +31,6 @@ def _cookie_dir_for(apple_id: str) -> str:
     path.mkdir(parents=True, exist_ok=True)
     return str(path)
 
-
-def _auth_endpoint_for(api: PyiCloudService) -> str | None:
-    """Return the Apple auth endpoint across pyicloud versions."""
-    return getattr(api, "_auth_endpoint", None) or getattr(api, "AUTH_ENDPOINT", None)
-
-
-def _auth_headers(api: PyiCloudService, overrides: dict | None = None) -> dict:
-    """Build Apple auth headers including session-specific challenge headers."""
-    overrides = overrides or {}
-    try:
-        headers = api._get_auth_headers(overrides)
-    except Exception:
-        headers = dict(overrides)
-
-    session_data = getattr(api, "session_data", {}) or {}
-    if session_data.get("scnt"):
-        headers["scnt"] = session_data["scnt"]
-    if session_data.get("session_id"):
-        headers["X-Apple-ID-Session-Id"] = session_data["session_id"]
-    return headers
-
-
-def _cache_auth_options(api: PyiCloudService, auth_options: dict | None) -> None:
-    """Persist auth options on the API object when supported."""
-    if not isinstance(auth_options, dict):
-        return
-
-    auth_data = getattr(api, "_auth_data", None)
-    if isinstance(auth_data, dict):
-        auth_data.update(auth_options)
-        return
-
-    try:
-        setattr(api, "_auth_data", dict(auth_options))
-    except Exception:
-        pass
-
-
-def _fetch_auth_options(api: PyiCloudService) -> dict | None:
-    """Fetch Apple auth options such as trusted phone numbers for HSA2."""
-    endpoint = _auth_endpoint_for(api)
-    if not endpoint:
-        return None
-
-    try:
-        response = api.session.get(
-            endpoint,
-            headers=_auth_headers(api, {"Accept": "application/json"}),
-        )
-        if not response.ok:
-            log.warning(
-                "Apple-Auth-Optionen konnten nicht geladen werden (%s)",
-                response.status_code,
-            )
-            return None
-        data = response.json()
-        if isinstance(data, dict):
-            _cache_auth_options(api, data)
-            return data
-    except Exception as exc:
-        log.warning("Apple-Auth-Optionen konnten nicht geladen werden: %s", exc)
-
-    return None
-
-
-def _trusted_phone_numbers(api: PyiCloudService) -> list[dict]:
-    """Return trusted HSA2 phone numbers across pyicloud auth-data variants."""
-    phones: list[dict] = []
-    seen: set[str] = set()
-
-    def _collect(source: dict | None) -> None:
-        nonlocal phones, seen
-        if not isinstance(source, dict):
-            return
-
-        candidates = []
-        trusted_single = source.get("trustedPhoneNumber")
-        if isinstance(trusted_single, dict):
-            candidates.append(trusted_single)
-
-        trusted_many = source.get("trustedPhoneNumbers")
-        if isinstance(trusted_many, list):
-            candidates.extend(trusted_many)
-
-        for phone in candidates:
-            if not isinstance(phone, dict):
-                continue
-            identifier = str(
-                phone.get("id")
-                or phone.get("numberWithDialCode")
-                or phone.get("obfuscatedNumber")
-                or phone.get("number")
-                or ""
-            )
-            if not identifier or identifier in seen:
-                continue
-            seen.add(identifier)
-            phones.append(phone)
-
-    _collect(getattr(api, "_auth_data", None))
-    _collect(getattr(api, "data", None))
-
-    if not phones:
-        _collect(_fetch_auth_options(api))
-
-    return phones
-
-
 def _format_trusted_phones(phones: list[dict]) -> list[dict]:
     """Convert trusted phone metadata to the simplified API response shape."""
     result = []
@@ -158,15 +50,6 @@ def _format_trusted_phones(phones: list[dict]) -> list[dict]:
         )
     return result
 
-
-def _is_invalid_verification_code(exc: Exception) -> bool:
-    """Return True when Apple rejected the provided verification code."""
-    if getattr(exc, "code", None) == -21669:
-        return True
-    msg = str(exc).lower()
-    return "verification code" in msg or "security code" in msg
-
-
 def authenticate(apple_id: str, password: str | None = None) -> dict:
     """Authenticate with iCloud and return status information.
 
@@ -174,6 +57,11 @@ def authenticate(apple_id: str, password: str | None = None) -> dict:
         - status: "authenticated" | "requires_2fa" | "error"
         - message: human-readable status message
     """
+    if get_pending_2fa_session(apple_id) is not None:
+        return {
+            "status": "requires_2fa",
+            "message": "Bitte Apple Push oder SMS auswaehlen und den Code bestaetigen.",
+        }
     cookie_dir = _cookie_dir_for(apple_id)
 
     try:
@@ -192,12 +80,13 @@ def authenticate(apple_id: str, password: str | None = None) -> dict:
         return {"status": "error", "message": f"Verbindungsfehler: {exc}"}
 
     _sessions[apple_id] = api
+    _trusted_devices.pop(apple_id, None)
 
     if api.requires_2fa:
         return {
             "status": "requires_2fa",
             "message": "Zwei-Faktor-Authentifizierung erforderlich. "
-            "Bitte geben Sie den Code von Ihrem Apple-Gerät ein.",
+            "Bitte waehlen Sie Apple Push oder SMS.",
         }
 
     if api.requires_2sa:
@@ -205,6 +94,12 @@ def authenticate(apple_id: str, password: str | None = None) -> dict:
             "status": "requires_2fa",
             "message": "Zwei-Stufen-Authentifizierung erforderlich. "
             "Bitte fordern Sie einen Code per SMS an.",
+        }
+
+    if not api.is_trusted_session:
+        return {
+            "status": "requires_2fa",
+            "message": "Apple-Anmeldung noch nicht bestaetigt. Bitte einen Code anfordern.",
         }
 
     return {
@@ -228,12 +123,11 @@ def submit_2fa_code(apple_id: str, code: str) -> dict:
         }
 
     try:
-        if not api.validate_2fa_code(code):
+        if not api.validate_selected_code(code):
             return {
                 "status": "error",
                 "message": "Ungültiger Code. Bitte versuchen Sie es erneut.",
             }
-        api.trust_session()
     except Exception as exc:
         return {"status": "error", "message": f"2FA-Fehler: {exc}"}
 
@@ -252,7 +146,7 @@ def get_trusted_devices(apple_id: str) -> list[dict]:
     # 2FA (HSA2): phone numbers come from auth data, not the old listDevices API
     if api.requires_2fa:
         try:
-            phones = _trusted_phone_numbers(api)
+            phones = api.trusted_phones()
             if not phones:
                 log.warning("Keine vertrauenswürdigen Telefonnummern für %s gefunden.", apple_id)
                 return []
@@ -280,32 +174,12 @@ def get_trusted_devices(apple_id: str) -> list[dict]:
 
 
 def _request_device_push(api: PyiCloudService) -> bool:
-    """Ask Apple to send a 2FA push notification to trusted devices.
-
-    Tries GET first (standard HSA2), then POST as fallback.
-    Returns True if the request was accepted (2xx).
-    """
-    endpoint = _auth_endpoint_for(api)
-    if not endpoint:
-        log.warning("Apple-Auth-Endpoint nicht verfügbar; Push-Benachrichtigung nicht möglich.")
+    """Request only device push, keeping the selected verification route."""
+    try:
+        return api.request_challenge("push")
+    except Exception as exc:
+        log.warning("2FA push fehlgeschlagen: %s", exc)
         return False
-
-    url = f"{endpoint}/verify/trusteddevice"
-    headers = _auth_headers(api, {"Accept": "application/json"})
-
-    for method in (api.session.get, api.session.post):
-        try:
-            resp = method(url, headers=headers)
-            log.info(
-                "2FA push request %s %s → %s",
-                method.__name__.upper(), url, resp.status_code,
-            )
-            if resp.ok:
-                return True
-        except Exception as exc:
-            log.warning("2FA push %s fehlgeschlagen: %s", method.__name__.upper(), exc)
-
-    return False
 
 
 def request_2fa_push(apple_id: str, password: str | None = None) -> dict:
@@ -320,6 +194,8 @@ def request_2fa_push(apple_id: str, password: str | None = None) -> dict:
         - status: auth status after the operation
     """
     api = _sessions.get(apple_id)
+    if api is not None and api.is_trusted_session and not api.requires_2fa and not api.requires_2sa:
+        return {"success": True, "status": "authenticated", "message": "Session bereits bestaetigt."}
 
     # If no session or session doesn't need 2FA, re-authenticate
     if api is None or not api.requires_2fa:
@@ -364,35 +240,10 @@ def send_sms_code(apple_id: str, device_index: int) -> dict:
     if api.requires_2fa:
         phone = devices[device_index]
         phone_id = phone.get("id")
-        if not phone_id:
+        if phone_id is None:
             return {"success": False, "message": "Telefonnummer-ID fehlt."}
-
-        endpoint = _auth_endpoint_for(api)
-        if not endpoint:
-            return {"success": False, "message": "Apple-Auth-Endpoint nicht verfügbar."}
-
-        push_mode = phone.get("pushMode") or phone.get("push_mode") or "sms"
         try:
-            headers = _auth_headers(api, {"Accept": "application/json"})
-            data = {"phoneNumber": {"id": phone_id}, "mode": push_mode}
-            resp = api.session.put(
-                f"{endpoint}/verify/phone",
-                json=data,
-                headers=headers,
-            )
-            if not resp.ok:
-                return {"success": False, "message": f"Apple hat mit Status {resp.status_code} geantwortet."}
-
-            try:
-                resp_json = resp.json()
-            except Exception:
-                resp_json = None
-
-            _cache_auth_options(api, resp_json)
-            auth_data = getattr(api, "_auth_data", None)
-            if isinstance(auth_data, dict):
-                auth_data["mode"] = push_mode
-                auth_data["trustedPhoneNumber"] = phone
+            api.request_challenge("sms", phone_id)
             return {"success": True, "message": "SMS-Code gesendet."}
         except Exception as exc:
             return {"success": False, "message": f"Fehler: {exc}"}
@@ -425,41 +276,11 @@ def submit_2sa_code(apple_id: str, device_index: int, code: str) -> dict:
     if device_index < 0 or device_index >= len(devices):
         return {"status": "error", "message": "Ungültiges Gerät."}
 
-    # 2FA (HSA2): submit the SMS code via Apple's phone verification endpoint.
-    if api.requires_2fa:
-        phone = devices[device_index]
-        phone_id = phone.get("id")
-        if not phone_id:
-            return {"status": "error", "message": "Telefonnummer-ID fehlt."}
-
-        endpoint = _auth_endpoint_for(api)
-        if not endpoint:
-            return {"status": "error", "message": "Apple-Auth-Endpoint nicht verfügbar."}
-
-        push_mode = phone.get("pushMode") or phone.get("push_mode") or "sms"
-        try:
-            api.session.post(
-                f"{endpoint}/verify/phone/securitycode",
-                json={
-                    "phoneNumber": {"id": phone_id},
-                    "securityCode": {"code": code},
-                    "mode": push_mode,
-                },
-                headers=_auth_headers(api, {"Accept": "application/json"}),
-            )
-            api.trust_session()
-        except Exception as exc:
-            if _is_invalid_verification_code(exc):
-                return {
-                    "status": "error",
-                    "message": "Ungültiger Code. Bitte versuchen Sie es erneut.",
-                }
-            return {"status": "error", "message": f"2FA-Fehler: {exc}"}
-
-        return {
-            "status": "authenticated",
-            "message": "Zwei-Faktor-Authentifizierung erfolgreich.",
-        }
+    # Keep the channel selected at send-time, even after trust partially succeeds.
+    if api.challenge_method is not None:
+        if api.challenge_method != "sms" or str(api.challenge_phone["id"]) != str(devices[device_index].get("id")):
+            return {"status": "error", "message": "Bitte den Code des ausgewaehlten Kanals eingeben."}
+        return submit_2fa_code(apple_id, code)
 
     # 2SA (legacy): use traditional validation
     try:
@@ -489,7 +310,11 @@ def get_pending_2fa_session(apple_id: str) -> PyiCloudService | None:
     if api is None:
         return None
     try:
-        if api.requires_2fa or api.requires_2sa:
+        if api.requires_2fa or api.requires_2sa or not api.is_trusted_session:
+            if api.pending_auth_expired:
+                _sessions.pop(apple_id, None)
+                _trusted_devices.pop(apple_id, None)
+                return None
             return api
     except Exception:
         return None
@@ -539,7 +364,7 @@ def get_session(apple_id: str) -> PyiCloudService | None:
     """Return an active PyiCloudService session, attempting reconnection if needed."""
     api = _sessions.get(apple_id)
     if api is not None:
-        return api
+        return api if api.is_trusted_session and not api.requires_2fa and not api.requires_2sa else None
 
     # Try to reconnect using saved session tokens (no password needed)
     cookie_dir = _cookie_dir_for(apple_id)
@@ -549,7 +374,7 @@ def get_session(apple_id: str) -> PyiCloudService | None:
             cookie_directory=cookie_dir,
             verify=True,
         )
-        if not api.requires_2fa and not api.requires_2sa:
+        if api.is_trusted_session and not api.requires_2fa and not api.requires_2sa:
             _sessions[apple_id] = api
             return api
     except Exception:
@@ -558,7 +383,7 @@ def get_session(apple_id: str) -> PyiCloudService | None:
     # Token reuse failed – if a password is stored, a fresh login may still
     # succeed without 2FA while the trust cookie is valid.
     api = _stored_password_login(apple_id)
-    if api is not None and not api.requires_2fa and not api.requires_2sa:
+    if api is not None and api.is_trusted_session and not api.requires_2fa and not api.requires_2sa:
         return api
 
     return None
@@ -782,7 +607,7 @@ def check_connection(apple_id: str) -> dict:
             "requires_2fa": False,
         }
 
-    if api.requires_2fa or api.requires_2sa:
+    if api.requires_2fa or api.requires_2sa or not api.is_trusted_session:
         _sessions[apple_id] = api
         return {
             "valid": False,

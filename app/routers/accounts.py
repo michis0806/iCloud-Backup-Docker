@@ -50,13 +50,6 @@ async def add_account(data: AccountCreate):
     status = auth_result["status"]
     message = auth_result["message"]
 
-    # If 2FA is needed, explicitly ask Apple to push the code to trusted
-    # devices so the user sees the prompt immediately on their phone/Mac.
-    if status == "requires_2fa":
-        api = icloud_service._sessions.get(data.apple_id)
-        if api:
-            icloud_service._request_device_push(api)
-
     try:
         account = config_store.add_account(
             data.apple_id,
@@ -169,28 +162,19 @@ async def reconnect_account(apple_id: str, body: ReconnectRequest | None = None)
     password = body.password if body else None
     entered_password = password
     if not password:
-        # A pending 2FA session means a code is already underway – reuse it
-        # and just re-trigger the push. Starting a competing login would
-        # invalidate the code the user is about to enter.
+        # Reuse the pending challenge without sending another code.
         pending = icloud_service.get_pending_2fa_session(apple_id)
-        if pending is not None and icloud_service._request_device_push(pending):
+        if pending is not None:
             updated = config_store.update_account_status(
                 apple_id,
                 status="requires_2fa",
-                status_message="Zwei-Faktor-Code wurde erneut an Ihre Geräte gesendet.",
+                status_message="Bitte Apple Push oder SMS auswaehlen und den Code bestaetigen.",
             )
             return dict(updated)
-        # No pending session (or it went stale and the push failed):
-        # fall back to the stored (opt-in) password for a fresh login.
+        # Fall back to the stored (opt-in) password for a fresh login.
         password = config_store.get_account_password(apple_id)
 
     auth_result = icloud_service.authenticate(apple_id, password=password)
-
-    # If 2FA is needed, explicitly request Apple to send a push notification
-    if auth_result["status"] == "requires_2fa":
-        api = icloud_service._sessions.get(apple_id)
-        if api:
-            icloud_service._request_device_push(api)
 
     # Persist a manually entered password once Apple accepted it.
     if (

@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+## [0.12.0] - 2026-09-19
+
+### Fixed
+- **Reauth sendet nur den gewählten 2FA-Kanal:** Apple Push und SMS werden
+  explizit im Dialog angefordert. Automatischer Codeversand beim Login,
+  zusätzliche Push-Anfragen und automatischer SMS-Fallback entfallen.
+- **Korrekte Code-Prüfung und Session-Bestätigung:** Der beim Versand gewählte
+  Kanal bleibt für die Prüfung erhalten. Nach einer mehrdeutigen Apple-Antwort
+  wird die bestehende Session geprüft. Bereits akzeptierte Codes werden bei
+  einem erneuten Abschlussversuch nicht nochmals eingelöst.
+- Laufende Challenges werden bei Reconnect wiederverwendet, statt einen
+  konkurrierenden Login zu starten. Abgelaufene Challenges können nach zehn
+  Minuten neu gestartet werden.
+
+### Changed
+- pyicloud ist auf die mit dem interaktiven Auth-Adapter getestete Version
+  2.7.0 festgelegt. Ein Upgrade erfordert die erneute Prüfung der Pause- und
+  Bridge-Schnittstellen.
+
 ## [0.11.4] 2026-09-15
 ### Fixed
 - **Container startete nicht mehr (`ModuleNotFoundError: No module named 'rich'`)** –

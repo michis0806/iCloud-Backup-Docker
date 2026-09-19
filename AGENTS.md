@@ -50,10 +50,21 @@ tests/
 
 pyicloud distinguishes two auth modes:
 
-- **2FA (HSA2):** Modern Apple accounts. Phone numbers come from `api._auth_data["trustedPhoneNumbers"]`. SMS is requested via `PUT /verify/phone`. Code is validated via `api.validate_2fa_code(code)`.
+- **2FA (HSA2):** Modern Apple accounts use `services/apple_auth.py` and the
+  pinned pyicloud 2.7.0. Login uses `pause_2fa=True`; automatic library delivery
+  is disabled. `request_challenge("push" | "sms", phone_id)` requests only the
+  selected channel, without automatic SMS fallback. Phone metadata may also
+  be nested under `phoneNumberVerification`. `validate_selected_code(code)`
+  retains the selected verifier and bridge context, completes trust once,
+  and checks existing tokens if Apple's result is ambiguous. Do not add
+  another `trust_session()` or start a fresh login during code validation.
 - **2SA (HSA1):** Legacy two-step. Devices come from `api.trusted_devices` (`/listDevices` endpoint). Code is sent via `api.send_verification_code(device)` and validated via `api.validate_verification_code(device, code)`.
 
 The `icloud_service.py` handles both flows transparently.
+
+The explicit 2FA adapter and its offline regression tests are mirrored in
+the Unified Inbox repository (`backend/unifiedinbox/integrations/apple_auth.py`).
+Keep these copies aligned when updating the Apple flow.
 
 ### Photo Download
 

@@ -7,6 +7,9 @@ from httpx import AsyncClient, ASGITransport
 
 from app.main import app
 from app import config_store
+from app.auth import _COOKIE_NAME, create_session_cookie
+from app.services import icloud_service
+from tests.test_apple_auth import api
 
 
 @pytest_asyncio.fixture
@@ -16,7 +19,10 @@ async def client(tmp_path, monkeypatch):
     monkeypatch.setattr(config_store, "_CONFIG_FILE", tmp_path / "config.yaml")
 
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
+    async with AsyncClient(
+        transport=transport, base_url="http://test",
+        cookies={_COOKIE_NAME: create_session_cookie()},
+    ) as client:
         yield client
 
 
@@ -83,6 +89,37 @@ class TestAccountsAPI:
 
         list_res = await client.get("/api/accounts")
         assert len(list_res.json()) == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("channel", ["push", "sms"])
+async def test_reauth_waits_for_channel_then_persists_success(client, api, monkeypatch, channel):
+    apple_id = "test@example.com"
+    config_store.add_account(apple_id, status="requires_2fa", status_message="Expired")
+    monkeypatch.setattr(icloud_service, "_sessions", {apple_id: api})
+    monkeypatch.setattr(icloud_service, "_trusted_devices", {})
+    base = f"/api/accounts/{apple_id}"
+
+    reconnect = await client.post(base + "/reconnect", json={})
+    assert reconnect.json()["status"] == "requires_2fa"
+    api.session.get.assert_not_called()
+    api.session.put.assert_not_called()
+
+    if channel == "push":
+        sent = await client.post(base + "/2fa/push", json={})
+        verified = await client.post(base + "/2fa", json={"code": "123456"})
+        api.session.put.assert_not_called()
+    else:
+        devices = await client.get(base + "/2fa/devices")
+        assert devices.json()[0]["index"] == 0
+        sent = await client.post(base + "/2fa/sms", json={"device_index": 0})
+        verified = await client.post(base + "/2sa", json={"device_index": 0, "code": "123456"})
+        api.session.get.assert_not_called()
+
+    assert sent.json()["success"]
+    assert verified.json()["status"] == "authenticated"
+    assert config_store.get_account(apple_id)["status"] == "authenticated"
+    api.trust_session.assert_called_once()
 
 
 class TestLogsAPI:
