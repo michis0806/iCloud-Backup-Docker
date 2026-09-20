@@ -2,7 +2,7 @@
 {% block title %}iCloud Backup – Account Konfiguration{% endblock %}
 
 {% block content %}
-<div x-data="accountConfig('{{ apple_id }}')" x-init="init()">
+<div x-data="accountConfig('{{ apple_id }}')">
 
     <!-- Header -->
     <div class="d-flex align-items-center gap-3 mb-4">
@@ -363,6 +363,13 @@
                                 <span x-text="connectionResult?.message"></span>
                             </div>
                         </div>
+
+                        <button type="button" class="btn btn-outline-primary btn-sm w-100 mt-2"
+                                @click="submitReauth(true)"
+                                :disabled="reauthLoading || checkingConnection">
+                            <span x-show="reauthLoading" class="spinner-border spinner-border-sm me-1"></span>
+                            Erneut autorisieren
+                        </button>
 
                         <!-- Password fallback – only shown when Apple requires
                              a full re-login that cannot use the saved token. -->
@@ -857,11 +864,8 @@ function accountConfig(appleId) {
                     this.loadPhotoLibraries(),
                 ]);
             }
-            // Start the re-auth workflow automatically when the account
-            // needs it – password is only requested if Apple demands it.
-            if (this.account.status === 'requires_2fa' || this.account.status === 'error') {
-                await this.submitReauth(true);
-            }
+            // Reauth is an explicit user action. Keep details and connection
+            // checks accessible even after a failed authentication attempt.
             // Poll backup status every 10 seconds
             this.statusInterval = setInterval(() => this.loadBackupStatus(), 10000);
         },
@@ -1133,12 +1137,6 @@ function accountConfig(appleId) {
                 const res = await fetch(`/api/accounts/${this.encodedId()}/check-connection`, { method: 'POST' });
                 this.connectionResult = await res.json();
                 await this.loadAccount();
-                if (this.connectionResult.requires_2fa) {
-                    // Session liegt bereit; Auswahl ohne erneuten Codeversand.
-                    await this.submitReauth(true);
-                } else if (this.connectionResult.requires_password) {
-                    this.showReauthForm = true;
-                }
             } catch (e) {
                 this.connectionResult = { valid: false, message: 'Netzwerkfehler: ' + e.message };
             }
@@ -1146,6 +1144,7 @@ function accountConfig(appleId) {
         },
 
         async submitReauth(withoutPassword = false) {
+            if (this.reauthLoading) return;
             // Erst passwortlos über das gespeicherte Token versuchen; das
             // Passwort-Formular erscheint nur, wenn Apple es wirklich braucht.
             this.reauthLoading = true;

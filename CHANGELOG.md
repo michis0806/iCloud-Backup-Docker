@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Explizit als gültig bestätigte 2FA-Codes in Apples HTTP-409/HSA2-Antworten
+  schließen jetzt die Session-Vertrauensprüfung ab; HTTP 409 allein gilt nicht
+  als erfolgreiche Anmeldung.
+- Die Konto-Detailseite startet Reauth nicht mehr automatisch und initialisiert
+  sich nur einmal. Verbindung prüfen bleibt unabhängig vom Reauth-Dialog nutzbar
+  und prüft bei ausstehender 2FA die bestehenden Cookies ohne neuen Login.
+
 ## [0.12.0] - 2026-09-19
 
 ### Fixed

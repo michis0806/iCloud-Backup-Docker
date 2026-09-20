@@ -567,7 +567,24 @@ def check_connection(apple_id: str) -> dict:
     """
     # A pending 2FA session must not be replaced by a fresh login – that
     # would invalidate the verification code the user is about to enter.
-    if get_pending_2fa_session(apple_id) is not None:
+    pending = get_pending_2fa_session(apple_id)
+    if pending is not None:
+        # Probe existing cookies without replacing the pending challenge or
+        # sending another code. Apple may already have completed the session.
+        if pending._refresh_verified_session():
+            try:
+                pending.drive.dir()
+            except Exception:
+                return {
+                    "valid": False,
+                    "message": "Anmeldung bestätigt, aber Drive-Zugriff fehlgeschlagen.",
+                    "requires_2fa": False,
+                }
+            return {
+                "valid": True,
+                "message": "Verbindung aktiv – Token ist gültig.",
+                "requires_2fa": False,
+            }
         return {
             "valid": False,
             "message": "Zwei-Faktor-Authentifizierung ausstehend – bitte Code eingeben.",

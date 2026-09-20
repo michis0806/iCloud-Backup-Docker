@@ -1,6 +1,6 @@
 """Unit tests for the iCloud auth helper service."""
 
-from unittest.mock import Mock
+from unittest.mock import Mock, PropertyMock
 
 from app.services import icloud_service
 from tests.test_apple_auth import api  # shared offline pyicloud fixture
@@ -68,6 +68,39 @@ def test_wrong_sms_number_cannot_change_the_validation_route(monkeypatch, api):
     icloud_service.send_sms_code(apple_id, 0)
     assert icloud_service.submit_2sa_code(apple_id, 1, "123456")["status"] == "error"
     api.session.post.assert_not_called()
+
+
+def test_connection_check_recovers_existing_trusted_session_without_login(monkeypatch, api):
+    apple_id = "sms@icloud.com"
+    api.request_challenge("sms", "7")
+    api._validate_token.return_value = {
+        "hsaTrustedBrowser": True, "hsaChallengeRequired": False,
+        "webservices": {"drivews": {"url": "https://example.com/drive"}},
+    }
+    drive = Mock()
+    monkeypatch.setattr(type(api), "drive", PropertyMock(return_value=drive))
+    monkeypatch.setattr(icloud_service, "_sessions", {apple_id: api})
+    factory = Mock(side_effect=AssertionError("must not start competing login"))
+    monkeypatch.setattr(icloud_service, "PyiCloudService", factory)
+    assert icloud_service.check_connection(apple_id)["valid"]
+    assert icloud_service._sessions[apple_id] is api
+    assert not api.requires_2fa
+    drive.dir.assert_called_once()
+    factory.assert_not_called()
+    api.trust_session.assert_not_called()
+    api.session.post.assert_not_called()
+    api.session.put.assert_called_once()
+
+
+def test_connection_check_does_not_report_success_when_drive_probe_fails(monkeypatch, api):
+    apple_id = "sms@icloud.com"
+    api.request_challenge("sms", "7")
+    api._validate_token.return_value = {"hsaTrustedBrowser": True}
+    drive = Mock()
+    drive.dir.side_effect = RuntimeError("offline")
+    monkeypatch.setattr(type(api), "drive", PropertyMock(return_value=drive))
+    monkeypatch.setattr(icloud_service, "_sessions", {apple_id: api})
+    assert not icloud_service.check_connection(apple_id)["valid"]
 
 
 def test_get_notes_clears_stale_attachment_url_cache(monkeypatch):

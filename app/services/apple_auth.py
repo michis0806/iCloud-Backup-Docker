@@ -5,12 +5,15 @@ automatic delivery and implicit SMS fallback are unsuitable for a channel picker
 Private hooks are covered by offline tests; the dependency is pinned accordingly.
 """
 
+import logging
 import re
 import threading
 from time import monotonic
 
 from pyicloud import PyiCloudService
-from pyicloud.exceptions import PyiCloudAPIResponseException
+from pyicloud.exceptions import PyiCloudAPIResponseException, PyiCloud2FARequiredException
+
+log = logging.getLogger(__name__)
 
 
 class SessionCompletionRequired(RuntimeError):
@@ -126,6 +129,37 @@ class InteractiveICloudService(PyiCloudService):
         self._update_state()
         return True
 
+    @staticmethod
+    def _code_accepted_in_conflict(exc):
+        """A 409 HSA2 response can acknowledge the OTP but still require trust.
+
+        Never infer acceptance from the HTTP status/auth type alone. In
+        particular, do not log the response: it may echo the OTP and tokens.
+        """
+        response = getattr(exc, "response", None)
+        if not isinstance(exc, PyiCloud2FARequiredException) or response is None:
+            return False
+        if response.status_code != 409:
+            return False
+        try:
+            data = response.json()
+        except ValueError:
+            return False
+        if not isinstance(data, dict) or data.get("serviceErrors"):
+            return False
+        if data.get("authenticationType", data.get("authType")) != "hsa2":
+            return False
+        security_code = data.get("securityCode")
+        return (
+            isinstance(security_code, dict)
+            and security_code.get("valid") is True
+            and not any(security_code.get(flag) for flag in (
+                "securityCodeLocked", "securityCodeCooldown",
+                "tooManyCodesSent", "tooManyCodesValidated",
+            ))
+            and not any(data.get(key) for key in ("error", "errorCode", "errorMessage"))
+        )
+
     def validate_selected_code(self, code):
         with self._challenge_lock:
             if self.code_verified and self.is_trusted_session and not self.requires_2fa and not self.requires_2sa:
@@ -177,11 +211,19 @@ class InteractiveICloudService(PyiCloudService):
                     if self._refresh_verified_session():
                         self.code_verified = True
                         return True
-                    if isinstance(exc, PyiCloudAPIResponseException) and str(
+                    if self._code_accepted_in_conflict(exc):
+                        # pyicloud has already persisted response cookies and
+                        # headers. Finish trust using that same session below.
+                        self.code_verified = True
+                        log.info("Apple accepted the 2FA code in an HTTP 409 response; completing session trust")
+                    elif isinstance(exc, PyiCloudAPIResponseException) and str(
                         getattr(exc, "code", "")
                     ) == "-21669":
                         return False
-                    raise
+                    else:
+                        if isinstance(exc, PyiCloud2FARequiredException):
+                            log.warning("Apple returned an HSA2 challenge without explicit code acceptance")
+                        raise
 
             try:
                 self.trust_session()

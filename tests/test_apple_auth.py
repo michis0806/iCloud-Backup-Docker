@@ -44,6 +44,100 @@ def api(tmp_path):
     return client
 
 
+
+def hsa2_response(payload, status=409):
+    import json
+    from requests import Response
+
+    response = Response()
+    response.status_code = status
+    response.headers["Content-Type"] = "application/json"
+    response._content = json.dumps(payload).encode()
+    return response
+
+
+@pytest.mark.parametrize("method", ["push", "sms"])
+def test_real_session_pipeline_accepts_explicitly_valid_hsa2_conflict(api, monkeypatch, method, tmp_path):
+    # Exercise pyicloud's actual response normalization, not just a mocked
+    # exception. The transport is offline; only requests.Session.request is fake.
+    from pyicloud.session import PyiCloudSession
+    from requests import Session
+
+    api.request_challenge(method, "7")
+    api._session = PyiCloudSession(api, "offline-test", str(tmp_path))
+    response = hsa2_response({
+        "authenticationType": "hsa2", "securityCode": {"valid": True},
+    })
+    transport = Mock(return_value=response)
+    monkeypatch.setattr(Session, "request", transport)
+    assert api.validate_selected_code("123456")
+    assert api.code_verified
+    api.trust_session.assert_called_once()
+    transport.assert_called_once()
+    expected = "/phone/securitycode" if method == "sms" else "/trusteddevice/securitycode"
+    assert transport.call_args.kwargs["url"].endswith(expected)
+
+
+@pytest.mark.parametrize("payload", [
+    {"authenticationType": "hsa2"},
+    {"authenticationType": "hsa2", "securityCode": {"valid": False}},
+    {"authenticationType": "hsa2", "securityCode": {"valid": "true"}},
+    {"authenticationType": "hsa2", "securityCode": {"valid": True, "securityCodeLocked": True}},
+    {"authenticationType": "hsa2", "securityCode": {"valid": True}, "serviceErrors": [{"code": "-21669"}]},
+    {"authenticationType": "hsa2", "securityCode": {"valid": True}, "errorCode": "-21669"},
+    {"authenticationType": "hsa2", "securityCode": []},
+    [],
+])
+def test_hsa2_conflict_is_not_automatically_success(api, payload):
+    from pyicloud.exceptions import PyiCloud2FARequiredException
+
+    api.request_challenge("sms", "7")
+    api.session.post.side_effect = PyiCloud2FARequiredException(
+        "test@example.com", hsa2_response(payload),
+    )
+    with pytest.raises(PyiCloud2FARequiredException):
+        api.validate_selected_code("123456")
+    assert not api.code_verified
+    api.trust_session.assert_not_called()
+
+
+def test_accepted_conflict_still_requires_trusted_session_and_does_not_reuse_code(api):
+    from pyicloud.exceptions import PyiCloud2FARequiredException
+
+    api.request_challenge("sms", "7")
+    api.session.post.side_effect = PyiCloud2FARequiredException(
+        "test@example.com", hsa2_response({
+            "authenticationType": "hsa2", "securityCode": {"valid": True},
+        }),
+    )
+    trust = api.trust_session.side_effect
+    api.trust_session.side_effect = None
+    api.trust_session.return_value = False
+    with pytest.raises(SessionCompletionRequired):
+        api.validate_selected_code("123456")
+    assert api.code_verified
+    api.trust_session.side_effect = trust
+    assert api.validate_selected_code("123456")
+    api.session.post.assert_called_once()
+
+
+def test_malformed_conflict_is_not_accepted(api):
+    from pyicloud.exceptions import PyiCloud2FARequiredException
+
+    response = hsa2_response({})
+    response._content = b"not json"
+    assert not api._code_accepted_in_conflict(PyiCloud2FARequiredException("test@example.com", response))
+
+
+def test_non_conflict_status_is_not_accepted(api):
+    from pyicloud.exceptions import PyiCloud2FARequiredException
+
+    response = hsa2_response({
+        "authenticationType": "hsa2", "securityCode": {"valid": True},
+    }, status=403)
+    assert not api._code_accepted_in_conflict(PyiCloud2FARequiredException("test@example.com", response))
+
+
 def test_constructor_pauses_apple_and_automatic_library_delivery(tmp_path, monkeypatch):
     seen = []
 
