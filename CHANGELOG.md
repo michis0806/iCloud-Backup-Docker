@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-09-20
+
 ### Fixed
 - Explizit als gültig bestätigte 2FA-Codes in Apples HTTP-409/HSA2-Antworten
   schließen jetzt die Session-Vertrauensprüfung ab; HTTP 409 allein gilt nicht
