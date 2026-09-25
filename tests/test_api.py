@@ -1,5 +1,9 @@
 """Tests for FastAPI API endpoints."""
 
+import errno
+import os
+import threading
+
 import pytest
 import pytest_asyncio
 from unittest.mock import patch, MagicMock
@@ -27,6 +31,18 @@ async def client(tmp_path, monkeypatch):
 
 
 class TestHealthEndpoint:
+    @pytest.fixture(autouse=True)
+    def storage_paths(self, tmp_path, monkeypatch):
+        from app.config import settings
+
+        paths = {}
+        for name in ("backup_path", "config_path", "archive_path"):
+            path = tmp_path / name
+            path.mkdir()
+            monkeypatch.setattr(settings, name, path)
+            paths[name] = path
+        return paths
+
     @pytest.mark.asyncio
     async def test_health(self, client):
         res = await client.get("/health")
@@ -35,6 +51,49 @@ class TestHealthEndpoint:
         assert data["status"] == "ok"
         assert "build" in data
         assert {"version", "commit", "build_date"}.issubset(data["build"].keys())
+
+    @pytest.mark.asyncio
+    async def test_health_reports_unreachable_mount(self, client, storage_paths):
+        backup_path = str(storage_paths["backup_path"])
+        real_scandir = os.scandir
+
+        def scandir(path):
+            if str(path) == backup_path:
+                raise OSError(errno.EHOSTDOWN, "Host is down", backup_path)
+            return real_scandir(path)
+
+        with patch("app.main.os.scandir", side_effect=scandir):
+            res = await client.get("/health")
+
+        assert res.status_code == 503
+        data = res.json()
+        assert data["status"] == "error"
+        assert data["storage"] == {backup_path: f"Host is down (errno {errno.EHOSTDOWN})"}
+
+    @pytest.mark.asyncio
+    async def test_health_times_out_on_hanging_mount(self, client, monkeypatch):
+        import app.main as main
+
+        release = threading.Event()
+
+        def hanging_check():
+            release.wait(5)
+            return {}
+
+        monkeypatch.setattr(main, "_check_storage", hanging_check)
+        monkeypatch.setattr(main, "_STORAGE_CHECK_TIMEOUT", 0.05)
+        monkeypatch.setattr(main, "_storage_check_task", None)
+        try:
+            res = await client.get("/health")
+            assert res.status_code == 503
+            assert "storage" in res.json()["storage"]
+            pending = main._storage_check_task
+
+            # A second probe reuses the still-running check.
+            await client.get("/health")
+            assert main._storage_check_task is pending
+        finally:
+            release.set()
 
 
 class TestAccountsAPI:

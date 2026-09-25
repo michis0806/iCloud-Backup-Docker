@@ -1,5 +1,6 @@
 """iCloud Backup Service – FastAPI application entry point."""
 
+import asyncio
 import hmac
 import logging
 import os
@@ -7,7 +8,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Form, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -118,8 +119,49 @@ app.include_router(settings_router.router)
 # ---------------------------------------------------------------------------
 # Health check
 # ---------------------------------------------------------------------------
+_STORAGE_CHECK_TIMEOUT = 3.0
+_storage_check_task: asyncio.Future | None = None
+
+
+def _check_path(path: Path) -> str | None:
+    """Return an error message if *path* is not readable, else None.
+
+    Reading a directory entry forces a round trip to the server on network
+    mounts (SMB/NFS), so a dead mount shows up as e.g. "Host is down".
+    """
+    try:
+        with os.scandir(path) as entries:
+            next(entries, None)
+    except OSError as exc:
+        return f"{exc.strerror or exc}" + (f" (errno {exc.errno})" if exc.errno else "")
+    return None
+
+
+def _check_storage() -> dict[str, str]:
+    """Check all mounted volumes and return {path: error} for failing ones."""
+    paths = (settings.backup_path, settings.config_path, settings.archive_path)
+    return {str(p): err for p in paths if (err := _check_path(p))}
+
+
 @app.get("/health")
 async def health():
+    global _storage_check_task
+    # A hard-hanging mount would block the check thread indefinitely; reuse the
+    # pending check instead of piling up new threads on every healthcheck.
+    if _storage_check_task is None or _storage_check_task.done():
+        _storage_check_task = asyncio.ensure_future(asyncio.to_thread(_check_storage))
+    try:
+        errors = await asyncio.wait_for(
+            asyncio.shield(_storage_check_task), _STORAGE_CHECK_TIMEOUT
+        )
+    except asyncio.TimeoutError:
+        errors = {"storage": f"Speicherprüfung nach {_STORAGE_CHECK_TIMEOUT:.0f}s nicht beendet"}
+
+    if errors:
+        return JSONResponse(
+            status_code=503,
+            content={"status": "error", "storage": errors, "build": _build_info()},
+        )
     return {"status": "ok", "build": _build_info()}
 
 

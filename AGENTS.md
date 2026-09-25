@@ -176,4 +176,5 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8080
 - **Exclusion paths:** Must work for both top-level and subfolder paths (e.g. `Documents/subfolder`).
 - **Log level changes:** `LOG_LEVEL` env var is applied at startup via `config.py`. The log handler uses a ring buffer (`log_handler.py`) that captures all levels.
 - **Special characters in folder names:** `#`, `%`, `?`, `&`, `+` in iCloud Drive folder or file names can cause 404 errors during download. `_open_drive_node()` provides fallback strategies, but renaming the folder is the safest fix.
+- **Health endpoint:** `/health` checks that `/backups`, `/config` and `/archive` are readable (in a worker thread with a 3 s timeout, reusing a still-pending check) and returns HTTP 503 otherwise. Keep it cheap: read at most one directory entry per path, never walk the tree.
 - **Notifications:** Only Pushover is supported. Configuration lives in `/config/config.yaml` (managed via the web UI under *Einstellungen*), not in environment variables.

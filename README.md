@@ -60,6 +60,8 @@ curl -s http://<NAS-IP>:8080/health
 ```
 
 Die `/health`-Antwort enthält `build.version`, `build.commit` und `build_date`.
+Sind `/backups`, `/config` oder `/archive` nicht lesbar, antwortet `/health` mit
+HTTP 503 und nennt die betroffenen Pfade unter `storage`.
 Zusätzlich wird die Version in der Web-UI im Footer angezeigt.
 
 ## Configuration
@@ -89,6 +91,33 @@ Zusätzlich wird die Version in der Web-UI im Footer angezeigt.
 | `/backups` | Backup destination directory |
 | `/config` | Configuration, session tokens, etag caches |
 | `/archive` | Archive directory for files removed from iCloud (when sync policy = "archive") |
+
+### Network shares (SMB/CIFS, NFS)
+
+If `/backups` or `/archive` live on a network share mounted on the host,
+two details decide whether the container recovers from a dropped connection:
+
+- **Mount the share permanently on the host.** Avoid `x-systemd.automount`
+  with `x-systemd.idle-timeout`: the container keeps its own reference to the
+  mount it saw at startup and does not notice when the host unmounts and
+  remounts the share later.
+- **Use `rslave` bind propagation**, so a remount on the host (e.g.
+  `umount -l /mnt/share && mount /mnt/share`) reaches the running container
+  without restarting it:
+
+```yaml
+    volumes:
+      - type: bind
+        source: /mnt/share/icloud_backup
+        target: /backups
+        bind:
+          propagation: rslave
+```
+
+The container healthcheck (`/health`) reads `/backups`, `/config` and
+`/archive`. If one of them is unreachable (e.g. `Host is down`), `/health`
+answers with HTTP 503 and lists the failing paths, and Docker marks the
+container as `unhealthy`.
 
 ### docker-compose.yml
 

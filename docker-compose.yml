@@ -14,6 +14,14 @@ services:
       - ${BACKUP_PATH:-./backups}:/backups
       - ${CONFIG_PATH:-./config}:/config
       - ${ARCHIVE_PATH:-./archive}:/archive
+      # Netzwerkfreigaben (SMB/NFS): Freigabe dauerhaft auf dem Host mounten
+      # (kein x-systemd.automount/idle-timeout) und mit rslave einbinden,
+      # damit ein Remount auf dem Host im laufenden Container ankommt:
+      # - type: bind
+      #   source: /mnt/share/icloud_backup
+      #   target: /backups
+      #   bind:
+      #     propagation: rslave
     environment:
       - TZ=${TZ:-Europe/Berlin}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}

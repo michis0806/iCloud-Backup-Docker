@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.2] - 2026-09-25
+
+### Fixed
+- **Healthcheck erkennt nicht erreichbaren Speicher:** `/health` liest jetzt
+  `/backups`, `/config` und `/archive` und antwortet mit HTTP 503 samt
+  betroffenen Pfaden, wenn ein Volume nicht lesbar ist (z. B. `Host is down`
+  bei abgerissener SMB-Verbindung). Docker markiert den Container dann als
+  `unhealthy`, statt ihn trotz fehlschlagender Backups als `healthy` zu führen.
+  Hängende Mounts werden nach 3 Sekunden als Fehler gemeldet.
+
+### Documentation
+- README und `docker-compose.yml` beschreiben das Einbinden von
+  Netzwerkfreigaben: dauerhaft auf dem Host mounten (kein systemd-Automount mit
+  Idle-Timeout) und per `propagation: rslave` einbinden, damit ein Remount auf
+  dem Host ohne Container-Neustart ankommt.
+
 ## [0.12.1] - 2026-09-20
 
 ### Fixed
