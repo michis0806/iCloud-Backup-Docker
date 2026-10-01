@@ -15,6 +15,7 @@ from fastapi.templating import Jinja2Templates
 from app.auth import AuthMiddleware, _COOKIE_NAME, create_session_cookie
 from app import config_store
 from app.config import settings
+from app.i18n import get_language, js_messages, t
 from app.routers import accounts, backup, settings as settings_router
 from app.services.log_handler import log_buffer
 from app.services.scheduler import start_scheduler, stop_scheduler, sync_scheduled_jobs
@@ -106,6 +107,7 @@ static_dir.mkdir(exist_ok=True)
 
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 templates = Jinja2Templates(directory=str(templates_dir))
+templates.env.globals.update(t=t, lang=get_language, js_messages=js_messages)
 
 # Authentication middleware
 app.add_middleware(AuthMiddleware)
