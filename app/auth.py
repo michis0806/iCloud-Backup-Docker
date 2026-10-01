@@ -9,6 +9,7 @@ from starlette.requests import Request
 from starlette.responses import RedirectResponse
 
 from app.config import settings
+from app.i18n import t
 
 # Routes that don't require authentication
 _PUBLIC_PATHS = {"/health", "/login"}
@@ -62,7 +63,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if path.startswith("/api/"):
             from starlette.responses import JSONResponse
             return JSONResponse(
-                {"detail": "Nicht authentifiziert."}, status_code=401
+                {"detail": t("misc.not_authenticated")}, status_code=401
             )
 
         return RedirectResponse(url="/login", status_code=302)

@@ -13,6 +13,7 @@ import logging
 from cryptography.fernet import Fernet, InvalidToken
 
 from app.config import settings
+from app.i18n import t
 
 log = logging.getLogger("icloud-backup")
 
@@ -51,7 +52,6 @@ def decrypt(token: str) -> str | None:
         return fernet.decrypt(token.encode("ascii")).decode("utf-8")
     except (InvalidToken, ValueError):
         log.warning(
-            "Gespeichertes iCloud-Passwort konnte nicht entschlüsselt werden "
-            "(ICLOUD_SECRET_KEY geändert?). Bitte Passwort neu speichern."
+            t("misc.decrypt_failed")
         )
         return None

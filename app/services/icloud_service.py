@@ -10,6 +10,7 @@ from pyicloud.exceptions import PyiCloudFailedLoginException
 from app import config_store
 from app.config import settings
 from app.services.apple_auth import InteractiveICloudService as PyiCloudService
+from app.i18n import t
 
 log = logging.getLogger("icloud-backup")
 
@@ -60,7 +61,7 @@ def authenticate(apple_id: str, password: str | None = None) -> dict:
     if get_pending_2fa_session(apple_id) is not None:
         return {
             "status": "requires_2fa",
-            "message": "Bitte Apple Push oder SMS auswaehlen und den Code bestaetigen.",
+            "message": t("icloud.pending_challenge"),
         }
     cookie_dir = _cookie_dir_for(apple_id)
 
@@ -74,10 +75,10 @@ def authenticate(apple_id: str, password: str | None = None) -> dict:
     except PyiCloudFailedLoginException as exc:
         msg = str(exc)
         if "No password" in msg or "password" in msg.lower():
-            return {"status": "error", "message": "Session abgelaufen – bitte Passwort eingeben.", "requires_password": True}
-        return {"status": "error", "message": f"Login fehlgeschlagen: {exc}"}
+            return {"status": "error", "message": t("icloud.session_expired_password"), "requires_password": True}
+        return {"status": "error", "message": t("icloud.login_failed", exc=exc)}
     except Exception as exc:
-        return {"status": "error", "message": f"Verbindungsfehler: {exc}"}
+        return {"status": "error", "message": t("icloud.connection_error", exc=exc)}
 
     _sessions[apple_id] = api
     _trusted_devices.pop(apple_id, None)
@@ -85,26 +86,24 @@ def authenticate(apple_id: str, password: str | None = None) -> dict:
     if api.requires_2fa:
         return {
             "status": "requires_2fa",
-            "message": "Zwei-Faktor-Authentifizierung erforderlich. "
-            "Bitte waehlen Sie Apple Push oder SMS.",
+            "message": t("icloud.requires_2fa"),
         }
 
     if api.requires_2sa:
         return {
             "status": "requires_2fa",
-            "message": "Zwei-Stufen-Authentifizierung erforderlich. "
-            "Bitte fordern Sie einen Code per SMS an.",
+            "message": t("icloud.requires_2sa"),
         }
 
     if not api.is_trusted_session:
         return {
             "status": "requires_2fa",
-            "message": "Apple-Anmeldung noch nicht bestaetigt. Bitte einen Code anfordern.",
+            "message": t("icloud.login_unconfirmed"),
         }
 
     return {
         "status": "authenticated",
-        "message": "Erfolgreich angemeldet.",
+        "message": t("icloud.login_success"),
     }
 
 
@@ -119,21 +118,21 @@ def submit_2fa_code(apple_id: str, code: str) -> dict:
     if api is None:
         return {
             "status": "error",
-            "message": "Keine aktive Sitzung. Bitte melden Sie sich erneut an.",
+            "message": t("icloud.no_session_relogin"),
         }
 
     try:
         if not api.validate_selected_code(code):
             return {
                 "status": "error",
-                "message": "Ungültiger Code. Bitte versuchen Sie es erneut.",
+                "message": t("icloud.invalid_code"),
             }
     except Exception as exc:
-        return {"status": "error", "message": f"2FA-Fehler: {exc}"}
+        return {"status": "error", "message": t("icloud.2fa_error", exc=exc)}
 
     return {
         "status": "authenticated",
-        "message": "Zwei-Faktor-Authentifizierung erfolgreich.",
+        "message": t("icloud.2fa_success"),
     }
 
 
@@ -148,12 +147,12 @@ def get_trusted_devices(apple_id: str) -> list[dict]:
         try:
             phones = api.trusted_phones()
             if not phones:
-                log.warning("Keine vertrauenswürdigen Telefonnummern für %s gefunden.", apple_id)
+                log.warning(t("icloud.no_trusted_phones"), apple_id)
                 return []
             _trusted_devices[apple_id] = phones
             return _format_trusted_phones(phones)
         except Exception as exc:
-            log.error("Fehler beim Abrufen der Telefonnummern für %s: %s", apple_id, exc)
+            log.error(t("icloud.phones_error"), apple_id, exc)
             return []
 
     # 2SA (legacy): use traditional trusted devices API
@@ -169,7 +168,7 @@ def get_trusted_devices(apple_id: str) -> list[dict]:
             for i, d in enumerate(devices)
         ]
     except Exception as exc:
-        log.error("Fehler beim Abrufen der Geräte für %s: %s", apple_id, exc)
+        log.error(t("icloud.devices_error"), apple_id, exc)
         return []
 
 
@@ -178,7 +177,7 @@ def _request_device_push(api: PyiCloudService) -> bool:
     try:
         return api.request_challenge("push")
     except Exception as exc:
-        log.warning("2FA push fehlgeschlagen: %s", exc)
+        log.warning(t("icloud.push_failed_log"), exc)
         return False
 
 
@@ -195,12 +194,12 @@ def request_2fa_push(apple_id: str, password: str | None = None) -> dict:
     """
     api = _sessions.get(apple_id)
     if api is not None and api.is_trusted_session and not api.requires_2fa and not api.requires_2sa:
-        return {"success": True, "status": "authenticated", "message": "Session bereits bestaetigt."}
+        return {"success": True, "status": "authenticated", "message": t("icloud.session_already_confirmed")}
 
     # If no session or session doesn't need 2FA, re-authenticate
     if api is None or not api.requires_2fa:
         if not password:
-            return {"success": False, "message": "Passwort erforderlich."}
+            return {"success": False, "message": t("icloud.password_required")}
         _sessions.pop(apple_id, None)
         result = authenticate(apple_id, password=password)
         if result["status"] != "requires_2fa":
@@ -215,13 +214,13 @@ def request_2fa_push(apple_id: str, password: str | None = None) -> dict:
     if api and _request_device_push(api):
         return {
             "success": True,
-            "message": "Benachrichtigung an Ihre Apple-Geräte gesendet.",
+            "message": t("icloud.push_sent"),
             "status": "requires_2fa",
         }
 
     return {
         "success": False,
-        "message": "Push-Benachrichtigung konnte nicht ausgelöst werden. Versuchen Sie SMS.",
+        "message": t("icloud.push_failed"),
         "status": "requires_2fa",
     }
 
@@ -230,32 +229,32 @@ def send_sms_code(apple_id: str, device_index: int) -> dict:
     """Send an SMS verification code to the given trusted device/phone number."""
     api = _sessions.get(apple_id)
     if api is None:
-        return {"success": False, "message": "Keine aktive Sitzung."}
+        return {"success": False, "message": t("icloud.no_session")}
 
     devices = _trusted_devices.get(apple_id, [])
     if device_index < 0 or device_index >= len(devices):
-        return {"success": False, "message": "Ungültiges Gerät."}
+        return {"success": False, "message": t("icloud.invalid_device")}
 
     # 2FA (HSA2): request SMS via Apple auth endpoint
     if api.requires_2fa:
         phone = devices[device_index]
         phone_id = phone.get("id")
         if phone_id is None:
-            return {"success": False, "message": "Telefonnummer-ID fehlt."}
+            return {"success": False, "message": t("icloud.phone_id_missing")}
         try:
             api.request_challenge("sms", phone_id)
-            return {"success": True, "message": "SMS-Code gesendet."}
+            return {"success": True, "message": t("icloud.sms_sent")}
         except Exception as exc:
-            return {"success": False, "message": f"Fehler: {exc}"}
+            return {"success": False, "message": t("icloud.error", exc=exc)}
 
     # 2SA (legacy): use traditional send_verification_code
     try:
         success = api.send_verification_code(devices[device_index])
         if success:
-            return {"success": True, "message": "SMS-Code gesendet."}
-        return {"success": False, "message": "SMS konnte nicht gesendet werden."}
+            return {"success": True, "message": t("icloud.sms_sent")}
+        return {"success": False, "message": t("icloud.sms_failed")}
     except Exception as exc:
-        return {"success": False, "message": f"Fehler: {exc}"}
+        return {"success": False, "message": t("icloud.error", exc=exc)}
 
 
 def submit_2sa_code(apple_id: str, device_index: int, code: str) -> dict:
@@ -269,17 +268,17 @@ def submit_2sa_code(apple_id: str, device_index: int, code: str) -> dict:
     if api is None:
         return {
             "status": "error",
-            "message": "Keine aktive Sitzung. Bitte melden Sie sich erneut an.",
+            "message": t("icloud.no_session_relogin"),
         }
 
     devices = _trusted_devices.get(apple_id, [])
     if device_index < 0 or device_index >= len(devices):
-        return {"status": "error", "message": "Ungültiges Gerät."}
+        return {"status": "error", "message": t("icloud.invalid_device")}
 
     # Keep the channel selected at send-time, even after trust partially succeeds.
     if api.challenge_method is not None:
         if api.challenge_method != "sms" or str(api.challenge_phone["id"]) != str(devices[device_index].get("id")):
-            return {"status": "error", "message": "Bitte den Code des ausgewaehlten Kanals eingeben."}
+            return {"status": "error", "message": t("icloud.code_selected_channel")}
         return submit_2fa_code(apple_id, code)
 
     # 2SA (legacy): use traditional validation
@@ -287,14 +286,14 @@ def submit_2sa_code(apple_id: str, device_index: int, code: str) -> dict:
         if not api.validate_verification_code(devices[device_index], code):
             return {
                 "status": "error",
-                "message": "Ungültiger Code. Bitte versuchen Sie es erneut.",
+                "message": t("icloud.invalid_code"),
             }
     except Exception as exc:
-        return {"status": "error", "message": f"2SA-Fehler: {exc}"}
+        return {"status": "error", "message": t("icloud.2sa_error", exc=exc)}
 
     return {
         "status": "authenticated",
-        "message": "Zwei-Stufen-Authentifizierung erfolgreich.",
+        "message": t("icloud.2sa_success"),
     }
 
 
@@ -345,14 +344,14 @@ def _stored_password_login(apple_id: str) -> PyiCloudService | None:
         )
     except Exception as exc:
         log.warning(
-            "Automatische Neuanmeldung mit gespeichertem Passwort für %s fehlgeschlagen: %s",
+            t("icloud.auto_relogin_failed"),
             apple_id,
             exc,
         )
         return None
 
     log.info(
-        "Automatische Neuanmeldung mit gespeichertem Passwort für %s (requires_2fa=%s)",
+        t("icloud.auto_relogin"),
         apple_id,
         api.requires_2fa or api.requires_2sa,
     )
@@ -401,7 +400,7 @@ def _fetch_cloudkit_owner(api) -> str | None:
     try:
         ck_root = api.get_webservice_url("ckdatabasews")
     except Exception:
-        log.debug("ckdatabasews URL nicht verfügbar")
+        log.debug(t("icloud.ckdatabasews_missing"))
         return None
 
     endpoint = f"{ck_root}/database/1/com.apple.clouddocs/production/private"
@@ -411,11 +410,11 @@ def _fetch_cloudkit_owner(api) -> str | None:
             "Content-Type": "text/plain",
         })
         if not resp.ok:
-            log.debug("CloudKit /changes/database Fehler: %s", resp.status_code)
+            log.debug(t("icloud.cloudkit_changes_error"), resp.status_code)
             return None
         zones = resp.json().get("zones", [])
     except Exception as exc:
-        log.debug("CloudKit /changes/database Aufruf fehlgeschlagen: %s", exc)
+        log.debug(t("icloud.cloudkit_changes_failed"), exc)
         return None
 
     # Look for the default zone or any non-deleted zone with an ownerRecordName
@@ -425,13 +424,13 @@ def _fetch_cloudkit_owner(api) -> str | None:
         owner = zone.get("zoneID", {}).get("ownerRecordName")
         if owner:
             log.info(
-                "CloudKit ownerRecordName aus %s-Zone: %s",
+                t("icloud.cloudkit_owner_zone"),
                 zone["zoneID"].get("zoneName", "?"),
                 owner,
             )
             return owner
 
-    log.debug("Keine Zone mit ownerRecordName in /changes/database Antwort")
+    log.debug(t("icloud.cloudkit_no_zone"))
     return None
 
 
@@ -460,11 +459,10 @@ def get_drive_folders(apple_id: str) -> list[dict]:
     user_record = _user_records.get(apple_id) or _fetch_cloudkit_owner(api)
     if user_record:
         _user_records[apple_id] = user_record
-        log.info("CloudKit ownerRecordName für %s: %s", apple_id, user_record)
+        log.info(t("icloud.cloudkit_owner"), apple_id, user_record)
     else:
         log.warning(
-            "Konnte CloudKit ownerRecordName für %s nicht ermitteln. "
-            "Alle geteilten Ordner werden als Fremdfreigabe behandelt.",
+            t("icloud.cloudkit_owner_unknown"),
             apple_id,
         )
 
@@ -483,10 +481,10 @@ def get_drive_folders(apple_id: str) -> list[dict]:
                     else:
                         shared_not_owned = True
                     log.info(
-                        "Ordner '%s': owner=%s → %s",
+                        t("icloud.folder_owner"),
                         child,
                         owner,
-                        "Fremdfreigabe" if shared_not_owned else "eigene Freigabe",
+                        t("icloud.share_foreign") if shared_not_owned else t("icloud.share_own"),
                     )
             folders.append(
                 {
@@ -497,7 +495,7 @@ def get_drive_folders(apple_id: str) -> list[dict]:
                 }
             )
     except Exception as exc:
-        log.error("Fehler beim Abrufen der Drive-Ordner für %s: %s", apple_id, exc)
+        log.error(t("icloud.drive_folders_error"), apple_id, exc)
 
     return sorted(folders, key=lambda f: (f["shared_not_owned"], f["name"].lower()))
 
@@ -531,23 +529,23 @@ def get_photo_libraries(apple_id: str) -> list[dict]:
                 result.append({
                     "id": "PrimarySync",
                     "type": "primary",
-                    "name": "Eigene Mediathek",
+                    "name": t("icloud.library_own"),
                 })
             elif zone_name.startswith("SharedSync-"):
                 result.append({
                     "id": zone_name,
                     "type": "shared",
-                    "name": "Geteilte Mediathek",
+                    "name": t("icloud.library_shared"),
                 })
     except Exception as exc:
-        log.error("Fehler beim Abrufen der Foto-Bibliotheken für %s: %s", apple_id, exc)
+        log.error(t("icloud.photo_libs_error"), apple_id, exc)
 
     # If we couldn't enumerate, at least return the primary library
     if not result:
         result.append({
             "id": "PrimarySync",
             "type": "primary",
-            "name": "Eigene Mediathek",
+            "name": t("icloud.library_own"),
         })
 
     return result
@@ -577,17 +575,17 @@ def check_connection(apple_id: str) -> dict:
             except Exception:
                 return {
                     "valid": False,
-                    "message": "Anmeldung bestätigt, aber Drive-Zugriff fehlgeschlagen.",
+                    "message": t("icloud.confirmed_drive_failed"),
                     "requires_2fa": False,
                 }
             return {
                 "valid": True,
-                "message": "Verbindung aktiv – Token ist gültig.",
+                "message": t("icloud.connection_active"),
                 "requires_2fa": False,
             }
         return {
             "valid": False,
-            "message": "Zwei-Faktor-Authentifizierung ausstehend – bitte Code eingeben.",
+            "message": t("icloud.2fa_pending"),
             "requires_2fa": True,
         }
 
@@ -608,9 +606,9 @@ def check_connection(apple_id: str) -> dict:
         if api is None:
             msg = str(exc)
             if "No password" in msg or "password" in msg.lower():
-                msg = "Session abgelaufen – bitte erneut anmelden."
+                msg = t("icloud.session_expired_relogin")
             else:
-                msg = f"Login fehlgeschlagen: {exc}"
+                msg = t("icloud.login_failed", exc=exc)
             return {
                 "valid": False,
                 "message": msg,
@@ -620,7 +618,7 @@ def check_connection(apple_id: str) -> dict:
     except Exception as exc:
         return {
             "valid": False,
-            "message": f"Verbindungsfehler: {exc}",
+            "message": t("icloud.connection_error", exc=exc),
             "requires_2fa": False,
         }
 
@@ -628,7 +626,7 @@ def check_connection(apple_id: str) -> dict:
         _sessions[apple_id] = api
         return {
             "valid": False,
-            "message": "Token abgelaufen – Zwei-Faktor-Authentifizierung erforderlich.",
+            "message": t("icloud.token_expired"),
             "requires_2fa": True,
         }
 
@@ -636,17 +634,17 @@ def check_connection(apple_id: str) -> dict:
     try:
         api.drive.dir()
     except Exception as exc:
-        log.warning("Verbindungscheck für %s: Drive-Zugriff fehlgeschlagen: %s", apple_id, exc)
+        log.warning(t("icloud.check_drive_failed"), apple_id, exc)
         return {
             "valid": False,
-            "message": f"Session ungültig – Drive-Zugriff fehlgeschlagen: {exc}",
+            "message": t("icloud.session_invalid_drive", exc=exc),
             "requires_2fa": False,
         }
 
     _sessions[apple_id] = api
     return {
         "valid": True,
-        "message": "Verbindung aktiv – Token ist gültig.",
+        "message": t("icloud.connection_active"),
         "requires_2fa": False,
     }
 
@@ -718,7 +716,7 @@ def get_storage_usage(apple_id: str) -> dict | None:
             "media": media,
         }
     except Exception as exc:
-        log.warning("iCloud-Speicherinfo für %s nicht abrufbar: %s", apple_id, exc)
+        log.warning(t("icloud.storage_unavailable"), apple_id, exc)
         return None
 
 
@@ -734,7 +732,7 @@ def get_contacts(apple_id: str) -> list[dict] | None:
     try:
         return api.contacts.all
     except Exception as exc:
-        log.error("Fehler beim Abrufen der Kontakte für %s: %s", apple_id, exc)
+        log.error(t("icloud.contacts_error"), apple_id, exc)
         return None
 
 
@@ -750,7 +748,7 @@ def get_calendars(apple_id: str) -> list[dict] | None:
     try:
         return api.calendar.get_calendars()
     except Exception as exc:
-        log.error("Fehler beim Abrufen der Kalender für %s: %s", apple_id, exc)
+        log.error(t("icloud.calendars_error"), apple_id, exc)
         return None
 
 
@@ -772,7 +770,7 @@ def get_calendar_events(
     try:
         return api.calendar.get_events(from_dt=from_dt, to_dt=to_dt)
     except Exception as exc:
-        log.error("Fehler beim Abrufen der Kalender-Events für %s: %s", apple_id, exc)
+        log.error(t("icloud.events_error"), apple_id, exc)
         return None
 
 
@@ -828,9 +826,9 @@ def get_reminders(apple_id: str) -> dict | None:
         return {"lists": lists, "reminders": reminders}
     except Exception as exc:
         if _is_missing_zone_error(exc):
-            log.info("Account %s hat keine Erinnerungen (Zone nicht vorhanden).", apple_id)
+            log.info(t("icloud.no_reminders"), apple_id)
             return {"lists": [], "reminders": []}
-        log.error("Fehler beim Abrufen der Erinnerungen für %s: %s", apple_id, exc)
+        log.error(t("icloud.reminders_error"), apple_id, exc)
         return None
 
 
@@ -866,14 +864,14 @@ def get_notes(apple_id: str) -> dict | None:
                     full = api.notes.get(note_id, with_attachments=True)
                     meta = _model_to_dict(full)
                 except Exception as exc:
-                    log.warning("Notiz %s konnte nicht geladen werden: %s", note_id, exc)
+                    log.warning(t("icloud.note_load_failed"), note_id, exc)
             notes.append(meta)
         return {"folders": folders, "notes": notes}
     except Exception as exc:
         if _is_missing_zone_error(exc):
-            log.info("Account %s hat keine Notizen (Zone nicht vorhanden).", apple_id)
+            log.info(t("icloud.no_notes"), apple_id)
             return {"folders": [], "notes": []}
-        log.error("Fehler beim Abrufen der Notizen für %s: %s", apple_id, exc)
+        log.error(t("icloud.notes_error"), apple_id, exc)
         return None
 
 
@@ -900,9 +898,9 @@ def download_note_asset(apple_id: str, url: str, dest_path) -> bool:
             with open(dest_path, "wb") as fh:
                 fh.write(resp.content)
             return True
-        log.warning("Anhang-Download fehlgeschlagen (HTTP %s): %s", resp.status_code, url)
+        log.warning(t("icloud.attachment_http"), resp.status_code, url)
     except Exception as exc:
-        log.warning("Anhang konnte nicht geladen werden (%s): %s", url, exc)
+        log.warning(t("icloud.attachment_failed"), url, exc)
     return False
 
 

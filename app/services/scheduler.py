@@ -12,6 +12,7 @@ from apscheduler.triggers.cron import CronTrigger
 from app import config_store
 from app.services import backup_service
 from app.services.notification import notify_backup_result, notify_token_expired
+from app.i18n import t
 
 log = logging.getLogger("icloud-backup")
 
@@ -26,15 +27,15 @@ def _resolve_timezone():
     """
     tz_name = os.getenv("TZ", "").strip()
     if not tz_name:
-        log.warning("TZ-Umgebungsvariable nicht gesetzt – Zeitplan läuft in UTC.")
+        log.warning(t("sched.tz_unset"))
         return ZoneInfo("UTC")
     try:
         tz = ZoneInfo(tz_name)
-        log.info("Zeitzone für Zeitplan: %s", tz_name)
+        log.info(t("sched.tz"), tz_name)
         return tz
     except ZoneInfoNotFoundError:
         log.error(
-            "TZ=%s konnte nicht aufgelöst werden (tzdata fehlt?). Falle auf UTC zurück.",
+            t("sched.tz_unresolved"),
             tz_name,
         )
         return ZoneInfo("UTC")
@@ -62,15 +63,15 @@ async def _run_backup_job(apple_id: str) -> None:
     """Execute a single backup job for one account."""
     account = config_store.get_account(apple_id)
     if account is None:
-        log.warning("Account %s nicht gefunden", apple_id)
+        log.warning(t("sched.account_not_found"), apple_id)
         return
     if account["status"] != "authenticated":
-        log.warning("Account %s nicht authentifiziert, überspringe Backup", apple_id)
+        log.warning(t("sched.not_authenticated"), apple_id)
         return
 
     cfg = config_store.get_backup_config(apple_id)
     if cfg is None:
-        log.warning("Keine Backup-Konfiguration für %s", apple_id)
+        log.warning(t("sched.no_config"), apple_id)
         return
 
     config_store.update_backup_status(
@@ -103,7 +104,7 @@ async def _run_backup_job(apple_id: str) -> None:
         )
 
         if result.get("skipped_already_running"):
-            log.info("Backup für %s übersprungen – läuft bereits.", apple_id)
+            log.info(t("sched.skipped_running"), apple_id)
             return
         status = "success" if result["success"] else "error"
         message = result["message"]
@@ -123,7 +124,7 @@ async def _run_backup_job(apple_id: str) -> None:
             )
             notify_token_expired(apple_id)
     except Exception as exc:
-        log.error("Backup-Job für %s fehlgeschlagen: %s", apple_id, exc)
+        log.error(t("sched.job_failed"), apple_id, exc)
         status = "error"
         message = str(exc)
         stats = None
@@ -136,15 +137,15 @@ async def _run_all_backups() -> None:
     """Run backups for all configured accounts sequentially."""
     accounts = config_store.list_configured_accounts()
     if not accounts:
-        log.info("Kein Account mit Backup-Konfiguration gefunden, überspringe geplanten Lauf")
+        log.info(t("sched.no_accounts"))
         return
 
-    log.info("Geplanter Backup-Lauf gestartet für %d Account(s)", len(accounts))
+    log.info(t("sched.run_started"), len(accounts))
     for acc in accounts:
         apple_id = acc["apple_id"]
-        log.info("Starte Backup für %s", apple_id)
+        log.info(t("sched.starting"), apple_id)
         await _run_backup_job(apple_id)
-    log.info("Geplanter Backup-Lauf abgeschlossen")
+    log.info(t("sched.run_done"))
 
 
 async def sync_scheduled_jobs() -> None:
@@ -156,7 +157,7 @@ async def sync_scheduled_jobs() -> None:
 
     schedule = config_store.get_schedule()
     if not schedule.get("enabled"):
-        log.info("Zeitplan deaktiviert")
+        log.info(t("sched.disabled"))
         return
 
     cron_expr = schedule.get("cron") or "0 2 * * *"
@@ -175,26 +176,26 @@ async def sync_scheduled_jobs() -> None:
             trigger=trigger,
             id=_BACKUP_JOB_ID,
             replace_existing=True,
-            name="Backup alle Accounts",
+            name=t("sched.job_name"),
         )
         next_run = scheduler.get_job(_BACKUP_JOB_ID).next_run_time
         log.info(
-            "Zentraler Zeitplan registriert: %s (TZ=%s, nächster Lauf: %s)",
+            t("sched.registered"),
             cron_expr, scheduler.timezone, next_run,
         )
     except Exception as exc:
-        log.error("Ungültiger Cron-Ausdruck '%s': %s", cron_expr, exc)
+        log.error(t("sched.bad_cron"), cron_expr, exc)
 
 
 def start_scheduler() -> None:
     """Start the APScheduler."""
     if not scheduler.running:
         scheduler.start()
-        log.info("Scheduler gestartet")
+        log.info(t("sched.started"))
 
 
 def stop_scheduler() -> None:
     """Shut down the scheduler gracefully."""
     if scheduler.running:
         scheduler.shutdown(wait=False)
-        log.info("Scheduler gestoppt")
+        log.info(t("sched.stopped"))

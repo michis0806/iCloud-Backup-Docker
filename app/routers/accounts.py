@@ -8,6 +8,7 @@ from app import config_store
 from app.schemas import AccountCreate, AccountResponse, ReconnectRequest, SmsSendRequest, TwoFactorSubmit, TwoStepSubmit
 from app.services import icloud_service, storage_cache
 from app.services.notification import notify_token_expired
+from app.i18n import t
 
 log = logging.getLogger("icloud-backup")
 router = APIRouter(prefix="/api/accounts", tags=["accounts"])
@@ -41,7 +42,7 @@ async def storage_stats():
 async def add_account(data: AccountCreate):
     # Check for duplicate
     if config_store.get_account(data.apple_id) is not None:
-        raise HTTPException(status_code=400, detail="Account existiert bereits.")
+        raise HTTPException(status_code=400, detail=t("api.accounts.exists"))
 
     # Attempt authentication (password is only persisted when the user
     # opted in via remember_password – encrypted, see app/crypto.py)
@@ -66,8 +67,7 @@ async def add_account(data: AccountCreate):
             account["password_saved"] = True
         else:
             account["status_message"] = (
-                f"{message} Hinweis: Passwort wurde nicht gespeichert – "
-                "ICLOUD_SECRET_KEY ist nicht konfiguriert."
+                t("api.accounts.password_not_saved", message=message)
             )
 
     return account
@@ -77,7 +77,7 @@ async def add_account(data: AccountCreate):
 async def submit_2fa(apple_id: str, data: TwoFactorSubmit):
     account = config_store.get_account(apple_id)
     if account is None:
-        raise HTTPException(status_code=404, detail="Account nicht gefunden.")
+        raise HTTPException(status_code=404, detail=t("api.accounts.not_found"))
 
     result = icloud_service.submit_2fa_code(apple_id, data.code)
 
@@ -94,7 +94,7 @@ async def submit_2fa(apple_id: str, data: TwoFactorSubmit):
 async def get_trusted_devices(apple_id: str):
     account = config_store.get_account(apple_id)
     if account is None:
-        raise HTTPException(status_code=404, detail="Account nicht gefunden.")
+        raise HTTPException(status_code=404, detail=t("api.accounts.not_found"))
 
     devices = icloud_service.get_trusted_devices(apple_id)
     return devices
@@ -105,7 +105,7 @@ async def request_2fa_push(apple_id: str, body: ReconnectRequest | None = None):
     """Re-trigger 2FA push notification by forcing a fresh authentication."""
     account = config_store.get_account(apple_id)
     if account is None:
-        raise HTTPException(status_code=404, detail="Account nicht gefunden.")
+        raise HTTPException(status_code=404, detail=t("api.accounts.not_found"))
 
     password = body.password if body else None
     if not password:
@@ -130,7 +130,7 @@ async def request_2fa_push(apple_id: str, body: ReconnectRequest | None = None):
 async def send_sms_code(apple_id: str, data: SmsSendRequest):
     account = config_store.get_account(apple_id)
     if account is None:
-        raise HTTPException(status_code=404, detail="Account nicht gefunden.")
+        raise HTTPException(status_code=404, detail=t("api.accounts.not_found"))
 
     result = icloud_service.send_sms_code(apple_id, data.device_index)
     return result
@@ -140,7 +140,7 @@ async def send_sms_code(apple_id: str, data: SmsSendRequest):
 async def submit_2sa(apple_id: str, data: TwoStepSubmit):
     account = config_store.get_account(apple_id)
     if account is None:
-        raise HTTPException(status_code=404, detail="Account nicht gefunden.")
+        raise HTTPException(status_code=404, detail=t("api.accounts.not_found"))
 
     result = icloud_service.submit_2sa_code(apple_id, data.device_index, data.code)
 
@@ -157,7 +157,7 @@ async def submit_2sa(apple_id: str, data: TwoStepSubmit):
 async def reconnect_account(apple_id: str, body: ReconnectRequest | None = None):
     account = config_store.get_account(apple_id)
     if account is None:
-        raise HTTPException(status_code=404, detail="Account nicht gefunden.")
+        raise HTTPException(status_code=404, detail=t("api.accounts.not_found"))
 
     password = body.password if body else None
     entered_password = password
@@ -168,7 +168,7 @@ async def reconnect_account(apple_id: str, body: ReconnectRequest | None = None)
             updated = config_store.update_account_status(
                 apple_id,
                 status="requires_2fa",
-                status_message="Bitte Apple Push oder SMS auswaehlen und den Code bestaetigen.",
+                status_message=t("api.accounts.pending_challenge"),
             )
             return dict(updated)
         # Fall back to the stored (opt-in) password for a fresh login.
@@ -206,7 +206,7 @@ async def check_connection(apple_id: str):
     """
     account = config_store.get_account(apple_id)
     if account is None:
-        raise HTTPException(status_code=404, detail="Account nicht gefunden.")
+        raise HTTPException(status_code=404, detail=t("api.accounts.not_found"))
 
     result = icloud_service.check_connection(apple_id)
 
@@ -243,14 +243,14 @@ async def get_icloud_storage(apple_id: str, refresh: bool = False):
     """
     account = config_store.get_account(apple_id)
     if account is None:
-        raise HTTPException(status_code=404, detail="Account nicht gefunden.")
+        raise HTTPException(status_code=404, detail=t("api.accounts.not_found"))
 
     if refresh:
         if account["status"] != "authenticated":
-            raise HTTPException(status_code=400, detail="Account nicht authentifiziert.")
+            raise HTTPException(status_code=400, detail=t("api.accounts.not_authenticated"))
         data = storage_cache.refresh(apple_id)
         if data is None:
-            raise HTTPException(status_code=503, detail="Speicherinfo nicht verfügbar.")
+            raise HTTPException(status_code=503, detail=t("api.accounts.storage_unavailable"))
         return data
 
     cached = storage_cache.load_cache(apple_id)
@@ -259,10 +259,10 @@ async def get_icloud_storage(apple_id: str, refresh: bool = False):
 
     # No cache yet – try a one-shot fetch so the UI has something to show.
     if account["status"] != "authenticated":
-        raise HTTPException(status_code=503, detail="Speicherinfo nicht verfügbar.")
+        raise HTTPException(status_code=503, detail=t("api.accounts.storage_unavailable"))
     data = storage_cache.refresh(apple_id)
     if data is None:
-        raise HTTPException(status_code=503, detail="Speicherinfo nicht verfügbar.")
+        raise HTTPException(status_code=503, detail=t("api.accounts.storage_unavailable"))
     return data
 
 
@@ -270,28 +270,28 @@ async def get_icloud_storage(apple_id: str, refresh: bool = False):
 async def delete_stored_password(apple_id: str):
     """Remove the stored (encrypted) account password."""
     if config_store.get_account(apple_id) is None:
-        raise HTTPException(status_code=404, detail="Account nicht gefunden.")
+        raise HTTPException(status_code=404, detail=t("api.accounts.not_found"))
     removed = config_store.clear_account_password(apple_id)
-    return {"removed": removed, "message": "Gespeichertes Passwort entfernt." if removed else "Kein Passwort gespeichert."}
+    return {"removed": removed, "message": t("api.accounts.password_removed") if removed else t("api.accounts.no_password")}
 
 
 @router.delete("/{apple_id}")
 async def delete_account(apple_id: str):
     if not config_store.delete_account(apple_id):
-        raise HTTPException(status_code=404, detail="Account nicht gefunden.")
+        raise HTTPException(status_code=404, detail=t("api.accounts.not_found"))
 
     icloud_service.disconnect(apple_id)
     storage_cache.delete_cache(apple_id)
-    return {"message": "Account gelöscht."}
+    return {"message": t("api.accounts.deleted")}
 
 
 @router.get("/{apple_id}/drive-folders")
 async def get_drive_folders(apple_id: str):
     account = config_store.get_account(apple_id)
     if account is None:
-        raise HTTPException(status_code=404, detail="Account nicht gefunden.")
+        raise HTTPException(status_code=404, detail=t("api.accounts.not_found"))
     if account["status"] != "authenticated":
-        raise HTTPException(status_code=400, detail="Account nicht authentifiziert.")
+        raise HTTPException(status_code=400, detail=t("api.accounts.not_authenticated"))
 
     folders = icloud_service.get_drive_folders(apple_id)
     return folders
@@ -302,9 +302,9 @@ async def get_photo_libraries(apple_id: str):
     """Return available photo libraries (primary + shared/family) for the account."""
     account = config_store.get_account(apple_id)
     if account is None:
-        raise HTTPException(status_code=404, detail="Account nicht gefunden.")
+        raise HTTPException(status_code=404, detail=t("api.accounts.not_found"))
     if account["status"] != "authenticated":
-        raise HTTPException(status_code=400, detail="Account nicht authentifiziert.")
+        raise HTTPException(status_code=400, detail=t("api.accounts.not_authenticated"))
 
     libraries = icloud_service.get_photo_libraries(apple_id)
 

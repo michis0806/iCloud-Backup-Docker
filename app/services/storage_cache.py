@@ -13,6 +13,7 @@ from pathlib import Path
 
 from app.config import settings
 from app.services import icloud_service
+from app.i18n import t
 
 log = logging.getLogger("icloud-backup")
 
@@ -38,7 +39,7 @@ def load_cache(apple_id: str) -> dict | None:
         with _lock:
             raw = json.loads(path.read_text())
     except Exception:
-        log.warning("Speicher-Cache für %s konnte nicht gelesen werden", apple_id, exc_info=True)
+        log.warning(t("storage.read_failed"), apple_id, exc_info=True)
         return None
     data = raw.get("data")
     if not isinstance(data, dict):
@@ -69,7 +70,7 @@ def delete_cache(apple_id: str) -> None:
     try:
         path.unlink(missing_ok=True)
     except Exception:
-        log.debug("Speicher-Cache für %s konnte nicht gelöscht werden", apple_id, exc_info=True)
+        log.debug(t("storage.delete_failed"), apple_id, exc_info=True)
 
 
 def refresh(apple_id: str) -> dict | None:
@@ -80,8 +81,8 @@ def refresh(apple_id: str) -> dict | None:
     """
     data = icloud_service.get_storage_usage(apple_id)
     if data is None:
-        log.info("iCloud-Speicherinfo für %s nicht abrufbar – Cache bleibt unverändert", apple_id)
+        log.info(t("storage.unavailable"), apple_id)
         return None
     save_cache(apple_id, data)
-    log.info("iCloud-Speicherinfo für %s aktualisiert", apple_id)
+    log.info(t("storage.updated"), apple_id)
     return load_cache(apple_id)

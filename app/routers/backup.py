@@ -16,6 +16,7 @@ from app.schemas import (
 from app.services import backup_service, icloud_service, storage_cache
 from app.services.notification import notify_backup_result, notify_token_expired
 from app.services.scheduler import sync_scheduled_jobs
+from app.i18n import t
 
 log = logging.getLogger("icloud-backup")
 router = APIRouter(prefix="/api/backup", tags=["backup"])
@@ -25,7 +26,7 @@ router = APIRouter(prefix="/api/backup", tags=["backup"])
 async def get_backup_config(apple_id: str):
     cfg = config_store.get_backup_config(apple_id)
     if cfg is None:
-        raise HTTPException(status_code=404, detail="Account nicht gefunden.")
+        raise HTTPException(status_code=404, detail=t("api.backup.account_not_found"))
     return cfg
 
 
@@ -33,7 +34,7 @@ async def get_backup_config(apple_id: str):
 async def create_or_update_backup_config(apple_id: str, data: BackupConfigCreate):
     account = config_store.get_account(apple_id)
     if account is None:
-        raise HTTPException(status_code=404, detail="Account nicht gefunden.")
+        raise HTTPException(status_code=404, detail=t("api.backup.account_not_found"))
 
     cfg = config_store.save_backup_config(apple_id, data.model_dump())
     return cfg
@@ -44,18 +45,18 @@ async def trigger_backup(apple_id: str):
     """Manually trigger a backup for the given account."""
     account = config_store.get_account(apple_id)
     if account is None:
-        raise HTTPException(status_code=404, detail="Account nicht gefunden.")
+        raise HTTPException(status_code=404, detail=t("api.backup.account_not_found"))
     if account["status"] != "authenticated":
-        raise HTTPException(status_code=400, detail="Account nicht authentifiziert.")
+        raise HTTPException(status_code=400, detail=t("api.backup.not_authenticated"))
 
     cfg = config_store.get_backup_config(apple_id)
     if cfg is None or (not cfg.get("backup_drive") and not cfg.get("backup_photos") and not cfg.get("backup_contacts") and not cfg.get("backup_calendar") and not cfg.get("backup_notes") and not cfg.get("backup_reminders")):
-        raise HTTPException(status_code=400, detail="Keine Backup-Konfiguration vorhanden.")
+        raise HTTPException(status_code=400, detail=t("api.backup.no_config"))
 
     # Reject a second start while a backup for this account is running –
     # concurrent runs race on the same directory tree.
     if backup_service.get_progress(apple_id) is not None:
-        raise HTTPException(status_code=409, detail="Backup läuft bereits.")
+        raise HTTPException(status_code=409, detail=t("api.backup.already_running"))
 
     # Mark as running
     start_time = datetime.now(timezone.utc)
@@ -95,7 +96,7 @@ async def trigger_backup(apple_id: str):
                 photos_sync_policy=cfg.get("photos_sync_policy", "keep"),
             )
             if result.get("skipped_already_running"):
-                log.info("Backup für %s übersprungen – läuft bereits.", apple_id)
+                log.info(t("api.backup.skipped_running"), apple_id)
                 return
             status = "success" if result["success"] else "error"
             message = result["message"]
@@ -117,7 +118,7 @@ async def trigger_backup(apple_id: str):
                 )
                 notify_token_expired(apple_id)
         except Exception as exc:
-            log.error("Backup fehlgeschlagen für %s: %s", apple_id, exc)
+            log.error(t("api.backup.failed_log"), apple_id, exc)
             status = "error"
             message = str(exc)
             stats = None
@@ -133,13 +134,13 @@ async def trigger_backup(apple_id: str):
         try:
             await asyncio.to_thread(storage_cache.refresh, apple_id)
         except Exception:
-            log.debug("Speicher-Cache-Refresh für %s fehlgeschlagen", apple_id, exc_info=True)
+            log.debug(t("api.backup.cache_refresh_failed"), apple_id, exc_info=True)
         notify_backup_result(apple_id, status, message)
 
     asyncio.create_task(_run())
 
     return BackupTriggerResponse(
-        message="Backup gestartet.",
+        message=t("api.backup.started"),
         apple_id=apple_id,
     )
 
@@ -193,7 +194,7 @@ async def trigger_all_backups():
                     photos_sync_policy=cfg.get("photos_sync_policy", "keep"),
                 )
                 if result.get("skipped_already_running"):
-                    log.info("Backup für %s übersprungen – läuft bereits.", apple_id)
+                    log.info(t("api.backup.skipped_running"), apple_id)
                     return
                 status = "success" if result["success"] else "error"
                 message = result["message"]
@@ -213,7 +214,7 @@ async def trigger_all_backups():
                     )
                     notify_token_expired(apple_id)
             except Exception as exc:
-                log.error("Backup fehlgeschlagen für %s: %s", apple_id, exc)
+                log.error(t("api.backup.failed_log"), apple_id, exc)
                 status = "error"
                 message = str(exc)
                 stats = None
@@ -227,15 +228,15 @@ async def trigger_all_backups():
             try:
                 await asyncio.to_thread(storage_cache.refresh, apple_id)
             except Exception:
-                log.debug("Speicher-Cache-Refresh für %s fehlgeschlagen", apple_id, exc_info=True)
+                log.debug(t("api.backup.cache_refresh_failed"), apple_id, exc_info=True)
             notify_backup_result(apple_id, status, message)
 
         asyncio.create_task(_run())
         triggered.append(apple_id)
 
     if not triggered:
-        raise HTTPException(status_code=400, detail="Keine konfigurierten Accounts gefunden.")
-    return {"message": f"Backup gestartet für {len(triggered)} Account(s).", "triggered": triggered}
+        raise HTTPException(status_code=400, detail=t("api.backup.no_accounts"))
+    return {"message": t("api.backup.started_all", count=len(triggered)), "triggered": triggered}
 
 
 @router.post("/cancel/{apple_id}")
@@ -243,8 +244,8 @@ async def cancel_backup(apple_id: str):
     """Cancel a running backup for the given account."""
     cancelled = backup_service.request_cancel(apple_id)
     if not cancelled:
-        raise HTTPException(status_code=400, detail="Kein laufendes Backup gefunden.")
-    return {"message": "Abbruch angefordert.", "apple_id": apple_id}
+        raise HTTPException(status_code=400, detail=t("api.backup.none_running"))
+    return {"message": t("api.backup.cancel_requested"), "apple_id": apple_id}
 
 
 @router.get("/status/{apple_id}")
@@ -254,7 +255,7 @@ async def get_backup_status(apple_id: str):
     if cfg is None:
         return {
             "status": "not_configured",
-            "message": "Keine Backup-Konfiguration vorhanden.",
+            "message": t("api.backup.no_config"),
         }
 
     status = cfg.get("last_backup_status", "idle")
@@ -265,7 +266,7 @@ async def get_backup_status(apple_id: str):
         status = "error"
         config_store.update_backup_status(
             apple_id, status="error",
-            message="Backup durch Neustart unterbrochen.",
+            message=t("api.backup.interrupted"),
         )
 
     return {
@@ -309,9 +310,9 @@ async def get_disk_usage():
     try:
         usage = shutil.disk_usage(path)
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="Backup-Verzeichnis nicht gefunden.")
+        raise HTTPException(status_code=404, detail=t("api.backup.dir_not_found"))
     except OSError as exc:
-        raise HTTPException(status_code=503, detail=f"Speicherinfo nicht verfügbar: {exc}")
+        raise HTTPException(status_code=503, detail=t("api.backup.storage_unavailable", exc=exc))
 
     used_percent = (usage.used / usage.total * 100) if usage.total else 0
     return {
