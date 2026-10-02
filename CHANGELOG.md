@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-10-02
+
 ### Added
 - **Englische Oberfläche:** Neue Umgebungsvariable `UI_LANGUAGE` (`de` oder `en`,
   Standard `de`). Sie schaltet Web-Oberfläche, Status- und Fehlermeldungen,
@@ -15,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `app/locales/de.json` und `app/locales/en.json`. Mit dem Standardwert ändert
   sich für bestehende Installationen nichts; bereits in `config.yaml`
   gespeicherte Meldungen behalten ihre Sprache.
+  Beigetragen von Jeremy Mikkelsen.
 
 ## [0.12.2] - 2026-09-25
 

@@ -10,7 +10,7 @@ from httpx import ASGITransport, AsyncClient
 
 from app import config_store, i18n
 from app.auth import _COOKIE_NAME, create_session_cookie
-from app.config import settings
+from app.config import Settings, settings
 from app.main import app
 
 _LOCALES = Path(i18n.__file__).parent / "locales"
@@ -105,5 +105,6 @@ async def test_german_is_default(tmp_path, monkeypatch):
     ) as client:
         page = await client.get("/")
         detail = (await client.get("/api/accounts/unknown@example.com/2fa/devices")).json()["detail"]
+    assert Settings.model_fields["ui_language"].default == "de"
     assert '<html lang="de"' in page.text
     assert detail == _load("de")["api.accounts.not_found"]

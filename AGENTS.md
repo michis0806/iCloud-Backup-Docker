@@ -62,9 +62,11 @@ pyicloud distinguishes two auth modes:
 
 The `icloud_service.py` handles both flows transparently.
 
-The explicit 2FA adapter and its offline regression tests are mirrored in
-the Unified Inbox repository (`backend/unifiedinbox/integrations/apple_auth.py`).
-Keep these copies aligned when updating the Apple flow.
+The explicit 2FA adapter was developed together with the Unified Inbox
+repository (`backend/unifiedinbox/integrations/apple_auth.py`). Both tools
+keep their own Apple sessions and tokens, so the copies may diverge (this one
+uses `app.i18n` for its messages). Port fixes to the Apple flow itself
+(challenge, validation, trust) by hand when they apply to both.
 
 ### Photo Download
 
@@ -168,6 +170,7 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8080
 - Python: `from app.i18n import t`, then `t("key", name=value)` with `{name}` placeholders. Templates have `t()` as a Jinja global. Call `t()` at call time, not in module-level constants, so the active language applies.
 - Frontend: keys starting with `js.` are sent to the browser as `window.I18N`; use the global `t('js.key', {name: value})` in inline scripts and Alpine expressions (no Jinja inside `<script>` blocks). Dates use `t('js.date_locale')`.
 - Add every new key to **both** catalogs with identical `{placeholders}`; `tests/test_i18n.py` enforces this.
+- Tests run in German: `tests/conftest.py` pins `settings.ui_language = "de"`. Tests for English set it themselves via `monkeypatch`.
 - Message text stored in `/config/config.yaml` (e.g. `status_message`) keeps the language it was written in.
 
 ## Changelog & Release Process
