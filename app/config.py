@@ -1,6 +1,8 @@
 import secrets
 from pathlib import Path
+from typing import Literal
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -16,8 +18,14 @@ class Settings(BaseSettings):
     archive_path: Path = Path("/archive")
     cookie_directory: Path = Path("/config/sessions")
     log_level: str = "INFO"
+    ui_language: Literal["de", "en"] = "de"
 
     model_config = {"env_prefix": ""}
+
+    @field_validator("ui_language", mode="before")
+    @classmethod
+    def _normalize_ui_language(cls, value):
+        return value.strip().lower() if isinstance(value, str) else value
 
     def ensure_directories(self) -> None:
         self.config_path.mkdir(parents=True, exist_ok=True)

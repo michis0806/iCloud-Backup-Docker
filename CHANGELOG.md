@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Englische Oberfläche:** Neue Umgebungsvariable `UI_LANGUAGE` (`de` oder `en`,
+  Standard `de`). Sie schaltet Web-Oberfläche, Status- und Fehlermeldungen,
+  2FA-Texte, Scheduler- und Backup-Fortschritt sowie die Logzeilen im Log-Viewer
+  um. Das Datumsformat folgt der Sprache. Die Texte liegen in
+  `app/locales/de.json` und `app/locales/en.json`. Mit dem Standardwert ändert
+  sich für bestehende Installationen nichts; bereits in `config.yaml`
+  gespeicherte Meldungen behalten ihre Sprache.
+
 ## [0.12.2] - 2026-09-25
 
 ### Fixed

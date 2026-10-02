@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from app import config_store
 from app.services import backup_service, notification
+from app.i18n import t
 
 log = logging.getLogger("icloud-backup")
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -88,7 +89,7 @@ async def test_notification(data: NotificationTestRequest):
     if data.backend == "pushover":
         result = await asyncio.to_thread(notification.test_pushover)
     else:  # pragma: no cover – pydantic already enforces this
-        raise HTTPException(status_code=400, detail="Unbekannter Backend-Typ.")
+        raise HTTPException(status_code=400, detail=t("api.settings.unknown_backend"))
     return NotificationTestResponse(**result)
 
 
@@ -104,7 +105,7 @@ async def get_archive_settings():
 @router.post("/archive", response_model=ArchiveSettings)
 async def update_archive_settings(data: ArchiveSettings):
     if data.retention_days < 0:
-        raise HTTPException(status_code=400, detail="retention_days darf nicht negativ sein.")
+        raise HTTPException(status_code=400, detail=t("api.settings.retention_negative"))
     saved = config_store.save_archive_settings(data.model_dump())
     return ArchiveSettings(**saved)
 
@@ -114,10 +115,10 @@ async def prune_archive_now():
     """Manually trigger archive pruning using the stored retention policy."""
     retention = config_store.get_archive_settings().get("retention_days") or 0
     if retention <= 0:
-        return {"removed": 0, "retention_days": 0, "message": "Aufbewahrung deaktiviert."}
+        return {"removed": 0, "retention_days": 0, "message": t("api.settings.retention_disabled")}
     removed = await asyncio.to_thread(backup_service.prune_old_archives, retention)
     return {
         "removed": removed,
         "retention_days": retention,
-        "message": f"{removed} Archiv-Ordner entfernt.",
+        "message": t("api.settings.pruned", removed=removed),
     }

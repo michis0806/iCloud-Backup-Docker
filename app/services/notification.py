@@ -10,13 +10,11 @@ import urllib.error
 import urllib.request
 
 from app import config_store
+from app.i18n import t
 
 log = logging.getLogger("icloud-backup")
 
 _PUSHOVER_API_URL = "https://api.pushover.net/1/messages.json"
-
-_TEST_TITLE = "iCloud Backup – Testbenachrichtigung"
-_TEST_MESSAGE = "Dies ist eine Testnachricht aus dem iCloud-Backup-Service."
 
 
 def send_pushover_notification(title: str, message: str) -> None:
@@ -33,8 +31,7 @@ def send_pushover_notification(title: str, message: str) -> None:
     devices = notif.get("pushover_devices") or ""
     if not token or not user:
         log.warning(
-            "Pushover ist aktiviert, aber API-Token oder User-Key fehlt. "
-            "Bitte in den Benachrichtigungseinstellungen ergänzen."
+            t("notify.missing_credentials_log")
         )
         return
 
@@ -56,15 +53,15 @@ def send_pushover_notification(title: str, message: str) -> None:
 
     try:
         with urllib.request.urlopen(req, timeout=10):
-            log.info("Pushover-Benachrichtigung gesendet: %s", title)
+            log.info(t("notify.sent_log"), title)
     except urllib.error.HTTPError as exc:
         log.warning(
-            "Pushover-Benachrichtigung fehlgeschlagen (HTTP %d): %s",
+            t("notify.http_failed_log"),
             exc.code,
             exc.read().decode(errors="replace"),
         )
     except Exception as exc:
-        log.warning("Pushover-Benachrichtigung fehlgeschlagen: %s", exc)
+        log.warning(t("notify.failed_log"), exc)
 
 
 def _send(title: str, message: str) -> None:
@@ -79,15 +76,14 @@ def notify_backup_result(apple_id: str, status: str, message: str) -> None:
     if status == "success":
         return
 
-    _send("iCloud Backup fehlgeschlagen", f"{apple_id}: {message}")
+    _send(t("notify.backup_failed_title"), f"{apple_id}: {message}")
 
 
 def notify_token_expired(apple_id: str) -> None:
     """Notify that an iCloud token has expired and 2FA is required."""
     _send(
-        "iCloud Token abgelaufen",
-        f"{apple_id}: Token ist abgelaufen. "
-        "Zwei-Faktor-Authentifizierung erforderlich.",
+        t("notify.token_expired_title"),
+        t("notify.token_expired_body", apple_id=apple_id),
     )
 
 
@@ -101,14 +97,14 @@ def test_pushover() -> dict:
     if not token or not user:
         return {
             "success": False,
-            "message": "API-Token oder User-Key fehlt. Bitte zuerst speichern.",
+            "message": t("notify.missing_credentials"),
         }
 
     data = {
         "token": token,
         "user": user,
-        "title": _TEST_TITLE,
-        "message": _TEST_MESSAGE,
+        "title": t("notify.test_title"),
+        "message": t("notify.test_message"),
     }
     if devices:
         data["device"] = devices
@@ -122,13 +118,13 @@ def test_pushover() -> dict:
 
     try:
         with urllib.request.urlopen(req, timeout=10):
-            log.info("Pushover-Testbenachrichtigung gesendet")
-            return {"success": True, "message": "Pushover-Testbenachrichtigung gesendet."}
+            log.info(t("notify.test_sent_log"))
+            return {"success": True, "message": t("notify.test_sent")}
     except urllib.error.HTTPError as exc:
         body = exc.read().decode(errors="replace").strip()
         return {
             "success": False,
-            "message": f"Pushover-API antwortete mit HTTP {exc.code}: {body or '(kein Body)'}",
+            "message": t("notify.api_http_error", code=exc.code, body=body or t("notify.no_body")),
         }
     except Exception as exc:
-        return {"success": False, "message": f"Pushover-Benachrichtigung fehlgeschlagen: {exc}"}
+        return {"success": False, "message": t("notify.failed", exc=exc)}

@@ -156,10 +156,19 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8080
 | `CONFIG_PATH` | `./config` | Host path for configuration & sessions |
 | `ARCHIVE_PATH` | `./archive` | Host path for archived files (sync policy = "archive") |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
+| `UI_LANGUAGE` | `de` | UI language: `de` or `en` |
 | `TZ` | `Europe/Berlin` | Container timezone |
 
 > Pushover notification settings are stored in `/config/config.yaml` and
 > configured via the web UI (Einstellungen), not via environment variables.
+
+## UI Language (i18n)
+
+- All user-facing strings (templates, Alpine/JS code, API messages, status and log text) live in `app/locales/de.json` and `app/locales/en.json`. Never hardcode German or English text in code.
+- Python: `from app.i18n import t`, then `t("key", name=value)` with `{name}` placeholders. Templates have `t()` as a Jinja global. Call `t()` at call time, not in module-level constants, so the active language applies.
+- Frontend: keys starting with `js.` are sent to the browser as `window.I18N`; use the global `t('js.key', {name: value})` in inline scripts and Alpine expressions (no Jinja inside `<script>` blocks). Dates use `t('js.date_locale')`.
+- Add every new key to **both** catalogs with identical `{placeholders}`; `tests/test_i18n.py` enforces this.
+- Message text stored in `/config/config.yaml` (e.g. `status_message`) keeps the language it was written in.
 
 ## Changelog & Release Process
 

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}iCloud Backup – Account Konfiguration{% endblock %}
+{% block title %}{{ t('tpl.account.title') }}{% endblock %}
 
 {% block content %}
 <div x-data="accountConfig('{{ apple_id }}')">
@@ -10,10 +10,10 @@
             <i class="bi bi-arrow-left"></i>
         </a>
         <div>
-            <h1 class="h3 mb-0" x-text="account.apple_id || 'Lade...'"></h1>
+            <h1 class="h3 mb-0" x-text="account.apple_id || t('js.account.loading')"></h1>
             <span class="badge mt-1"
                   :class="account.status === 'authenticated' ? 'bg-success' : 'bg-warning'"
-                  x-text="account.status === 'authenticated' ? 'Verbunden' : account.status">
+                  x-text="account.status === 'authenticated' ? t('js.account.connected') : account.status">
             </span>
         </div>
     </div>
@@ -37,7 +37,7 @@
                 <!-- What to backup -->
                 <div class="card mb-4">
                     <div class="card-header">
-                        <h5 class="mb-0">Was soll gesichert werden?</h5>
+                        <h5 class="mb-0">{{ t('tpl.account.section_what') }}</h5>
                     </div>
                     <div class="card-body">
                         <div class="form-check form-switch mb-3">
@@ -51,35 +51,35 @@
                             <input class="form-check-input" type="checkbox" id="backupPhotos"
                                    x-model="config.backup_photos">
                             <label class="form-check-label" for="backupPhotos">
-                                <i class="bi bi-image me-1"></i> iCloud Fotos
+                                <i class="bi bi-image me-1"></i> {{ t('tpl.account.backup_photos') }}
                             </label>
                         </div>
                         <div class="form-check form-switch mb-3">
                             <input class="form-check-input" type="checkbox" id="backupContacts"
                                    x-model="config.backup_contacts">
                             <label class="form-check-label" for="backupContacts">
-                                <i class="bi bi-person-vcard me-1"></i> iCloud Kontakte
+                                <i class="bi bi-person-vcard me-1"></i> {{ t('tpl.account.backup_contacts') }}
                             </label>
                         </div>
                         <div class="form-check form-switch mb-3">
                             <input class="form-check-input" type="checkbox" id="backupCalendar"
                                    x-model="config.backup_calendar">
                             <label class="form-check-label" for="backupCalendar">
-                                <i class="bi bi-calendar-event me-1"></i> iCloud Kalender
+                                <i class="bi bi-calendar-event me-1"></i> {{ t('tpl.account.backup_calendar') }}
                             </label>
                         </div>
                         <div class="form-check form-switch mb-3">
                             <input class="form-check-input" type="checkbox" id="backupReminders"
                                    x-model="config.backup_reminders">
                             <label class="form-check-label" for="backupReminders">
-                                <i class="bi bi-check2-square me-1"></i> iCloud Erinnerungen
+                                <i class="bi bi-check2-square me-1"></i> {{ t('tpl.account.backup_reminders') }}
                             </label>
                         </div>
                         <div class="form-check form-switch">
                             <input class="form-check-input" type="checkbox" id="backupNotes"
                                    x-model="config.backup_notes">
                             <label class="form-check-label" for="backupNotes">
-                                <i class="bi bi-journal-text me-1"></i> iCloud Notizen
+                                <i class="bi bi-journal-text me-1"></i> {{ t('tpl.account.backup_notes') }}
                             </label>
                         </div>
                     </div>
@@ -89,18 +89,18 @@
                 <div class="card mb-4" x-show="config.backup_drive" x-transition>
                     <div class="card-header d-flex justify-content-between align-items-center">
                         <h5 class="mb-0">
-                            <i class="bi bi-folder me-1"></i> iCloud Drive Konfiguration
+                            <i class="bi bi-folder me-1"></i> {{ t('tpl.account.drive_config_title') }}
                         </h5>
                         <div class="btn-group btn-group-sm">
                             <button type="button" class="btn"
                                     :class="config.drive_config_mode === 'simple' ? 'btn-primary' : 'btn-outline-primary'"
                                     @click="config.drive_config_mode = 'simple'">
-                                Einfach
+                                {{ t('tpl.account.mode_simple') }}
                             </button>
                             <button type="button" class="btn"
                                     :class="config.drive_config_mode === 'advanced' ? 'btn-primary' : 'btn-outline-primary'"
                                     @click="config.drive_config_mode = 'advanced'">
-                                Erweitert
+                                {{ t('tpl.account.mode_advanced') }}
                             </button>
                         </div>
                     </div>
@@ -108,11 +108,11 @@
                         <!-- Simple mode: checkboxes -->
                         <div x-show="config.drive_config_mode === 'simple'">
                             <p class="text-muted small mb-3">
-                                Wählen Sie die Ordner aus, die gesichert werden sollen:
+                                {{ t('tpl.account.drive_pick_folders') }}
                             </p>
                             <div x-show="driveFoldersLoading" class="text-center py-3">
                                 <div class="spinner-border spinner-border-sm"></div>
-                                <span class="ms-2">Ordner werden geladen...</span>
+                                <span class="ms-2">{{ t('tpl.account.folders_loading') }}</span>
                             </div>
                             <div x-show="!driveFoldersLoading">
                                 <div class="form-check mb-3 border-bottom pb-2">
@@ -122,10 +122,10 @@
                                            @change="toggleSelectAll()">
                                     <label class="form-check-label fw-bold" for="folder-all">
                                         <i class="bi bi-cloud-fill me-1 text-primary"></i>
-                                        Alle Ordner sichern
+                                        {{ t('tpl.account.backup_all_folders') }}
                                     </label>
                                     <div class="form-text">
-                                        Sichert das gesamte iCloud Drive, einschließlich zukünftiger Ordner.
+                                        {{ t('tpl.account.backup_all_hint') }}
                                     </div>
                                 </div>
                                 <template x-for="folder in driveFolders" :key="folder.name">
@@ -143,15 +143,15 @@
                                             <span x-text="folder.name"></span>
                                             <span x-show="folder.shared_not_owned"
                                                   class="badge bg-secondary ms-1"
-                                                  title="Dieser Ordner gehört einem anderen Benutzer und kann nicht über die iCloud-API heruntergeladen werden.">
-                                                Fremdfreigabe
+                                                  title="{{ t('tpl.account.shared_foreign_hint') }}">
+                                                {{ t('tpl.account.shared_foreign') }}
                                             </span>
                                         </label>
                                     </div>
                                 </template>
                                 <div x-show="driveFolders.length === 0 && !driveFoldersLoading"
                                      class="text-muted small">
-                                    Keine Ordner gefunden. Stellen Sie sicher, dass der Account verbunden ist.
+                                    {{ t('tpl.account.no_folders') }}
                                 </div>
                             </div>
                         </div>
@@ -159,13 +159,13 @@
                         <!-- Advanced mode: text fields -->
                         <div x-show="config.drive_config_mode === 'advanced'">
                             <p class="text-muted small mb-3">
-                                Geben Sie die Pfade ein, die gesichert werden sollen (ein Pfad pro Zeile):
+                                {{ t('tpl.account.drive_enter_paths') }}
                             </p>
                             <textarea class="form-control font-monospace" rows="8"
                                       x-model="config.drive_folders_advanced"
                                       placeholder="Documents&#10;Desktop&#10;Projects/MyProject"></textarea>
                             <div class="form-text">
-                                Relative Pfade ab dem iCloud Drive Root-Verzeichnis.
+                                {{ t('tpl.account.drive_paths_hint') }}
                             </div>
                         </div>
 
@@ -173,18 +173,18 @@
                         <div class="mt-3 pt-3 border-top">
                             <label for="driveSyncPolicy" class="form-label fw-semibold">
                                 <i class="bi bi-arrow-repeat me-1"></i>
-                                Remote gelöschte Dateien
+                                {{ t('tpl.account.deleted_drive_label') }}
                             </label>
                             <select class="form-select" id="driveSyncPolicy"
                                     x-model="config.drive_sync_policy">
-                                <option value="delete">Lokal löschen</option>
-                                <option value="keep">Lokal behalten</option>
-                                <option value="archive">In Archiv verschieben</option>
+                                <option value="delete">{{ t('tpl.account.policy_delete') }}</option>
+                                <option value="keep">{{ t('tpl.account.policy_keep') }}</option>
+                                <option value="archive">{{ t('tpl.account.policy_archive') }}</option>
                             </select>
                             <div class="form-text">
-                                Was passiert mit lokalen Dateien, die in iCloud Drive gelöscht wurden?
+                                {{ t('tpl.account.drive_policy_question') }}
                                 <span x-show="config.drive_sync_policy === 'archive'" class="text-info">
-                                    Dateien werden nach <code>/archive/</code> verschoben.
+                                    {{ t('tpl.account.drive_archive_note')|safe }}
                                 </span>
                             </div>
                         </div>
@@ -195,7 +195,7 @@
                 <div class="card mb-4" x-show="config.backup_photos" x-transition>
                     <div class="card-header">
                         <h5 class="mb-0">
-                            <i class="bi bi-image me-1"></i> iCloud Fotos Konfiguration
+                            <i class="bi bi-image me-1"></i> {{ t('tpl.account.photos_config_title') }}
                         </h5>
                     </div>
                     <div class="card-body">
@@ -209,10 +209,10 @@
                                                @change="if (config.photos_include_family) { config.shared_library_id = sharedLibrary.id } else { config.shared_library_id = null }">
                                         <label class="form-check-label" for="includeFamily">
                                             <i class="bi bi-people me-1"></i>
-                                            Geteilte Mediathek mitsichern
+                                            {{ t('tpl.account.shared_library_include') }}
                                         </label>
                                         <div class="form-text">
-                                            Geteilte iCloud-Fotomediathek
+                                            {{ t('tpl.account.shared_library_desc') }}
                                             (<code class="small" x-text="sharedLibrary.id"></code>)
                                         </div>
                                     </div>
@@ -221,9 +221,9 @@
                                     <div class="d-flex align-items-start gap-2 p-2 rounded border border-info bg-info bg-opacity-10">
                                         <i class="bi bi-info-circle text-info mt-1"></i>
                                         <div class="small">
-                                            <strong>Geteilte Mediathek wird bereits gesichert</strong><br>
-                                            Die geteilte Mediathek wird bereits über den Account
-                                            <strong x-text="sharedLibrary.claimed_by"></strong> gesichert.
+                                            <strong>{{ t('tpl.account.shared_claimed_title') }}</strong><br>
+                                            {{ t('tpl.account.shared_claimed_pre') }}
+                                            <strong x-text="sharedLibrary.claimed_by"></strong> {{ t('tpl.account.shared_claimed_post') }}
                                         </div>
                                     </div>
                                 </template>
@@ -232,7 +232,7 @@
                         <template x-if="!sharedLibrary && photoLibrariesLoaded">
                             <div class="small text-body-secondary mb-3">
                                 <i class="bi bi-info-circle me-1"></i>
-                                Keine geteilte Mediathek gefunden.
+                                {{ t('tpl.account.no_shared_library') }}
                             </div>
                         </template>
 
@@ -240,18 +240,18 @@
                         <div class="mt-3 pt-3 border-top">
                             <label for="photosSyncPolicy" class="form-label fw-semibold">
                                 <i class="bi bi-arrow-repeat me-1"></i>
-                                Remote gelöschte Fotos
+                                {{ t('tpl.account.deleted_photos_label') }}
                             </label>
                             <select class="form-select" id="photosSyncPolicy"
                                     x-model="config.photos_sync_policy">
-                                <option value="keep">Lokal behalten</option>
-                                <option value="delete">Lokal löschen</option>
-                                <option value="archive">In Archiv verschieben</option>
+                                <option value="keep">{{ t('tpl.account.policy_keep') }}</option>
+                                <option value="delete">{{ t('tpl.account.policy_delete') }}</option>
+                                <option value="archive">{{ t('tpl.account.policy_archive') }}</option>
                             </select>
                             <div class="form-text">
-                                Was passiert mit lokalen Fotos, die aus der iCloud Mediathek gelöscht wurden?
+                                {{ t('tpl.account.photos_policy_question') }}
                                 <span x-show="config.photos_sync_policy === 'archive'" class="text-info">
-                                    Fotos werden nach <code>/archive/</code> verschoben.
+                                    {{ t('tpl.account.photos_archive_note')|safe }}
                                 </span>
                             </div>
                         </div>
@@ -262,7 +262,7 @@
                 <div class="card mb-4" x-show="config.backup_contacts" x-transition>
                     <div class="card-header">
                         <h5 class="mb-0">
-                            <i class="bi bi-person-vcard me-1"></i> Kontakte Konfiguration
+                            <i class="bi bi-person-vcard me-1"></i> {{ t('tpl.account.contacts_config_title') }}
                         </h5>
                     </div>
                     <div class="card-body">
@@ -270,18 +270,18 @@
                         <div>
                             <label for="contactsSyncPolicy" class="form-label fw-semibold">
                                 <i class="bi bi-arrow-repeat me-1"></i>
-                                Remote gelöschte Kontakte
+                                {{ t('tpl.account.deleted_contacts_label') }}
                             </label>
                             <select class="form-select" id="contactsSyncPolicy"
                                     x-model="config.contacts_sync_policy">
-                                <option value="archive">In Archiv verschieben</option>
-                                <option value="delete">Lokal löschen</option>
-                                <option value="keep">Lokal behalten</option>
+                                <option value="archive">{{ t('tpl.account.policy_archive') }}</option>
+                                <option value="delete">{{ t('tpl.account.policy_delete') }}</option>
+                                <option value="keep">{{ t('tpl.account.policy_keep') }}</option>
                             </select>
                             <div class="form-text">
-                                Was passiert mit lokalen VCF-Dateien, wenn Kontakte in iCloud gelöscht wurden?
+                                {{ t('tpl.account.contacts_policy_question') }}
                                 <span x-show="config.contacts_sync_policy === 'archive'" class="text-info">
-                                    Kontakte werden nach <code>/archive/</code> verschoben.
+                                    {{ t('tpl.account.contacts_archive_note')|safe }}
                                 </span>
                             </div>
                         </div>
@@ -292,20 +292,18 @@
                 <div class="card mb-4">
                     <div class="card-header">
                         <h5 class="mb-0">
-                            <i class="bi bi-funnel me-1"></i> Ausschlüsse (Exclusions)
+                            <i class="bi bi-funnel me-1"></i> {{ t('tpl.account.exclusions_title') }}
                         </h5>
                     </div>
                     <div class="card-body">
                         <p class="text-muted small mb-3">
-                            Dateien und Ordner, die vom Backup ausgeschlossen werden sollen
-                            (ein Muster pro Zeile):
+                            {{ t('tpl.account.exclusions_intro') }}
                         </p>
                         <textarea class="form-control font-monospace" rows="5"
                                   x-model="exclusionsText"
                                   placeholder=".DS_Store&#10;*.tmp&#10;.git&#10;node_modules&#10;__pycache__"></textarea>
                         <div class="form-text">
-                            Unterstützt Glob-Muster (<code>*.tmp</code>, <code>.git</code>)
-                            und relative Pfade (<code>Documents/Temp</code>).
+                            {{ t('tpl.account.exclusions_hint')|safe }}
                         </div>
                     </div>
                 </div>
@@ -325,26 +323,26 @@
                     <div class="card-body">
                         <template x-if="account.last_token_refresh_at">
                             <div class="mb-3 small">
-                                <strong>Letztes Token-Refresh:</strong><br>
+                                <strong>{{ t('tpl.account.token_last_refresh') }}</strong><br>
                                 <span x-text="formatDate(account.last_token_refresh_at)"></span>
                             </div>
                         </template>
                         <template x-if="!account.last_token_refresh_at">
                             <div class="small text-body-secondary mb-3">
                                 <i class="bi bi-info-circle me-1"></i>
-                                Kein Token-Refresh-Zeitpunkt bekannt.
+                                {{ t('tpl.account.token_unknown') }}
                             </div>
                         </template>
                         <template x-if="account.password_saved">
                             <div class="small mb-3 d-flex align-items-center justify-content-between">
                                 <span>
                                     <i class="bi bi-lock-fill me-1 text-success"></i>
-                                    Passwort verschlüsselt gespeichert
+                                    {{ t('tpl.account.password_saved') }}
                                 </span>
                                 <button type="button" class="btn btn-link btn-sm p-0 text-danger"
                                         @click="deleteStoredPassword()"
-                                        title="Gespeichertes Passwort entfernen">
-                                    entfernen
+                                        title="{{ t('tpl.account.password_remove_title') }}">
+                                    {{ t('tpl.account.password_remove') }}
                                 </button>
                             </div>
                         </template>
@@ -353,7 +351,7 @@
                                 :disabled="checkingConnection">
                             <span x-show="checkingConnection" class="spinner-border spinner-border-sm me-1"></span>
                             <i class="bi bi-plug me-1" x-show="!checkingConnection"></i>
-                            <span x-text="checkingConnection ? 'Wird geprüft...' : 'Verbindung prüfen'"></span>
+                            <span x-text="checkingConnection ? t('js.account.checking') : t('js.account.check_connection')"></span>
                         </button>
                         <div class="mt-2 small" x-show="connectionResult" x-transition>
                             <div class="alert py-1 px-2 mb-0 small"
@@ -368,7 +366,7 @@
                                 @click="submitReauth(true)"
                                 :disabled="reauthLoading || checkingConnection">
                             <span x-show="reauthLoading" class="spinner-border spinner-border-sm me-1"></span>
-                            Erneut autorisieren
+                            {{ t('tpl.account.reauthorize') }}
                         </button>
 
                         <!-- Password fallback – only shown when Apple requires
@@ -380,17 +378,16 @@
                                     <div class="mb-2">
                                         <input type="password" class="form-control form-control-sm"
                                                x-model="reauthPassword"
-                                               placeholder="Passwort eingeben">
+                                               placeholder="{{ t('tpl.account.password_placeholder') }}">
                                         <div class="form-text small">
-                                            Apple verlangt für die erneute Anmeldung das Passwort.
+                                            {{ t('tpl.account.password_required_hint') }}
                                         </div>
                                     </div>
                                     <div class="mb-2 form-check">
                                         <input type="checkbox" class="form-check-input" id="reauthRemember"
                                                x-model="reauthRemember">
                                         <label class="form-check-label small" for="reauthRemember">
-                                            Passwort verschlüsselt speichern, damit künftige
-                                            Re-Authentifizierungen ohne Passworteingabe laufen
+                                            {{ t('tpl.account.remember_password') }}
                                         </label>
                                     </div>
                                     <div class="d-flex gap-2">
@@ -398,12 +395,12 @@
                                                 @click="submitReauth()"
                                                 :disabled="reauthLoading || !reauthPassword">
                                             <span x-show="reauthLoading" class="spinner-border spinner-border-sm me-1"></span>
-                                            Anmelden
+                                            {{ t('tpl.account.sign_in') }}
                                         </button>
                                         <button type="button" class="btn btn-outline-secondary btn-sm"
                                                 @click="showReauthForm = false; reauthError = ''"
                                                 :disabled="reauthLoading">
-                                            Abbrechen
+                                            {{ t('tpl.account.cancel') }}
                                         </button>
                                     </div>
                                 </div>
@@ -415,14 +412,14 @@
                 <!-- Destination -->
                 <div class="card mb-4">
                     <div class="card-header">
-                        <h5 class="mb-0">Zielverzeichnis</h5>
+                        <h5 class="mb-0">{{ t('tpl.account.destination_title') }}</h5>
                     </div>
                     <div class="card-body">
                         <input type="text" class="form-control font-monospace"
                                x-model="config.destination"
-                               placeholder="Wird automatisch generiert">
+                               placeholder="{{ t('tpl.account.destination_placeholder') }}">
                         <div class="form-text">
-                            Relativ zum Backup-Verzeichnis (<code>/backups/</code>).
+                            {{ t('tpl.account.destination_hint')|safe }}
                         </div>
                     </div>
                 </div>
@@ -433,26 +430,26 @@
                         <button type="submit" class="btn btn-primary" :disabled="saving">
                             <span x-show="saving" class="spinner-border spinner-border-sm me-1"></span>
                             <i class="bi bi-check-lg me-1" x-show="!saving"></i>
-                            Konfiguration speichern
+                            {{ t('tpl.account.save_config') }}
                         </button>
                         <button type="button" class="btn btn-success" @click="triggerBackup()"
                                 :disabled="backupRunning"
                                 x-show="!backupRunning">
                             <i class="bi bi-play-fill me-1"></i>
-                            Backup jetzt starten
+                            {{ t('tpl.account.start_backup') }}
                         </button>
                         <button type="button" class="btn btn-danger" @click="cancelBackup()"
                                 :disabled="cancelRequested"
                                 x-show="backupRunning">
                             <i class="bi bi-x-circle me-1" x-show="!cancelRequested"></i>
                             <span x-show="cancelRequested" class="spinner-border spinner-border-sm me-1"></span>
-                            <span x-text="cancelRequested ? 'Wird abgebrochen...' : 'Backup abbrechen'"></span>
+                            <span x-text="cancelRequested ? t('js.account.cancelling') : t('js.account.cancel_backup')"></span>
                         </button>
                         <hr class="my-1">
                         <button type="button" class="btn btn-outline-danger" @click="deleteAccount()"
                                 :disabled="backupRunning">
                             <i class="bi bi-trash me-1"></i>
-                            Account löschen
+                            {{ t('tpl.account.delete_account') }}
                         </button>
                     </div>
                 </div>
@@ -462,7 +459,7 @@
                     <div class="card-header">
                         <h5 class="mb-0">
                             <span class="spinner-border spinner-border-sm me-2"></span>
-                            Backup läuft...
+                            {{ t('tpl.account.backup_running') }}
                         </h5>
                     </div>
                     <div class="card-body small">
@@ -471,26 +468,26 @@
                             <span x-text="progressPhaseLabel(progress.phase)"></span>
                         </div>
                         <div class="mb-2" x-show="progress.folder">
-                            <strong>Ordner:</strong>
+                            <strong>{{ t('tpl.account.label_folder') }}</strong>
                             <span x-text="progress.folder"></span>
                         </div>
                         <div class="mb-2" x-show="progress.current_file">
-                            <strong>Datei:</strong>
+                            <strong>{{ t('tpl.account.label_file') }}</strong>
                             <span class="font-monospace" x-text="progress.current_file"
                                   style="word-break: break-all"></span>
                         </div>
                         <div class="d-flex flex-wrap gap-3 mt-3">
                             <div>
                                 <span class="text-success" x-text="progress.downloaded || 0"></span>
-                                <span class="text-body-secondary">heruntergeladen</span>
+                                <span class="text-body-secondary">{{ t('tpl.account.stat_downloaded') }}</span>
                             </div>
                             <div>
                                 <span class="text-body-secondary" x-text="progress.skipped || 0"></span>
-                                <span class="text-body-secondary">übersprungen</span>
+                                <span class="text-body-secondary">{{ t('tpl.account.stat_skipped') }}</span>
                             </div>
                             <div>
                                 <span class="text-danger" x-text="progress.errors || 0"></span>
-                                <span class="text-body-secondary">Fehler</span>
+                                <span class="text-body-secondary">{{ t('tpl.account.stat_errors') }}</span>
                             </div>
                         </div>
                     </div>
@@ -509,11 +506,11 @@
                             </span>
                         </div>
                         <p class="small text-body-secondary mb-1" x-show="backupStatus.last_backup_at">
-                            Letztes Backup: <span x-text="formatDate(backupStatus.last_backup_at)"></span>
+                            {{ t('tpl.account.last_backup') }} <span x-text="formatDate(backupStatus.last_backup_at)"></span>
                         </p>
                         <p class="small text-body-secondary mb-1" x-show="backupStatus.last_backup_duration_seconds">
                             <i class="bi bi-hourglass-split me-1"></i>
-                            Dauer: <span x-text="formatDuration(backupStatus.last_backup_duration_seconds)"></span>
+                            {{ t('tpl.account.duration') }} <span x-text="formatDuration(backupStatus.last_backup_duration_seconds)"></span>
                         </p>
                         <p class="small mb-0" x-show="backupStatus.message" x-text="backupStatus.message"></p>
 
@@ -525,146 +522,146 @@
                                     <div class="d-flex flex-wrap gap-3 mt-1">
                                         <div>
                                             <span class="text-success" x-text="backupStatus.stats.drive.downloaded"></span>
-                                            <span class="text-body-secondary">heruntergeladen</span>
+                                            <span class="text-body-secondary">{{ t('tpl.account.stat_downloaded') }}</span>
                                         </div>
                                         <template x-if="backupStatus.stats.drive.deleted">
                                             <div>
                                                 <span class="text-warning" x-text="backupStatus.stats.drive.deleted"></span>
-                                                <span class="text-body-secondary">gelöscht</span>
+                                                <span class="text-body-secondary">{{ t('tpl.account.stat_deleted') }}</span>
                                             </div>
                                         </template>
                                         <template x-if="backupStatus.stats.drive.archived">
                                             <div>
                                                 <span class="text-info" x-text="backupStatus.stats.drive.archived"></span>
-                                                <span class="text-body-secondary">archiviert</span>
+                                                <span class="text-body-secondary">{{ t('tpl.account.stat_archived') }}</span>
                                             </div>
                                         </template>
                                         <div>
                                             <span class="text-body-secondary" x-text="backupStatus.stats.drive.skipped"></span>
-                                            <span class="text-body-secondary">übersprungen</span>
+                                            <span class="text-body-secondary">{{ t('tpl.account.stat_skipped') }}</span>
                                         </div>
                                         <div>
                                             <span class="text-danger" x-text="backupStatus.stats.drive.errors"></span>
-                                            <span class="text-body-secondary">Fehler</span>
+                                            <span class="text-body-secondary">{{ t('tpl.account.stat_errors') }}</span>
                                         </div>
                                     </div>
                                 </div>
                             </template>
                             <template x-if="backupStatus.stats?.photos">
                                 <div class="border-top pt-2 mt-2">
-                                    <strong>Fotos:</strong>
+                                    <strong>{{ t('tpl.account.label_photos') }}</strong>
                                     <div class="d-flex flex-wrap gap-3 mt-1">
                                         <div>
                                             <span class="text-success" x-text="backupStatus.stats.photos.downloaded"></span>
-                                            <span class="text-body-secondary">heruntergeladen</span>
+                                            <span class="text-body-secondary">{{ t('tpl.account.stat_downloaded') }}</span>
                                         </div>
                                         <template x-if="backupStatus.stats.photos.deleted">
                                             <div>
                                                 <span class="text-warning" x-text="backupStatus.stats.photos.deleted"></span>
-                                                <span class="text-body-secondary">gelöscht</span>
+                                                <span class="text-body-secondary">{{ t('tpl.account.stat_deleted') }}</span>
                                             </div>
                                         </template>
                                         <template x-if="backupStatus.stats.photos.archived">
                                             <div>
                                                 <span class="text-info" x-text="backupStatus.stats.photos.archived"></span>
-                                                <span class="text-body-secondary">archiviert</span>
+                                                <span class="text-body-secondary">{{ t('tpl.account.stat_archived') }}</span>
                                             </div>
                                         </template>
                                         <div>
                                             <span class="text-body-secondary" x-text="backupStatus.stats.photos.skipped"></span>
-                                            <span class="text-body-secondary">übersprungen</span>
+                                            <span class="text-body-secondary">{{ t('tpl.account.stat_skipped') }}</span>
                                         </div>
                                         <div>
                                             <span class="text-danger" x-text="backupStatus.stats.photos.errors"></span>
-                                            <span class="text-body-secondary">Fehler</span>
+                                            <span class="text-body-secondary">{{ t('tpl.account.stat_errors') }}</span>
                                         </div>
                                     </div>
                                 </div>
                             </template>
                             <template x-if="backupStatus.stats?.contacts">
                                 <div class="border-top pt-2 mt-2">
-                                    <strong>Kontakte:</strong>
+                                    <strong>{{ t('tpl.account.label_contacts') }}</strong>
                                     <div class="d-flex flex-wrap gap-3 mt-1">
                                         <div>
                                             <span class="text-success" x-text="backupStatus.stats.contacts.downloaded"></span>
-                                            <span class="text-body-secondary">geschrieben</span>
+                                            <span class="text-body-secondary">{{ t('tpl.account.stat_written') }}</span>
                                         </div>
                                         <div>
                                             <span class="text-body-secondary" x-text="backupStatus.stats.contacts.skipped"></span>
-                                            <span class="text-body-secondary">übersprungen</span>
+                                            <span class="text-body-secondary">{{ t('tpl.account.stat_skipped') }}</span>
                                         </div>
                                         <template x-if="backupStatus.stats.contacts.deleted">
                                             <div>
                                                 <span class="text-warning" x-text="backupStatus.stats.contacts.deleted"></span>
-                                                <span class="text-body-secondary">gelöscht</span>
+                                                <span class="text-body-secondary">{{ t('tpl.account.stat_deleted') }}</span>
                                             </div>
                                         </template>
                                         <template x-if="backupStatus.stats.contacts.archived">
                                             <div>
                                                 <span class="text-info" x-text="backupStatus.stats.contacts.archived"></span>
-                                                <span class="text-body-secondary">archiviert</span>
+                                                <span class="text-body-secondary">{{ t('tpl.account.stat_archived') }}</span>
                                             </div>
                                         </template>
                                         <div>
                                             <span class="text-danger" x-text="backupStatus.stats.contacts.errors"></span>
-                                            <span class="text-body-secondary">Fehler</span>
+                                            <span class="text-body-secondary">{{ t('tpl.account.stat_errors') }}</span>
                                         </div>
                                     </div>
                                 </div>
                             </template>
                             <template x-if="backupStatus.stats?.calendar">
                                 <div class="border-top pt-2 mt-2">
-                                    <strong>Kalender:</strong>
+                                    <strong>{{ t('tpl.account.label_calendar') }}</strong>
                                     <div class="d-flex flex-wrap gap-3 mt-1">
                                         <div>
                                             <span class="text-success" x-text="backupStatus.stats.calendar.downloaded"></span>
-                                            <span class="text-body-secondary">geschrieben</span>
+                                            <span class="text-body-secondary">{{ t('tpl.account.stat_written') }}</span>
                                         </div>
                                         <div>
                                             <span class="text-body-secondary" x-text="backupStatus.stats.calendar.skipped"></span>
-                                            <span class="text-body-secondary">übersprungen</span>
+                                            <span class="text-body-secondary">{{ t('tpl.account.stat_skipped') }}</span>
                                         </div>
                                         <div>
                                             <span class="text-danger" x-text="backupStatus.stats.calendar.errors"></span>
-                                            <span class="text-body-secondary">Fehler</span>
+                                            <span class="text-body-secondary">{{ t('tpl.account.stat_errors') }}</span>
                                         </div>
                                     </div>
                                 </div>
                             </template>
                             <template x-if="backupStatus.stats?.reminders">
                                 <div class="border-top pt-2 mt-2">
-                                    <strong>Erinnerungen:</strong>
+                                    <strong>{{ t('tpl.account.label_reminders') }}</strong>
                                     <div class="d-flex flex-wrap gap-3 mt-1">
                                         <div>
                                             <span class="text-success" x-text="backupStatus.stats.reminders.downloaded"></span>
-                                            <span class="text-body-secondary">geschrieben</span>
+                                            <span class="text-body-secondary">{{ t('tpl.account.stat_written') }}</span>
                                         </div>
                                         <div>
                                             <span class="text-body-secondary" x-text="backupStatus.stats.reminders.skipped"></span>
-                                            <span class="text-body-secondary">übersprungen</span>
+                                            <span class="text-body-secondary">{{ t('tpl.account.stat_skipped') }}</span>
                                         </div>
                                         <div>
                                             <span class="text-danger" x-text="backupStatus.stats.reminders.errors"></span>
-                                            <span class="text-body-secondary">Fehler</span>
+                                            <span class="text-body-secondary">{{ t('tpl.account.stat_errors') }}</span>
                                         </div>
                                     </div>
                                 </div>
                             </template>
                             <template x-if="backupStatus.stats?.notes">
                                 <div class="border-top pt-2 mt-2">
-                                    <strong>Notizen:</strong>
+                                    <strong>{{ t('tpl.account.label_notes') }}</strong>
                                     <div class="d-flex flex-wrap gap-3 mt-1">
                                         <div>
                                             <span class="text-success" x-text="backupStatus.stats.notes.downloaded"></span>
-                                            <span class="text-body-secondary">geschrieben</span>
+                                            <span class="text-body-secondary">{{ t('tpl.account.stat_written') }}</span>
                                         </div>
                                         <div>
                                             <span class="text-body-secondary" x-text="backupStatus.stats.notes.skipped"></span>
-                                            <span class="text-body-secondary">übersprungen</span>
+                                            <span class="text-body-secondary">{{ t('tpl.account.stat_skipped') }}</span>
                                         </div>
                                         <div>
                                             <span class="text-danger" x-text="backupStatus.stats.notes.errors"></span>
-                                            <span class="text-body-secondary">Fehler</span>
+                                            <span class="text-body-secondary">{{ t('tpl.account.stat_errors') }}</span>
                                         </div>
                                     </div>
                                 </div>
@@ -682,26 +679,26 @@
         <div class="modal-dialog">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title">Apple-Anmeldung bestaetigen</h5>
+                    <h5 class="modal-title">{{ t('tpl.account.tfa_title') }}</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
                     <div class="alert alert-danger" x-show="tfaError" x-text="tfaError"></div>
                     <div class="alert alert-success" x-show="tfaSmsSuccess" x-text="tfaSmsSuccess"></div>
 
-                    <p class="text-muted small">Wie moechten Sie den Code erhalten? Erst die Auswahl fordert einen Code an.</p>
+                    <p class="text-muted small">{{ t('tpl.account.tfa_choose') }}</p>
                     <!-- Explicit channel selection -->
                     <ul class="nav nav-pills nav-fill mb-3">
                         <li class="nav-item">
                             <button type="button" class="nav-link w-100" :class="{ active: tfaMode === 'device' }"
                                :disabled="resendingCode || tfaSmsLoading || tfaLoading" @click="triggerDevicePush()">
-                                <i class="bi bi-phone me-1"></i> Apple Push anfordern
+                                <i class="bi bi-phone me-1"></i> {{ t('tpl.account.tfa_push_button') }}
                             </button>
                         </li>
                         <li class="nav-item">
                             <button type="button" class="nav-link w-100" :class="{ active: tfaMode === 'sms' }"
                                :disabled="resendingCode || tfaSmsLoading || tfaLoading" @click="switchToSms()">
-                                <i class="bi bi-chat-dots me-1"></i> SMS-Code
+                                <i class="bi bi-chat-dots me-1"></i> {{ t('tpl.account.tfa_sms_button') }}
                             </button>
                         </li>
                     </ul>
@@ -711,8 +708,7 @@
                         <div class="d-flex align-items-start gap-2 mb-3 p-2 rounded border border-info bg-info bg-opacity-10">
                             <i class="bi bi-info-circle text-info mt-1"></i>
                             <div class="small">
-                                Eine Benachrichtigung wurde an Ihre Apple-Geräte gesendet.
-                                Geben Sie den angezeigten 6-stelligen Code ein.
+                                {{ t('tpl.account.tfa_push_sent') }}
                             </div>
                         </div>
                         <form @submit.prevent="submitTfa()">
@@ -723,7 +719,7 @@
                             </div>
                             <button type="submit" class="btn btn-warning w-100" :disabled="tfaLoading || tfaCode.length < 6">
                                 <span x-show="tfaLoading" class="spinner-border spinner-border-sm me-1"></span>
-                                Bestätigen
+                                {{ t('tpl.account.confirm') }}
                             </button>
                         </form>
                     </div>
@@ -734,10 +730,10 @@
                         <template x-if="!tfaSmsSent">
                             <div>
                                 <p class="text-muted small">
-                                    Wählen Sie ein Gerät, an das der SMS-Code gesendet werden soll.
+                                    {{ t('tpl.account.tfa_pick_device') }}
                                 </p>
                                 <div x-show="tfaDevicesLoading" class="text-center py-3">
-                                    <span class="spinner-border spinner-border-sm"></span> Geräte werden geladen…
+                                    <span class="spinner-border spinner-border-sm"></span> {{ t('tpl.account.devices_loading') }}
                                 </div>
                                 <div class="list-group mb-3" x-show="!tfaDevicesLoading && tfaDevices.length > 0">
                                     <template x-for="device in tfaDevices" :key="device.index">
@@ -753,10 +749,10 @@
                                     </template>
                                 </div>
                                 <div x-show="!tfaDevicesLoading && tfaDevices.length === 0" class="text-muted small">
-                                    Keine Geräte für SMS-Verifizierung verfügbar.
+                                    {{ t('tpl.account.no_sms_devices') }}
                                 </div>
                                 <div x-show="tfaSmsLoading" class="text-center py-2">
-                                    <span class="spinner-border spinner-border-sm"></span> SMS wird gesendet…
+                                    <span class="spinner-border spinner-border-sm"></span> {{ t('tpl.account.sms_sending') }}
                                 </div>
                             </div>
                         </template>
@@ -765,7 +761,7 @@
                         <template x-if="tfaSmsSent">
                             <div>
                                 <p class="text-muted small">
-                                    Geben Sie den per SMS empfangenen Code ein.
+                                    {{ t('tpl.account.tfa_enter_sms') }}
                                 </p>
                                 <form @submit.prevent="submitTfaSms()">
                                     <div class="mb-3">
@@ -775,11 +771,11 @@
                                     </div>
                                     <button type="submit" class="btn btn-warning w-100" :disabled="tfaLoading">
                                         <span x-show="tfaLoading" class="spinner-border spinner-border-sm me-1"></span>
-                                        Bestätigen
+                                        {{ t('tpl.account.confirm') }}
                                     </button>
                                     <button type="button" class="btn btn-link btn-sm w-100 mt-2"
                                             @click="tfaSmsSent = false; tfaSmsSuccess = ''">
-                                        <i class="bi bi-arrow-left me-1"></i> Anderes Gerät wählen
+                                        <i class="bi bi-arrow-left me-1"></i> {{ t('tpl.account.pick_other_device') }}
                                     </button>
                                 </form>
                             </div>
@@ -1000,13 +996,13 @@ function accountConfig(appleId) {
 
         progressPhaseLabel(phase) {
             return {
-                'starting': 'Starte...',
+                'starting': t('js.account.phase_starting'),
                 'drive': 'iCloud Drive',
-                'photos': 'iCloud Fotos',
-                'contacts': 'iCloud Kontakte',
-                'calendar': 'iCloud Kalender',
-                'reminders': 'iCloud Erinnerungen',
-                'notes': 'iCloud Notizen',
+                'photos': t('js.account.phase_photos'),
+                'contacts': t('js.account.phase_contacts'),
+                'calendar': t('js.account.phase_calendar'),
+                'reminders': t('js.account.phase_reminders'),
+                'notes': t('js.account.phase_notes'),
             }[phase] || phase || '';
         },
 
@@ -1046,13 +1042,13 @@ function accountConfig(appleId) {
                     body: JSON.stringify(payload),
                 });
                 if (res.ok) {
-                    this.successMsg = 'Konfiguration gespeichert.';
+                    this.successMsg = t('js.account.config_saved');
                 } else {
                     const err = await res.json();
-                    this.errorMsg = err.detail || 'Fehler beim Speichern.';
+                    this.errorMsg = err.detail || t('js.account.save_failed');
                 }
             } catch (e) {
-                this.errorMsg = 'Netzwerkfehler: ' + e.message;
+                this.errorMsg = t('js.account.network_error', {message: e.message});
             }
             this.saving = false;
         },
@@ -1064,15 +1060,15 @@ function accountConfig(appleId) {
             try {
                 const res = await fetch(`/api/backup/run/${this.encodedId()}`, { method: 'POST' });
                 if (res.ok) {
-                    this.successMsg = 'Backup wurde gestartet.';
+                    this.successMsg = t('js.account.backup_started');
                     this.startProgressPolling();
                 } else {
                     const err = await res.json();
-                    this.errorMsg = err.detail || 'Fehler beim Starten.';
+                    this.errorMsg = err.detail || t('js.account.start_failed');
                     this.backupRunning = false;
                 }
             } catch (e) {
-                this.errorMsg = 'Netzwerkfehler: ' + e.message;
+                this.errorMsg = t('js.account.network_error', {message: e.message});
                 this.backupRunning = false;
             }
         },
@@ -1083,30 +1079,30 @@ function accountConfig(appleId) {
             try {
                 const res = await fetch(`/api/backup/cancel/${this.encodedId()}`, { method: 'POST' });
                 if (res.ok) {
-                    this.successMsg = 'Abbruch angefordert...';
+                    this.successMsg = t('js.account.cancel_requested');
                 } else {
                     const err = await res.json();
-                    this.errorMsg = err.detail || 'Fehler beim Abbrechen.';
+                    this.errorMsg = err.detail || t('js.account.cancel_failed');
                     this.cancelRequested = false;
                 }
             } catch (e) {
-                this.errorMsg = 'Netzwerkfehler: ' + e.message;
+                this.errorMsg = t('js.account.network_error', {message: e.message});
                 this.cancelRequested = false;
             }
         },
 
         async deleteAccount() {
-            if (!confirm('Account wirklich löschen? Alle zugehörigen Konfigurationen werden ebenfalls entfernt.')) return;
+            if (!confirm(t('js.account.confirm_delete_account'))) return;
             try {
                 const res = await fetch(`/api/accounts/${this.encodedId()}`, { method: 'DELETE' });
                 if (res.ok) {
                     window.location.href = '/';
                 } else {
                     const err = await res.json();
-                    this.errorMsg = err.detail || 'Fehler beim Löschen.';
+                    this.errorMsg = err.detail || t('js.account.delete_failed');
                 }
             } catch (e) {
-                this.errorMsg = 'Fehler beim Löschen: ' + e.message;
+                this.errorMsg = t('js.account.delete_failed_detail', {message: e.message});
             }
         },
 
@@ -1122,11 +1118,11 @@ function accountConfig(appleId) {
 
         backupStatusLabel(status) {
             return {
-                'idle': 'Bereit',
-                'running': 'Läuft...',
-                'success': 'Erfolgreich',
-                'error': 'Fehler',
-                'not_configured': 'Nicht konfiguriert',
+                'idle': t('js.account.status_idle'),
+                'running': t('js.account.status_running'),
+                'success': t('js.account.status_success'),
+                'error': t('js.account.status_error'),
+                'not_configured': t('js.account.status_not_configured'),
             }[status] || status;
         },
 
@@ -1138,7 +1134,7 @@ function accountConfig(appleId) {
                 this.connectionResult = await res.json();
                 await this.loadAccount();
             } catch (e) {
-                this.connectionResult = { valid: false, message: 'Netzwerkfehler: ' + e.message };
+                this.connectionResult = { valid: false, message: t('js.account.network_error', {message: e.message}) };
             }
             this.checkingConnection = false;
         },
@@ -1172,20 +1168,20 @@ function accountConfig(appleId) {
                     new bootstrap.Modal(this.$refs.tfaModal).show();
                 } else if (data.requires_password) {
                     this.showReauthForm = true;
-                    this.reauthError = data.status_message || 'Session abgelaufen – bitte Passwort eingeben.';
+                    this.reauthError = data.status_message || t('js.account.session_expired');
                 } else if (data.status === 'error') {
-                    this.reauthError = data.status_message || 'Anmeldung fehlgeschlagen.';
+                    this.reauthError = data.status_message || t('js.account.login_failed');
                     this.showReauthForm = true;
                 } else if (data.status === 'authenticated') {
                     this.showReauthForm = false;
                     this.reauthPassword = '';
                     this.reauthRemember = false;
                     this.connectionResult = null;
-                    this.successMsg = 'Erfolgreich neu autorisiert.';
+                    this.successMsg = t('js.account.reauth_ok');
                 }
                 await this.loadAccount();
             } catch (e) {
-                this.reauthError = 'Netzwerkfehler: ' + e.message;
+                this.reauthError = t('js.account.network_error', {message: e.message});
                 this.showReauthForm = true;
             }
             this.reauthLoading = false;
@@ -1195,10 +1191,10 @@ function accountConfig(appleId) {
             try {
                 const res = await fetch(`/api/accounts/${this.encodedId()}/password`, { method: 'DELETE' });
                 const data = await res.json();
-                this.successMsg = data.message || 'Gespeichertes Passwort entfernt.';
+                this.successMsg = data.message || t('js.account.password_removed');
                 await this.loadAccount();
             } catch (e) {
-                this.errorMsg = 'Netzwerkfehler: ' + e.message;
+                this.errorMsg = t('js.account.network_error', {message: e.message});
             }
         },
 
@@ -1216,7 +1212,7 @@ function accountConfig(appleId) {
                 const data = await res.json();
                 if (data.status === 'authenticated') {
                     bootstrap.Modal.getInstance(this.$refs.tfaModal)?.hide();
-                    this.successMsg = 'Erfolgreich neu autorisiert.';
+                    this.successMsg = t('js.account.reauth_ok');
                     await this.loadAccount();
                 } else if (data.success) {
                     this.tfaCode = '';
@@ -1225,10 +1221,10 @@ function accountConfig(appleId) {
                     this.tfaPushSent = true;
                     this.tfaSmsSent = false;
                 } else {
-                    this.tfaError = data.message || 'Benachrichtigung fehlgeschlagen. Versuchen Sie SMS.';
+                    this.tfaError = data.message || t('js.account.push_failed');
                 }
             } catch (e) {
-                this.tfaError = 'Netzwerkfehler: ' + e.message;
+                this.tfaError = t('js.account.network_error', {message: e.message});
             }
             this.resendingCode = false;
         },
@@ -1253,7 +1249,7 @@ function accountConfig(appleId) {
                     this.tfaDevices = await res.json();
                 }
             } catch (e) {
-                this.tfaError = 'Fehler beim Laden der Geräte: ' + e.message;
+                this.tfaError = t('js.account.devices_load_failed', {message: e.message});
             }
             this.tfaDevicesLoading = false;
         },
@@ -1275,12 +1271,12 @@ function accountConfig(appleId) {
                     this.tfaPushSent = false;
                     this.tfaSmsDeviceIndex = deviceIndex;
                     this.tfaSmsSent = true;
-                    this.tfaSmsSuccess = data.message || 'SMS-Code gesendet.';
+                    this.tfaSmsSuccess = data.message || t('js.account.sms_sent');
                 } else {
-                    this.tfaError = data.message || 'SMS konnte nicht gesendet werden.';
+                    this.tfaError = data.message || t('js.account.sms_failed');
                 }
             } catch (e) {
-                this.tfaError = 'Netzwerkfehler: ' + e.message;
+                this.tfaError = t('js.account.network_error', {message: e.message});
             }
             this.tfaSmsLoading = false;
         },
@@ -1297,14 +1293,14 @@ function accountConfig(appleId) {
                 const data = await res.json();
                 if (data.status === 'authenticated') {
                     bootstrap.Modal.getInstance(this.$refs.tfaModal)?.hide();
-                    this.successMsg = 'Erfolgreich neu autorisiert.';
+                    this.successMsg = t('js.account.reauth_ok');
                     this.connectionResult = null;
                     await this.loadAccount();
                 } else {
-                    this.tfaError = data.status_message || 'Code ungültig.';
+                    this.tfaError = data.status_message || t('js.account.code_invalid');
                 }
             } catch (e) {
-                this.tfaError = 'Netzwerkfehler: ' + e.message;
+                this.tfaError = t('js.account.network_error', {message: e.message});
             }
             this.tfaLoading = false;
         },
@@ -1324,21 +1320,21 @@ function accountConfig(appleId) {
                 const data = await res.json();
                 if (data.status === 'authenticated') {
                     bootstrap.Modal.getInstance(this.$refs.tfaModal)?.hide();
-                    this.successMsg = 'Erfolgreich neu autorisiert.';
+                    this.successMsg = t('js.account.reauth_ok');
                     this.connectionResult = null;
                     await this.loadAccount();
                 } else {
-                    this.tfaError = data.status_message || 'Code ungültig.';
+                    this.tfaError = data.status_message || t('js.account.code_invalid');
                 }
             } catch (e) {
-                this.tfaError = 'Netzwerkfehler: ' + e.message;
+                this.tfaError = t('js.account.network_error', {message: e.message});
             }
             this.tfaLoading = false;
         },
 
         formatDate(iso) {
             if (!iso) return '';
-            return new Date(iso).toLocaleString('de-DE');
+            return new Date(iso).toLocaleString(t('js.date_locale'));
         },
 
         formatDuration(seconds) {
@@ -1346,9 +1342,9 @@ function accountConfig(appleId) {
             const h = Math.floor(seconds / 3600);
             const m = Math.floor((seconds % 3600) / 60);
             const s = seconds % 60;
-            if (h > 0) return `${h} Std. ${m} Min.`;
-            if (m > 0) return `${m} Min. ${s} Sek.`;
-            return `${s} Sek.`;
+            if (h > 0) return t('js.account.duration_h_m', {h: h, m: m});
+            if (m > 0) return t('js.account.duration_m_s', {m: m, s: s});
+            return t('js.account.duration_s', {s: s});
         },
     };
 }

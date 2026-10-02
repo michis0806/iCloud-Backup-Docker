@@ -15,6 +15,7 @@ import yaml
 
 from app import crypto
 from app.config import settings
+from app.i18n import t
 
 log = logging.getLogger("icloud-backup")
 
@@ -38,7 +39,7 @@ def _read() -> dict:
         text = re.sub(r"!!python/\S+\n\s*- ", "", text)
         data = yaml.safe_load(text) or {}
     except Exception:
-        log.error("Fehler beim Lesen der Konfigurationsdatei %s", _CONFIG_FILE, exc_info=True)
+        log.error(t("misc.config_read_error"), _CONFIG_FILE, exc_info=True)
         data = {}
     if "accounts" not in data:
         data["accounts"] = []
@@ -165,7 +166,7 @@ def add_account(
     with _lock:
         data = _read()
         if _find_account(data, apple_id) is not None:
-            raise ValueError("Account existiert bereits.")
+            raise ValueError(t("misc.account_exists"))
         acc = {
             "apple_id": apple_id,
             "status": status,
@@ -231,8 +232,7 @@ def set_account_password(apple_id: str, password: str) -> bool:
     token = crypto.encrypt(password)
     if token is None:
         log.warning(
-            "Passwort für %s kann nicht gespeichert werden: kein stabiler "
-            "Schlüssel konfiguriert (ICLOUD_SECRET_KEY setzen).",
+            t("misc.password_no_key"),
             apple_id,
         )
         return False
@@ -243,7 +243,7 @@ def set_account_password(apple_id: str, password: str) -> bool:
             return False
         acc["password_encrypted"] = token
         _write(data)
-    log.info("Passwort für %s verschlüsselt gespeichert.", apple_id)
+    log.info(t("misc.password_saved"), apple_id)
     return True
 
 
@@ -269,7 +269,7 @@ def clear_account_password(apple_id: str) -> bool:
             return False
         acc.pop("password_encrypted", None)
         _write(data)
-    log.info("Gespeichertes Passwort für %s entfernt.", apple_id)
+    log.info(t("misc.password_removed"), apple_id)
     return True
 
 
@@ -361,7 +361,7 @@ def reset_stale_running_states() -> int:
             backup = acc.get("backup") or {}
             if backup.get("last_backup_status") == "running":
                 backup["last_backup_status"] = "error"
-                backup["last_backup_message"] = "Backup durch Neustart unterbrochen."
+                backup["last_backup_message"] = t("misc.backup_interrupted")
                 acc["backup"] = backup
                 count += 1
         if count:

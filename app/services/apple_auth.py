@@ -12,6 +12,7 @@ from time import monotonic
 
 from pyicloud import PyiCloudService
 from pyicloud.exceptions import PyiCloudAPIResponseException, PyiCloud2FARequiredException
+from app.i18n import t
 
 log = logging.getLogger(__name__)
 
@@ -59,12 +60,12 @@ class InteractiveICloudService(PyiCloudService):
         """Send only the selected challenge; repeated clicks reuse it."""
         with self._challenge_lock:
             if self.pending_auth_expired:
-                raise ValueError("Anmeldung abgelaufen. Bitte Reauth erneut starten.")
+                raise ValueError(t("apple.expired"))
             if method not in ("push", "sms"):
-                raise ValueError("Bitte Apple Push oder SMS auswaehlen.")
+                raise ValueError(t("apple.choose_method"))
             if self.code_verified:
                 raise SessionCompletionRequired(
-                    "Code bereits akzeptiert. Bitte die Anmeldung erneut bestaetigen."
+                    t("apple.code_accepted")
                 )
             if self.challenge_method == method and (
                 method == "push" or str(self.challenge_phone["id"]) == str(phone_id)
@@ -78,7 +79,7 @@ class InteractiveICloudService(PyiCloudService):
             if method == "sms":
                 phone = next((p for p in phones if str(p["id"]) == str(phone_id)), None)
                 if phone is None:
-                    raise ValueError("Bitte eine verfuegbare Telefonnummer auswaehlen.")
+                    raise ValueError(t("apple.choose_phone"))
                 phone_payload = {"id": phone["id"]}
                 if "nonFTEU" in phone:
                     phone_payload["nonFTEU"] = phone["nonFTEU"]
@@ -165,12 +166,12 @@ class InteractiveICloudService(PyiCloudService):
             if self.code_verified and self.is_trusted_session and not self.requires_2fa and not self.requires_2sa:
                 return True
             if self.pending_auth_expired:
-                raise ValueError("Anmeldung abgelaufen. Bitte Reauth erneut starten.")
+                raise ValueError(t("apple.expired"))
             if self.challenge_method is None:
-                raise ValueError("Bitte zuerst Apple Push oder SMS anfordern.")
+                raise ValueError(t("apple.request_first"))
             code = code.strip()
             if not re.fullmatch(r"[0-9]{6}", code):
-                raise ValueError("Bitte den sechsstelligen Code eingeben.")
+                raise ValueError(t("apple.enter_code"))
             if not self.code_verified:
                 try:
                     if self.challenge_method == "sms":
@@ -236,7 +237,5 @@ class InteractiveICloudService(PyiCloudService):
             if self._refresh_verified_session():
                 return True
             raise SessionCompletionRequired(
-                "Code akzeptiert, aber der Abschluss der Anmeldung konnte noch "
-                "nicht bestaetigt werden. Bitte erneut bestaetigen; es wird kein "
-                "neuer Code gesendet."
+                t("apple.completion_pending")
             )

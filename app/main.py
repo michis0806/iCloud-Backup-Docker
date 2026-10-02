@@ -15,6 +15,7 @@ from fastapi.templating import Jinja2Templates
 from app.auth import AuthMiddleware, _COOKIE_NAME, create_session_cookie
 from app import config_store
 from app.config import settings
+from app.i18n import get_language, js_messages, t
 from app.routers import accounts, backup, settings as settings_router
 from app.services.log_handler import log_buffer
 from app.services.scheduler import start_scheduler, stop_scheduler, sync_scheduled_jobs
@@ -65,27 +66,27 @@ async def lifespan(app: FastAPI):
     reset_count = config_store.reset_stale_running_states()
     if reset_count:
         log.warning(
-            "%d Backup(s) waren beim letzten Stopp noch aktiv und wurden zurückgesetzt.",
-            reset_count,
+            t("main.reset_stale_backups", count=reset_count),
         )
     start_scheduler()
     await sync_scheduled_jobs()
     # Log the password if it was auto-generated
     if not settings.auth_password:
         log.info(
-            "Kein AUTH_PASSWORD gesetzt. Generiertes Passwort: %s",
-            settings.get_auth_password(),
+            t("main.generated_password", password=settings.get_auth_password()),
         )
     build = _build_info()
     log.info(
-        "iCloud Backup Service gestartet (version=%s, commit=%s, build_date=%s)",
-        build["version"],
-        build["commit"],
-        build["build_date"],
+        t(
+            "main.service_started",
+            version=build["version"],
+            commit=build["commit"],
+            build_date=build["build_date"],
+        ),
     )
     yield
     stop_scheduler()
-    log.info("iCloud Backup Service gestoppt")
+    log.info(t("main.service_stopped"))
 
 
 # ---------------------------------------------------------------------------
@@ -106,6 +107,7 @@ static_dir.mkdir(exist_ok=True)
 
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 templates = Jinja2Templates(directory=str(templates_dir))
+templates.env.globals.update(t=t, lang=get_language, js_messages=js_messages)
 
 # Authentication middleware
 app.add_middleware(AuthMiddleware)
@@ -155,7 +157,7 @@ async def health():
             asyncio.shield(_storage_check_task), _STORAGE_CHECK_TIMEOUT
         )
     except asyncio.TimeoutError:
-        errors = {"storage": f"Speicherprüfung nach {_STORAGE_CHECK_TIMEOUT:.0f}s nicht beendet"}
+        errors = {"storage": t("main.storage_check_timeout", seconds=f"{_STORAGE_CHECK_TIMEOUT:.0f}")}
 
     if errors:
         return JSONResponse(
@@ -209,7 +211,7 @@ async def login_submit(request: Request, password: str = Form(...)):
         )
         return response
     return templates.TemplateResponse(
-        name="login.html", request=request, context={"error": "Falsches Passwort."}, status_code=401
+        name="login.html", request=request, context={"error": t("main.wrong_password")}, status_code=401
     )
 
 

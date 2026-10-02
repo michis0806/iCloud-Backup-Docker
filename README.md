@@ -78,6 +78,7 @@ Zusätzlich wird die Version in der Web-UI im Footer angezeigt.
 | `ARCHIVE_PATH` | `./archive` | Host path for archived files (used when sync policy is set to "archive") |
 | `CONFIG_PATH` | `./config` | Host path for configuration & sessions |
 | `LOG_LEVEL` | `INFO` | Log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
+| `UI_LANGUAGE` | `de` | Language of the web UI, status messages and log lines (`de` or `en`). Values already stored in `config.yaml` keep the language they were written in. |
 | `TZ` | `Europe/Berlin` | Timezone |
 
 > Notification settings (Pushover) are configured in the web UI under
@@ -140,6 +141,7 @@ services:
     environment:
       - TZ=${TZ:-Europe/Berlin}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - UI_LANGUAGE=${UI_LANGUAGE:-de}
       # Notifications (Pushover) are configured in the web UI
       # under "Einstellungen" and stored in /config/config.yaml.
       # - AUTH_PASSWORD=my-secure-password

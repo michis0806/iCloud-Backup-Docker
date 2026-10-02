@@ -1,45 +1,43 @@
 {% extends "base.html" %}
-{% block title %}iCloud Backup – Einstellungen{% endblock %}
+{% block title %}{{ t('tpl.settings.page_title') }}{% endblock %}
 
 {% block content %}
 <div x-data="notificationSettings()" x-init="init()">
-    <h1 class="h3 mb-4">Einstellungen</h1>
+    <h1 class="h3 mb-4">{{ t('tpl.settings.heading') }}</h1>
 
     <div class="card mb-4">
         <div class="card-header d-flex align-items-center gap-2">
             <i class="bi bi-archive fs-5"></i>
-            <strong>Archiv</strong>
+            <strong>{{ t('tpl.settings.archive_title') }}</strong>
         </div>
         <div class="card-body">
             <p class="text-body-secondary small mb-3">
-                Archivierte Dateien werden pro Backup-Lauf in einen
-                eigenen Ordner <code>/archive/YYYY-MM-DD_HH-MM/&lt;account&gt;/…</code>
-                gelegt. Ordner, die älter als die hier angegebene Anzahl
-                Tage sind, werden nach jedem Backup-Lauf gelöscht.
+                {{ t('tpl.settings.archive_desc')|safe }}
             </p>
             <form @submit.prevent="saveArchive()" class="row g-3 align-items-end">
                 <div class="col-sm-5">
-                    <label class="form-label">Aufbewahrung (Tage)</label>
+                    <label class="form-label">{{ t('tpl.settings.retention_label') }}</label>
                     <input type="number" min="0" step="1" class="form-control"
                            x-model.number="archiveForm.retention_days">
                     <div class="form-text">
-                        <code>0</code> deaktiviert das automatische Löschen.
+                        {{ t('tpl.settings.retention_hint')|safe }}
                     </div>
                 </div>
                 <div class="col-sm-7 d-flex flex-wrap align-items-center gap-2">
                     <button type="submit" class="btn btn-primary" :disabled="archiveSaving">
                         <span x-show="archiveSaving" class="spinner-border spinner-border-sm me-1"></span>
                         <i class="bi bi-check-lg me-1" x-show="!archiveSaving"></i>
-                        Speichern
+                        {{ t('tpl.settings.save') }}
+
                     </button>
                     <button type="button" class="btn btn-outline-secondary"
                             @click="pruneNow()" :disabled="archivePruning || !archiveForm.retention_days">
                         <span x-show="archivePruning" class="spinner-border spinner-border-sm me-1"></span>
                         <i class="bi bi-trash me-1" x-show="!archivePruning"></i>
-                        Jetzt aufräumen
+                        {{ t('tpl.settings.prune_now') }}
                     </button>
                     <span x-show="archiveSaved" x-transition class="text-success small">
-                        <i class="bi bi-check-lg"></i> Gespeichert
+                        <i class="bi bi-check-lg"></i> {{ t('tpl.settings.saved') }}
                     </span>
                     <span x-show="archivePruneResult" x-transition class="small text-body-secondary"
                           x-text="archivePruneResult"></span>
@@ -53,18 +51,16 @@
     <div class="card mb-4">
         <div class="card-header d-flex align-items-center gap-2">
             <i class="bi bi-bell fs-5"></i>
-            <strong>Benachrichtigungen</strong>
+            <strong>{{ t('tpl.settings.notifications_title') }}</strong>
         </div>
         <div class="card-body">
             <p class="text-body-secondary small">
-                Benachrichtigungen werden bei fehlerhaften Backups und
-                ablaufenden iCloud-Tokens versendet. Die Konfiguration wird in
-                <code>/config/config.yaml</code> gespeichert.
+                {{ t('tpl.settings.notifications_desc')|safe }}
             </p>
 
             <div x-show="loading" class="text-center py-3">
                 <span class="spinner-border spinner-border-sm"></span>
-                Lade Einstellungen…
+                {{ t('tpl.settings.loading') }}
             </div>
 
             <form x-show="!loading" @submit.prevent="save()" class="mt-2">
@@ -74,7 +70,7 @@
                     <input class="form-check-input" type="checkbox" id="pushoverEnabled"
                            x-model="form.pushover_enabled">
                     <label class="form-check-label" for="pushoverEnabled">
-                        Pushover-Push-Benachrichtigungen aktivieren
+                        {{ t('tpl.settings.pushover_enable') }}
                     </label>
                 </div>
 
@@ -82,10 +78,9 @@
                     <label class="form-label">API-Token</label>
                     <input type="password" class="form-control font-monospace"
                            x-model="form.pushover_api_token"
-                           :placeholder="current.pushover_api_token_set ? current.pushover_api_token_hint + ' (gespeichert – leer lassen um beizubehalten)' : 'a1b2c3d4...'">
+                           :placeholder="current.pushover_api_token_set ? t('js.settings.secret_saved_placeholder', {hint: current.pushover_api_token_hint}) : 'a1b2c3d4...'">
                     <div class="form-text">
-                        Application-Token aus deiner
-                        <a href="https://pushover.net/apps" target="_blank">Pushover-App</a>.
+                        {{ t('tpl.settings.api_token_hint')|safe }}
                     </div>
                 </div>
 
@@ -93,20 +88,19 @@
                     <label class="form-label">User-Key</label>
                     <input type="password" class="form-control font-monospace"
                            x-model="form.pushover_user_key"
-                           :placeholder="current.pushover_user_key_set ? current.pushover_user_key_hint + ' (gespeichert – leer lassen um beizubehalten)' : 'u1v2w3x4...'">
+                           :placeholder="current.pushover_user_key_set ? t('js.settings.secret_saved_placeholder', {hint: current.pushover_user_key_hint}) : 'u1v2w3x4...'">
                     <div class="form-text">
-                        Dein persönlicher User-Key (siehe
-                        <a href="https://pushover.net/" target="_blank">Pushover-Dashboard</a>).
+                        {{ t('tpl.settings.user_key_hint')|safe }}
                     </div>
                 </div>
 
                 <div class="mb-3">
-                    <label class="form-label">Geräte (optional)</label>
+                    <label class="form-label">{{ t('tpl.settings.devices_label') }}</label>
                     <input type="text" class="form-control"
                            x-model="form.pushover_devices"
                            placeholder="iphone,ipad">
                     <div class="form-text">
-                        Kommaseparierte Geräte-Namen. Leer = alle Geräte.
+                        {{ t('tpl.settings.devices_hint') }}
                     </div>
                 </div>
 
@@ -115,7 +109,7 @@
                             @click="sendTest('pushover')" :disabled="testing.pushover">
                         <span x-show="testing.pushover" class="spinner-border spinner-border-sm me-1"></span>
                         <i class="bi bi-send me-1" x-show="!testing.pushover"></i>
-                        Testbenachrichtigung senden
+                        {{ t('tpl.settings.send_test') }}
                     </button>
                     <span x-show="testResult.pushover" x-transition
                           class="small"
@@ -124,18 +118,18 @@
                     </span>
                 </div>
                 <div class="form-text mb-3">
-                    Testbenachrichtigungen verwenden die gespeicherten Werte –
-                    bitte vorher speichern, falls du gerade etwas geändert hast.
+                    {{ t('tpl.settings.test_hint') }}
                 </div>
 
                 <div class="d-flex align-items-center gap-3">
                     <button type="submit" class="btn btn-primary" :disabled="saving">
                         <span x-show="saving" class="spinner-border spinner-border-sm me-1"></span>
                         <i class="bi bi-check-lg me-1" x-show="!saving"></i>
-                        Speichern
+                        {{ t('tpl.settings.save') }}
+
                     </button>
                     <span x-show="saved" x-transition class="text-success small">
-                        <i class="bi bi-check-lg"></i> Gespeichert
+                        <i class="bi bi-check-lg"></i> {{ t('tpl.settings.saved') }}
                     </span>
                     <span x-show="error" x-transition class="text-danger small" x-text="error"></span>
                 </div>
@@ -192,7 +186,7 @@ function notificationSettings() {
                     this.archiveForm.retention_days = data.retention_days ?? 30;
                 }
             } catch (e) {
-                this.archiveError = 'Archiv-Einstellungen konnten nicht geladen werden: ' + e.message;
+                this.archiveError = t('js.settings.archive_load_failed', {message: e.message});
             }
         },
 
@@ -218,7 +212,7 @@ function notificationSettings() {
                 this.archiveSaved = true;
                 setTimeout(() => this.archiveSaved = false, 3000);
             } catch (e) {
-                this.archiveError = 'Speichern fehlgeschlagen: ' + e.message;
+                this.archiveError = t('js.settings.save_failed', {message: e.message});
             }
             this.archiveSaving = false;
         },
@@ -237,7 +231,7 @@ function notificationSettings() {
                 this.archivePruneResult = data.message || '';
                 setTimeout(() => this.archivePruneResult = '', 5000);
             } catch (e) {
-                this.archiveError = 'Aufräumen fehlgeschlagen: ' + e.message;
+                this.archiveError = t('js.settings.prune_failed', {message: e.message});
             }
             this.archivePruning = false;
         },
@@ -255,7 +249,7 @@ function notificationSettings() {
                 this.form.pushover_api_token = '';
                 this.form.pushover_user_key = '';
             } catch (e) {
-                this.error = 'Einstellungen konnten nicht geladen werden: ' + e.message;
+                this.error = t('js.settings.load_failed', {message: e.message});
             }
             this.loading = false;
         },
@@ -284,7 +278,7 @@ function notificationSettings() {
             } catch (e) {
                 this.testResult[backend] = {
                     success: false,
-                    message: 'Netzwerkfehler: ' + e.message,
+                    message: t('js.common.network_error', {message: e.message}),
                 };
             }
             this.testing[backend] = false;
@@ -312,7 +306,7 @@ function notificationSettings() {
                 this.saved = true;
                 setTimeout(() => this.saved = false, 3000);
             } catch (e) {
-                this.error = 'Speichern fehlgeschlagen: ' + e.message;
+                this.error = t('js.settings.save_failed', {message: e.message});
             }
             this.saving = false;
         },

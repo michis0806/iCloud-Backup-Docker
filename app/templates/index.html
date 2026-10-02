@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}iCloud Backup – Dashboard{% endblock %}
+{% block title %}{{ t('tpl.index.page_title') }}{% endblock %}
 
 {% block content %}
 <div x-data="dashboard()" x-init="init()">
@@ -9,13 +9,14 @@
         <div class="card-body d-flex flex-wrap align-items-center gap-3">
             <div class="d-flex align-items-center gap-2">
                 <i class="bi bi-clock fs-5"></i>
-                <strong>Zeitplan</strong>
+                <strong>{{ t('tpl.index.schedule') }}</strong>
             </div>
             <div class="form-check form-switch mb-0">
                 <input class="form-check-input" type="checkbox" id="globalScheduleEnabled"
                        x-model="schedule.enabled" @change="saveSchedule()">
                 <label class="form-check-label" for="globalScheduleEnabled">
-                    Automatisches Backup
+                    {{ t('tpl.index.auto_backup') }}
+
                 </label>
             </div>
             <div class="d-flex align-items-center gap-2" x-show="schedule.enabled" x-transition>
@@ -25,10 +26,10 @@
                        placeholder="0 2 * * *">
             </div>
             <div class="text-muted small" x-show="schedule.enabled" x-transition>
-                Sichert alle konfigurierten Accounts nacheinander.
+                {{ t('tpl.index.backs_up_all') }}
             </div>
             <div x-show="scheduleSaved" x-transition class="text-success small">
-                <i class="bi bi-check-lg"></i> Gespeichert
+                <i class="bi bi-check-lg"></i> {{ t('tpl.index.saved') }}
             </div>
             <div class="ms-auto d-flex align-items-center gap-2">
                 <span class="text-muted small" x-show="checkAllSummary" x-transition
@@ -36,20 +37,20 @@
                 <button class="btn btn-outline-secondary btn-sm"
                         :disabled="checkAllLoading"
                         @click="checkAllConnections()"
-                        title="Verbindung aller Accounts prüfen und bei Bedarf neu autorisieren">
+                        title="{{ t('tpl.index.check_all_title') }}">
                     <span x-show="checkAllLoading" class="spinner-border spinner-border-sm me-1"></span>
                     <i class="bi bi-plug me-1" x-show="!checkAllLoading"></i>
-                    <span x-show="!checkAllLoading">Alle prüfen</span>
-                    <span x-show="checkAllLoading">Wird geprüft...</span>
+                    <span x-show="!checkAllLoading">{{ t('tpl.index.check_all') }}</span>
+                    <span x-show="checkAllLoading">{{ t('tpl.index.checking') }}</span>
                 </button>
                 <button class="btn btn-outline-success btn-sm"
                         :disabled="runAllLoading"
                         @click="runAllBackups()"
-                        title="Alle Backups jetzt starten">
+                        title="{{ t('tpl.index.run_all_title') }}">
                     <span x-show="runAllLoading" class="spinner-border spinner-border-sm me-1"></span>
                     <i class="bi bi-play-fill me-1" x-show="!runAllLoading"></i>
-                    <span x-show="!runAllLoading">Alle starten</span>
-                    <span x-show="runAllLoading">Wird gestartet...</span>
+                    <span x-show="!runAllLoading">{{ t('tpl.index.run_all') }}</span>
+                    <span x-show="runAllLoading">{{ t('tpl.index.starting') }}</span>
                 </button>
             </div>
         </div>
@@ -62,11 +63,11 @@
                 <div class="d-flex justify-content-between align-items-baseline mb-1">
                     <div class="d-flex align-items-center gap-2">
                         <i class="bi bi-hdd fs-5"></i>
-                        <strong>Backup-Speicher</strong>
+                        <strong>{{ t('tpl.index.backup_storage') }}</strong>
                         <code class="small text-body-secondary" x-text="backupDiskUsage.path"></code>
                     </div>
                     <span class="small text-body-secondary"
-                          x-text="formatSize(backupDiskUsage.used_bytes) + ' von ' + formatSize(backupDiskUsage.total_bytes) + ' belegt (' + backupDiskUsage.used_percent + '%) · ' + formatSize(backupDiskUsage.available_bytes) + ' frei'">
+                          x-text="t('js.index.disk_usage', {used: formatSize(backupDiskUsage.used_bytes), total: formatSize(backupDiskUsage.total_bytes), percent: backupDiskUsage.used_percent, free: formatSize(backupDiskUsage.available_bytes)})">
                     </span>
                 </div>
                 <div class="progress" style="height: 0.6rem">
@@ -82,9 +83,9 @@
     </template>
 
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <h1 class="h3 mb-0">Accounts</h1>
+        <h1 class="h3 mb-0">{{ t('tpl.index.accounts') }}</h1>
         <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addAccountModal">
-            <i class="bi bi-plus-lg me-1"></i> Account hinzufügen
+            <i class="bi bi-plus-lg me-1"></i> {{ t('tpl.index.add_account') }}
         </button>
     </div>
 
@@ -109,7 +110,7 @@
                                 <div class="d-flex justify-content-between align-items-baseline mb-1">
                                     <span class="small fw-semibold">iCloud</span>
                                     <span class="text-body-secondary small"
-                                          x-text="formatSize(icloudStorage[account.apple_id].used_bytes) + ' von ' + formatSize(icloudStorage[account.apple_id].total_bytes)">
+                                          x-text="t('js.index.icloud_usage', {used: formatSize(icloudStorage[account.apple_id].used_bytes), total: formatSize(icloudStorage[account.apple_id].total_bytes)})">
                                     </span>
                                 </div>
                                 <!-- Stacked bar -->
@@ -140,15 +141,15 @@
                                 <div class="row g-2">
                                     <div class="col-6">
                                         <div class="rounded p-2 text-center stat-box">
-                                            <div class="text-body-secondary small"><i class="bi bi-image me-1"></i>Fotos</div>
-                                            <div class="fw-semibold" x-text="storageStats[account.apple_id].photos.count.toLocaleString('de-DE') + ' Objekte'"></div>
+                                            <div class="text-body-secondary small"><i class="bi bi-image me-1"></i>{{ t('tpl.index.photos') }}</div>
+                                            <div class="fw-semibold" x-text="t('js.index.photo_count', {count: storageStats[account.apple_id].photos.count.toLocaleString(t('js.date_locale'))})"></div>
                                             <div class="text-body-secondary small" x-text="formatSize(storageStats[account.apple_id].photos.size_bytes)"></div>
                                         </div>
                                     </div>
                                     <div class="col-6">
                                         <div class="rounded p-2 text-center stat-box">
                                             <div class="text-body-secondary small"><i class="bi bi-cloud me-1"></i>Drive</div>
-                                            <div class="fw-semibold" x-text="storageStats[account.apple_id].drive.count.toLocaleString('de-DE') + ' Dateien'"></div>
+                                            <div class="fw-semibold" x-text="t('js.index.file_count', {count: storageStats[account.apple_id].drive.count.toLocaleString(t('js.date_locale'))})"></div>
                                             <div class="text-body-secondary small" x-text="formatSize(storageStats[account.apple_id].drive.size_bytes)"></div>
                                         </div>
                                     </div>
@@ -160,7 +161,7 @@
                         <template x-if="account.last_token_refresh_at && account.status === 'authenticated'">
                             <div class="mt-2 small d-flex align-items-center gap-2">
                                 <i class="bi bi-key text-body-secondary"></i>
-                                <span>Token: <span x-text="tokenAgeLabel(account.last_token_refresh_at)"></span></span>
+                                <span>{{ t('tpl.index.token') }} <span x-text="tokenAgeLabel(account.last_token_refresh_at)"></span></span>
                             </div>
                         </template>
 
@@ -179,7 +180,7 @@
                                 </div>
                                 <div class="text-body-secondary mt-1" x-show="backupStatuses[account.apple_id]?.last_backup_duration_seconds">
                                     <i class="bi bi-hourglass-split me-1"></i>
-                                    Dauer: <span x-text="formatDuration(backupStatuses[account.apple_id]?.last_backup_duration_seconds)"></span>
+                                    {{ t('tpl.index.duration') }} <span x-text="formatDuration(backupStatuses[account.apple_id]?.last_backup_duration_seconds)"></span>
                                 </div>
                             </div>
                         </template>
@@ -189,7 +190,7 @@
                             <template x-if="account.status === 'requires_2fa'">
                                 <a :href="'/accounts/' + encodeURIComponent(account.apple_id)"
                                    class="btn btn-warning btn-sm">
-                                    <i class="bi bi-shield-lock me-1"></i> 2FA eingeben
+                                    <i class="bi bi-shield-lock me-1"></i> {{ t('tpl.index.enter_2fa') }}
                                 </a>
                             </template>
 
@@ -197,7 +198,7 @@
                             <template x-if="account.status === 'authenticated'">
                                 <a :href="'/accounts/' + encodeURIComponent(account.apple_id)"
                                    class="btn btn-outline-primary btn-sm">
-                                    <i class="bi bi-gear me-1"></i> Konfigurieren
+                                    <i class="bi bi-gear me-1"></i> {{ t('tpl.index.configure') }}
                                 </a>
                             </template>
 
@@ -205,7 +206,7 @@
                             <template x-if="account.status === 'error'">
                                 <a :href="'/accounts/' + encodeURIComponent(account.apple_id)"
                                    class="btn btn-outline-warning btn-sm">
-                                    <i class="bi bi-exclamation-triangle me-1"></i> Neu verbinden
+                                    <i class="bi bi-exclamation-triangle me-1"></i> {{ t('tpl.index.reconnect') }}
                                 </a>
                             </template>
 
@@ -214,7 +215,7 @@
                                 <template x-if="account.status === 'authenticated' && !isRunning(account.apple_id)">
                                     <button class="btn btn-outline-success btn-sm"
                                             @click="runBackup(account.apple_id)"
-                                            title="Backup starten">
+                                            title="{{ t('tpl.index.start_backup') }}">
                                         <i class="bi bi-play-fill"></i>
                                     </button>
                                 </template>
@@ -223,7 +224,7 @@
                                 <template x-if="account.status === 'authenticated' && isRunning(account.apple_id)">
                                     <button class="btn btn-outline-danger btn-sm"
                                             @click="cancelBackup(account.apple_id)"
-                                            title="Backup abbrechen">
+                                            title="{{ t('tpl.index.cancel_backup') }}">
                                         <i class="bi bi-stop-fill"></i>
                                     </button>
                                 </template>
@@ -239,9 +240,9 @@
             <div class="col-12">
                 <div class="text-center py-5 text-muted">
                     <i class="bi bi-cloud-slash fs-1 d-block mb-3"></i>
-                    <p>Noch keine Accounts vorhanden.</p>
+                    <p>{{ t('tpl.index.no_accounts') }}</p>
                     <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addAccountModal">
-                        <i class="bi bi-plus-lg me-1"></i> Ersten Account hinzufügen
+                        <i class="bi bi-plus-lg me-1"></i> {{ t('tpl.index.add_first_account') }}
                     </button>
                 </div>
             </div>
@@ -253,45 +254,39 @@
         <div class="modal-dialog">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title">iCloud Account hinzufügen</h5>
+                    <h5 class="modal-title">{{ t('tpl.index.add_modal_title') }}</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
                     <div class="alert alert-danger" x-show="addError" x-text="addError"></div>
                     <form @submit.prevent="addAccount()">
                         <div class="mb-3">
-                            <label class="form-label">Apple-ID (E-Mail)</label>
+                            <label class="form-label">{{ t('tpl.index.apple_id_label') }}</label>
                             <input type="email" class="form-control" x-model="newAppleId"
                                    placeholder="name@icloud.com" required>
                         </div>
                         <div class="mb-3">
-                            <label class="form-label">Passwort</label>
+                            <label class="form-label">{{ t('tpl.index.password_label') }}</label>
                             <input type="password" class="form-control" x-model="newPassword"
-                                   placeholder="Reguläres Apple-ID-Passwort" required>
+                                   placeholder="{{ t('tpl.index.password_placeholder') }}" required>
                             <div class="form-text">
-                                Bitte das <strong>reguläre Apple-ID-Passwort</strong> verwenden.
-                                App-spezifische Passwörter funktionieren nicht, da der Login über
-                                die Zwei-Faktor-Authentifizierung läuft.
+                                {{ t('tpl.index.password_hint')|safe }}
                             </div>
                         </div>
                         <div class="mb-3 form-check">
                             <input type="checkbox" class="form-check-input" id="newRememberPassword"
                                    x-model="newRememberPassword">
                             <label class="form-check-label" for="newRememberPassword">
-                                Passwort für automatische Re-Authentifizierung speichern
+                                {{ t('tpl.index.remember_label') }}
                             </label>
                             <div class="form-text">
-                                Wenn aktiviert, wird das Passwort <strong>verschlüsselt</strong>
-                                (Fernet, Schlüssel aus <code>ICLOUD_SECRET_KEY</code>) in der
-                                Konfiguration abgelegt. Läuft die Apple-Session ab, meldet sich
-                                das Tool automatisch neu an – Sie müssen nur noch den 2FA-Code
-                                bestätigen. Ohne Häkchen wird das Passwort nur zur Erstanmeldung
-                                verwendet und <strong>nicht gespeichert</strong>.
+                                {{ t('tpl.index.remember_hint')|safe }}
                             </div>
                         </div>
                         <button type="submit" class="btn btn-primary w-100" :disabled="addLoading">
                             <span x-show="addLoading" class="spinner-border spinner-border-sm me-1"></span>
-                            Anmelden
+                            {{ t('tpl.index.sign_in') }}
+
                         </button>
                     </form>
                 </div>
@@ -304,26 +299,26 @@
         <div class="modal-dialog">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title">Apple-Anmeldung bestaetigen</h5>
+                    <h5 class="modal-title">{{ t('tpl.index.tfa_title') }}</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
                     <div class="alert alert-danger" x-show="tfaError" x-text="tfaError"></div>
                     <div class="alert alert-success" x-show="tfaSmsSuccess" x-text="tfaSmsSuccess"></div>
 
-                    <p class="text-muted small">Wie moechten Sie den Code erhalten? Erst die Auswahl fordert einen Code an.</p>
+                    <p class="text-muted small">{{ t('tpl.index.tfa_choose') }}</p>
                     <!-- Explicit channel selection -->
                     <ul class="nav nav-pills nav-fill mb-3">
                         <li class="nav-item">
                             <button type="button" class="nav-link w-100" :class="{ active: tfaMode === 'device' }"
                                :disabled="resendingCode || tfaSmsLoading || tfaLoading" @click="triggerDevicePush()">
-                                <i class="bi bi-phone me-1"></i> Apple Push anfordern
+                                <i class="bi bi-phone me-1"></i> {{ t('tpl.index.tfa_push') }}
                             </button>
                         </li>
                         <li class="nav-item">
                             <button type="button" class="nav-link w-100" :class="{ active: tfaMode === 'sms' }"
                                :disabled="resendingCode || tfaSmsLoading || tfaLoading" @click="switchToSms()">
-                                <i class="bi bi-chat-dots me-1"></i> SMS-Code
+                                <i class="bi bi-chat-dots me-1"></i> {{ t('tpl.index.tfa_sms') }}
                             </button>
                         </li>
                     </ul>
@@ -331,7 +326,7 @@
                     <!-- Device code tab -->
                     <div x-show="tfaMode === 'device' && tfaPushSent">
                         <p class="text-muted small">
-                            Geben Sie den 6-stelligen Code von Ihrem Apple-Gerät ein.
+                            {{ t('tpl.index.tfa_enter_device_code') }}
                         </p>
                         <form @submit.prevent="submit2FA()">
                             <div class="mb-3">
@@ -341,7 +336,8 @@
                             </div>
                             <button type="submit" class="btn btn-warning w-100" :disabled="tfaLoading">
                                 <span x-show="tfaLoading" class="spinner-border spinner-border-sm me-1"></span>
-                                Bestätigen
+                                {{ t('tpl.index.confirm') }}
+
                             </button>
                         </form>
                     </div>
@@ -352,10 +348,10 @@
                         <template x-if="!tfaSmsSent">
                             <div>
                                 <p class="text-muted small">
-                                    Wählen Sie ein Gerät, an das der SMS-Code gesendet werden soll.
+                                    {{ t('tpl.index.tfa_choose_device') }}
                                 </p>
                                 <div x-show="tfaDevicesLoading" class="text-center py-3">
-                                    <span class="spinner-border spinner-border-sm"></span> Geräte werden geladen…
+                                    <span class="spinner-border spinner-border-sm"></span> {{ t('tpl.index.tfa_devices_loading') }}
                                 </div>
                                 <div class="list-group mb-3" x-show="!tfaDevicesLoading && tfaDevices.length > 0">
                                     <template x-for="device in tfaDevices" :key="device.index">
@@ -371,10 +367,10 @@
                                     </template>
                                 </div>
                                 <div x-show="!tfaDevicesLoading && tfaDevices.length === 0" class="text-muted small">
-                                    Keine Geräte für SMS-Verifizierung verfügbar.
+                                    {{ t('tpl.index.tfa_no_devices') }}
                                 </div>
                                 <div x-show="tfaSmsLoading" class="text-center py-2">
-                                    <span class="spinner-border spinner-border-sm"></span> SMS wird gesendet…
+                                    <span class="spinner-border spinner-border-sm"></span> {{ t('tpl.index.tfa_sms_sending') }}
                                 </div>
                             </div>
                         </template>
@@ -383,7 +379,7 @@
                         <template x-if="tfaSmsSent">
                             <div>
                                 <p class="text-muted small">
-                                    Geben Sie den per SMS empfangenen Code ein.
+                                    {{ t('tpl.index.tfa_enter_sms_code') }}
                                 </p>
                                 <form @submit.prevent="submit2SA()">
                                     <div class="mb-3">
@@ -393,11 +389,12 @@
                                     </div>
                                     <button type="submit" class="btn btn-warning w-100" :disabled="tfaLoading">
                                         <span x-show="tfaLoading" class="spinner-border spinner-border-sm me-1"></span>
-                                        Bestätigen
+                                        {{ t('tpl.index.confirm') }}
+
                                     </button>
                                     <button type="button" class="btn btn-link btn-sm w-100 mt-2"
                                             @click="tfaSmsSent = false; tfaSmsSuccess = ''">
-                                        <i class="bi bi-arrow-left me-1"></i> Anderes Gerät wählen
+                                        <i class="bi bi-arrow-left me-1"></i> {{ t('tpl.index.tfa_other_device') }}
                                     </button>
                                 </form>
                             </div>
@@ -480,7 +477,7 @@ function dashboard() {
                     this.backupDiskUsage = await res.json();
                 }
             } catch (e) {
-                console.error('Fehler beim Laden des Backup-Speichers:', e);
+                console.error(t('js.index.console_disk_usage_load'), e);
             }
         },
 
@@ -497,7 +494,7 @@ function dashboard() {
                     this.schedule = await res.json();
                 }
             } catch (e) {
-                console.error('Fehler beim Laden des Zeitplans:', e);
+                console.error(t('js.index.console_schedule_load'), e);
             }
         },
 
@@ -514,7 +511,7 @@ function dashboard() {
                     setTimeout(() => this.scheduleSaved = false, 3000);
                 }
             } catch (e) {
-                console.error('Fehler beim Speichern des Zeitplans:', e);
+                console.error(t('js.index.console_schedule_save'), e);
             }
         },
 
@@ -525,7 +522,7 @@ function dashboard() {
                     this.storageStats = await res.json();
                 }
             } catch (e) {
-                console.error('Fehler beim Laden der Speicherstatistiken:', e);
+                console.error(t('js.index.console_stats_load'), e);
             }
         },
 
@@ -539,7 +536,7 @@ function dashboard() {
                         updated[account.apple_id] = await res.json();
                     }
                 } catch (e) {
-                    console.error('iCloud-Speicher-Fehler:', e);
+                    console.error(t('js.index.console_icloud_storage_error'), e);
                 }
             }
             this.icloudStorage = updated;
@@ -550,7 +547,7 @@ function dashboard() {
             const units = ['B', 'KB', 'MB', 'GB', 'TB'];
             const i = Math.floor(Math.log(bytes) / Math.log(1024));
             const val = bytes / Math.pow(1024, i);
-            return val.toLocaleString('de-DE', { maximumFractionDigits: 1 }) + ' ' + units[i];
+            return val.toLocaleString(t('js.date_locale'), { maximumFractionDigits: 1 }) + ' ' + units[i];
         },
 
         async loadBackupStatuses() {
@@ -563,7 +560,7 @@ function dashboard() {
                         statuses[account.apple_id] = await res.json();
                     }
                 } catch (e) {
-                    console.error('Status-Fehler:', e);
+                    console.error(t('js.index.console_status_error'), e);
                 }
             }
             this.backupStatuses = statuses;
@@ -577,14 +574,14 @@ function dashboard() {
             try {
                 await fetch(`/api/backup/cancel/${encodeURIComponent(appleId)}`, { method: 'POST' });
             } catch (e) {
-                console.error('Cancel-Fehler:', e);
+                console.error(t('js.index.console_cancel_error'), e);
             }
             setTimeout(() => this.loadBackupStatuses(), 1000);
         },
 
         formatDate(iso) {
             if (!iso) return '';
-            return new Date(iso).toLocaleString('de-DE');
+            return new Date(iso).toLocaleString(t('js.date_locale'));
         },
 
         formatDuration(seconds) {
@@ -592,18 +589,18 @@ function dashboard() {
             const h = Math.floor(seconds / 3600);
             const m = Math.floor((seconds % 3600) / 60);
             const s = seconds % 60;
-            if (h > 0) return `${h} Std. ${m} Min.`;
-            if (m > 0) return `${m} Min. ${s} Sek.`;
-            return `${s} Sek.`;
+            if (h > 0) return t('js.index.duration_h_m', {h, m});
+            if (m > 0) return t('js.index.duration_m_s', {m, s});
+            return t('js.index.duration_s', {s});
         },
 
         backupStatusLabel(status) {
             return {
-                'idle': 'Bereit',
-                'running': 'Läuft',
-                'success': 'Erfolgreich',
-                'error': 'Fehlerhaft',
-                'not_configured': 'Nicht konfiguriert',
+                'idle': t('js.index.backup_status_idle'),
+                'running': t('js.index.backup_status_running'),
+                'success': t('js.index.backup_status_success'),
+                'error': t('js.index.backup_status_error'),
+                'not_configured': t('js.index.backup_status_not_configured'),
             }[status] || status;
         },
 
@@ -622,13 +619,13 @@ function dashboard() {
             try {
                 const res = await fetch('/api/accounts');
                 if (!res.ok) {
-                    console.error('API-Fehler:', res.status, await res.text());
+                    console.error(t('js.index.console_api_error'), res.status, await res.text());
                     return;
                 }
                 const data = await res.json();
                 this.accounts = Array.isArray(data) ? data : [];
             } catch (e) {
-                console.error('Fehler beim Laden der Accounts:', e);
+                console.error(t('js.index.console_accounts_load'), e);
             }
             this.loading = false;
         },
@@ -648,13 +645,13 @@ function dashboard() {
                 });
                 if (!res.ok) {
                     const err = await res.json();
-                    this.addError = err.detail || 'Fehler beim Hinzufügen.';
+                    this.addError = err.detail || t('js.index.add_failed');
                     this.addLoading = false;
                     return;
                 }
                 const account = await res.json();
                 if (account.status === 'error') {
-                    this.addError = account.status_message || 'Anmeldung fehlgeschlagen.';
+                    this.addError = account.status_message || t('js.index.login_failed');
                     this.addLoading = false;
                     return;
                 }
@@ -670,7 +667,7 @@ function dashboard() {
                     this.show2FA({ apple_id: newAppleId });
                 }
             } catch (e) {
-                this.addError = 'Netzwerkfehler: ' + e.message;
+                this.addError = t('js.common.network_error', {message: e.message});
             }
             this.addLoading = false;
         },
@@ -705,10 +702,10 @@ function dashboard() {
                 }
             }
             await this.loadAccounts();
-            const parts = [`${ok} OK`];
-            if (reauth) parts.push(`${reauth}× 2FA nötig`);
-            if (password) parts.push(`${password}× Passwort nötig`);
-            if (failed) parts.push(`${failed}× Fehler`);
+            const parts = [t('js.index.check_ok', {n: ok})];
+            if (reauth) parts.push(t('js.index.check_reauth', {n: reauth}));
+            if (password) parts.push(t('js.index.check_password', {n: password}));
+            if (failed) parts.push(t('js.index.check_failed', {n: failed}));
             this.checkAllSummary = parts.join(', ');
             this.checkAllLoading = false;
             this.processReauthQueue();
@@ -755,7 +752,7 @@ function dashboard() {
                     this.tfaDevices = await res.json();
                 }
             } catch (e) {
-                this.tfaError = 'Fehler beim Laden der Geräte: ' + e.message;
+                this.tfaError = t('js.index.devices_load_failed', {message: e.message});
             }
             this.tfaDevicesLoading = false;
         },
@@ -777,12 +774,12 @@ function dashboard() {
                     this.tfaPushSent = false;
                     this.tfaSmsDeviceIndex = deviceIndex;
                     this.tfaSmsSent = true;
-                    this.tfaSmsSuccess = data.message || 'SMS-Code gesendet.';
+                    this.tfaSmsSuccess = data.message || t('js.index.sms_sent');
                 } else {
-                    this.tfaError = data.message || 'SMS konnte nicht gesendet werden.';
+                    this.tfaError = data.message || t('js.index.sms_failed');
                 }
             } catch (e) {
-                this.tfaError = 'Netzwerkfehler: ' + e.message;
+                this.tfaError = t('js.common.network_error', {message: e.message});
             }
             this.tfaSmsLoading = false;
         },
@@ -810,10 +807,10 @@ function dashboard() {
                         this.processReauthQueue();
                     }
                 } else {
-                    this.tfaError = data.message || 'Apple Push konnte nicht angefordert werden.';
+                    this.tfaError = data.message || t('js.index.push_failed');
                 }
             } catch (e) {
-                this.tfaError = 'Netzwerkfehler: ' + e.message;
+                this.tfaError = t('js.common.network_error', {message: e.message});
             }
             this.resendingCode = false;
         },
@@ -837,10 +834,10 @@ function dashboard() {
                     ]);
                     this.processReauthQueue();
                 } else {
-                    this.tfaError = data.status_message || 'Code ungültig.';
+                    this.tfaError = data.status_message || t('js.index.code_invalid');
                 }
             } catch (e) {
-                this.tfaError = 'Netzwerkfehler: ' + e.message;
+                this.tfaError = t('js.common.network_error', {message: e.message});
             }
             this.tfaLoading = false;
         },
@@ -868,10 +865,10 @@ function dashboard() {
                     ]);
                     this.processReauthQueue();
                 } else {
-                    this.tfaError = data.status_message || 'Code ungültig.';
+                    this.tfaError = data.status_message || t('js.index.code_invalid');
                 }
             } catch (e) {
-                this.tfaError = 'Netzwerkfehler: ' + e.message;
+                this.tfaError = t('js.common.network_error', {message: e.message});
             }
             this.tfaLoading = false;
         },
@@ -882,12 +879,12 @@ function dashboard() {
                 const res = await fetch(`/api/backup/run/${encodeURIComponent(appleId)}`, { method: 'POST' });
                 if (!res.ok) {
                     const err = await res.json();
-                    alert(err.detail || 'Fehler beim Starten.');
+                    alert(err.detail || t('js.index.start_failed'));
                     this.runningBackups[appleId] = false;
                     return;
                 }
             } catch (e) {
-                console.error('Backup-Start-Fehler:', e);
+                console.error(t('js.index.console_backup_start_error'), e);
                 this.runningBackups[appleId] = false;
                 return;
             }
@@ -911,21 +908,21 @@ function dashboard() {
                     }, 2000);
                 } else {
                     const err = await res.json();
-                    alert(err.detail || 'Fehler beim Starten.');
+                    alert(err.detail || t('js.index.start_failed'));
                 }
             } catch (e) {
-                console.error('Backup-Alle-Fehler:', e);
+                console.error(t('js.index.console_backup_all_error'), e);
             }
             this.runAllLoading = false;
         },
 
         async deleteAccount(appleId) {
-            if (!confirm('Account wirklich löschen? Alle zugehörigen Konfigurationen werden ebenfalls entfernt.')) return;
+            if (!confirm(t('js.index.delete_confirm'))) return;
             try {
                 await fetch(`/api/accounts/${encodeURIComponent(appleId)}`, { method: 'DELETE' });
                 await this.loadAccounts();
             } catch (e) {
-                console.error('Lösch-Fehler:', e);
+                console.error(t('js.index.console_delete_error'), e);
             }
         },
 
@@ -936,9 +933,9 @@ function dashboard() {
 
         tokenAgeLabel(iso) {
             const days = this.tokenDaysOld(iso);
-            if (days === 0) return 'heute erneuert';
-            if (days === 1) return '1 Tag alt';
-            return `${days} Tage alt`;
+            if (days === 0) return t('js.index.token_today');
+            if (days === 1) return t('js.index.token_one_day');
+            return t('js.index.token_days', {days});
         },
 
         statusBadge(status) {
@@ -952,10 +949,10 @@ function dashboard() {
 
         statusLabel(status) {
             return {
-                'authenticated': 'Verbunden',
-                'requires_2fa': '2FA erforderlich',
-                'pending': 'Ausstehend',
-                'error': 'Fehler',
+                'authenticated': t('js.index.account_status_authenticated'),
+                'requires_2fa': t('js.index.account_status_requires_2fa'),
+                'pending': t('js.index.account_status_pending'),
+                'error': t('js.index.account_status_error'),
             }[status] || status;
         },
     };

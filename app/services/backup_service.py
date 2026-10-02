@@ -14,6 +14,7 @@ from pathlib import Path
 from shutil import copyfileobj
 
 from app.config import settings
+from app.i18n import t
 from app.models import SyncPolicy
 from app.services import icloud_service
 
@@ -60,9 +61,9 @@ def prune_old_archives(retention_days: int) -> int:
         try:
             shutil.rmtree(entry)
             removed += 1
-            log.info("Archiv gelöscht (älter als %d Tage): %s", retention_days, entry)
+            log.info(t("backup.archive_deleted"), retention_days, entry)
         except OSError as exc:
-            log.error("Konnte Archiv %s nicht löschen: %s", entry, exc)
+            log.error(t("backup.archive_delete_failed"), entry, exc)
     return removed
 
 
@@ -142,7 +143,7 @@ def _load_cache(destination: str, folder_name: str) -> dict:
         try:
             return json.loads(path.read_text())
         except Exception:
-            log.warning("Cache-Datei beschädigt, wird ignoriert: %s", path)
+            log.warning(t("backup.cache_corrupt"), path)
     return {}
 
 
@@ -151,7 +152,7 @@ def _save_cache(destination: str, folder_name: str, cache: dict) -> None:
     try:
         path.write_text(json.dumps(cache, indent=2))
     except Exception as exc:
-        log.warning("Cache konnte nicht gespeichert werden: %s", exc)
+        log.warning(t("backup.cache_save_failed"), exc)
 
 
 # ---------------------------------------------------------------------------
@@ -170,7 +171,7 @@ def _load_photo_cache(destination: str, library_name: str) -> dict:
         try:
             return json.loads(path.read_text())
         except Exception:
-            log.warning("Photo-Cache beschädigt, wird ignoriert: %s", path)
+            log.warning(t("backup.photo_cache_corrupt"), path)
     return {}
 
 
@@ -179,7 +180,7 @@ def _save_photo_cache(destination: str, library_name: str, cache: dict) -> None:
     try:
         path.write_text(json.dumps(cache, indent=2))
     except Exception as exc:
-        log.warning("Photo-Cache konnte nicht gespeichert werden: %s", exc)
+        log.warning(t("backup.photo_cache_save_failed"), exc)
 
 
 def _photo_fingerprint(photo) -> str | None:
@@ -481,8 +482,7 @@ def _open_drive_node(node, rel_path: str, **kwargs):
         download_zone = _shared_zone(share_id, zone) if is_shared and share_id else zone
 
         log.debug(
-            "Download via node.open() fehlgeschlagen für '%s' "
-            "(docwsid=%s, drivewsid=%s, zone=%s, download_zone=%s, shareID=%s): %s",
+            t("backup.drive_open_failed"),
             rel_path, docwsid, drivewsid, zone, download_zone,
             json.dumps(share_id) if share_id else "None",
             first_exc,
@@ -491,7 +491,7 @@ def _open_drive_node(node, rel_path: str, **kwargs):
         # Dump full node data keys for shared-folder files (diagnostic)
         if is_shared:
             log.debug(
-                "Shared-Folder-Datei erkannt. Node-data keys: %s",
+                t("backup.drive_shared_file_detected"),
                 sorted(node.data.keys()),
             )
 
@@ -501,12 +501,12 @@ def _open_drive_node(node, rel_path: str, **kwargs):
         if is_shared and share_id and download_zone != zone:
             try:
                 log.debug(
-                    "Versuche Download mit Owner-Zone '%s' für '%s' (docwsid=%s)",
+                    t("backup.drive_try_owner_zone"),
                     download_zone, rel_path, docwsid,
                 )
                 return node.connection.get_file(docwsid, zone=download_zone, **kwargs)
             except Exception:
-                log.debug("Fallback 0 (owner zone) fehlgeschlagen für %s", rel_path)
+                log.debug(t("backup.drive_fallback0_failed"), rel_path)
 
         # Fallback 1: re-fetch node metadata to obtain fresh IDs.
         # We call the API directly instead of get_node_data() because the
@@ -520,7 +520,7 @@ def _open_drive_node(node, rel_path: str, **kwargs):
                     node.connection, drivewsid, share_id=share_id,
                 )
             except Exception:
-                log.debug("Fallback 1 (retrieve item details) fehlgeschlagen für %s", rel_path)
+                log.debug(t("backup.drive_fallback1b_failed"), rel_path)
 
         candidates = _candidate_document_ids(node.data, fresh_data)
         if fresh_data:
@@ -528,7 +528,7 @@ def _open_drive_node(node, rel_path: str, **kwargs):
             # Recompute download_zone in case fresh metadata changed the zone
             download_zone = _shared_zone(share_id, zone) if is_shared and share_id else zone
             log.debug(
-                "Fallback-Kandidaten für '%s' (zone=%s, download_zone=%s): %s",
+                t("backup.drive_fallback_candidates"),
                 rel_path,
                 zone,
                 download_zone,
@@ -541,7 +541,7 @@ def _open_drive_node(node, rel_path: str, **kwargs):
                 try:
                     return node.connection.get_file(fresh_docwsid, zone=download_zone, **kwargs)
                 except Exception:
-                    log.debug("Fallback 1 (fresh docwsid) fehlgeschlagen für %s", rel_path)
+                    log.debug(t("backup.drive_fallback1_failed"), rel_path)
 
         # Fallback 2: for shared-folder files, retry download with shareID
         # context included in the query parameters. Try multiple candidate IDs.
@@ -549,8 +549,7 @@ def _open_drive_node(node, rel_path: str, **kwargs):
             for candidate_id in candidates or [docwsid]:
                 try:
                     log.debug(
-                        "Versuche Shared-Folder-Download mit shareID für '%s' "
-                        "(document_id=%s, download_zone=%s)",
+                        t("backup.drive_try_share_id"),
                         rel_path,
                         candidate_id,
                         download_zone,
@@ -560,7 +559,7 @@ def _open_drive_node(node, rel_path: str, **kwargs):
                     )
                 except Exception:
                     log.debug(
-                        "Fallback 2 (shared download) fehlgeschlagen für %s (document_id=%s)",
+                        t("backup.drive_fallback2_failed"),
                         rel_path,
                         candidate_id,
                     )
@@ -568,10 +567,10 @@ def _open_drive_node(node, rel_path: str, **kwargs):
         # Fallback 3: try using drivewsid as document_id
         if drivewsid and drivewsid != docwsid:
             try:
-                log.debug("Versuche Fallback mit drivewsid=%s (zone=%s)", drivewsid, download_zone)
+                log.debug(t("backup.drive_try_drivewsid"), drivewsid, download_zone)
                 return node.connection.get_file(drivewsid, zone=download_zone, **kwargs)
             except Exception:
-                log.debug("Fallback 3 (drivewsid) fehlgeschlagen für %s", rel_path)
+                log.debug(t("backup.drive_fallback3_failed"), rel_path)
 
         # Fallback 4: extract the raw UUID from drivewsid
         # (format is typically "FILE::com.apple.CloudDocs::uuid")
@@ -579,10 +578,10 @@ def _open_drive_node(node, rel_path: str, **kwargs):
             raw_id = drivewsid.rsplit("::", 1)[-1]
             if raw_id and raw_id != docwsid and raw_id != drivewsid:
                 try:
-                    log.debug("Versuche Fallback mit raw_id=%s (zone=%s)", raw_id, download_zone)
+                    log.debug(t("backup.drive_try_raw_id"), raw_id, download_zone)
                     return node.connection.get_file(raw_id, zone=download_zone, **kwargs)
                 except Exception:
-                    log.debug("Fallback 4 (raw ID) fehlgeschlagen für %s", rel_path)
+                    log.debug(t("backup.drive_fallback4_failed"), rel_path)
 
         raise first_exc
 
@@ -615,7 +614,7 @@ def _walk_remote(node, prefix: str = "", excludes: list[str] | None = None,
             if cache is not None and child_etag:
                 cached_etag = cache.get(rel)
                 if cached_etag and cached_etag == child_etag:
-                    log.debug("Cache-Hit (etag unverändert): %s", rel)
+                    log.debug(t("backup.cache_hit_etag"), rel)
                     continue
 
             yield from _walk_remote(child, rel, excludes, cache)
@@ -631,7 +630,7 @@ def _file_needs_update(node, local_path: Path) -> bool:
     """Return True when the local file is missing or outdated."""
     if not local_path.exists():
         log.debug(
-            "Update nötig (lokal nicht vorhanden): %s",
+            t("backup.update_needed_missing"),
             local_path.name,
         )
         return True
@@ -640,8 +639,7 @@ def _file_needs_update(node, local_path: Path) -> bool:
         local_size = local_path.stat().st_size
         if remote_size != local_size:
             log.debug(
-                "Update nötig (Größe unterschiedlich): %s – "
-                "remote=%s Bytes, lokal=%s Bytes",
+                t("backup.update_needed_size"),
                 local_path.name, remote_size, local_size,
             )
             return True
@@ -649,15 +647,14 @@ def _file_needs_update(node, local_path: Path) -> bool:
         local_mtime = local_path.stat().st_mtime
         if abs(remote_mtime - local_mtime) > 2:
             log.debug(
-                "Update nötig (mtime unterschiedlich): %s – "
-                "remote=%s, lokal=%s, diff=%.1fs",
+                t("backup.update_needed_mtime"),
                 local_path.name, remote_mtime, local_mtime,
                 abs(remote_mtime - local_mtime),
             )
             return True
     except Exception as exc:
         log.debug(
-            "Update nötig (Prüfung fehlgeschlagen): %s – %s",
+            t("backup.update_needed_check_failed"),
             local_path.name, exc,
         )
         return True
@@ -683,20 +680,20 @@ def _apply_sync_policy(
         target.parent.mkdir(parents=True, exist_ok=True)
         try:
             shutil.move(str(local_file), str(target))
-            log.info("Archiviert (remote entfernt): %s → %s", rel_path, target)
+            log.info(t("backup.archived_remote_removed"), rel_path, target)
             stats["archived"] += 1
         except Exception as exc:
-            log.error("Fehler beim Archivieren von %s: %s", rel_path, exc)
+            log.error(t("backup.archive_error"), rel_path, exc)
             stats["errors"] += 1
         return
 
     # policy == "delete"
     try:
         local_file.unlink()
-        log.info("Gelöscht (remote entfernt): %s", rel_path)
+        log.info(t("backup.deleted_remote_removed"), rel_path)
         stats["deleted"] += 1
     except Exception as exc:
-        log.error("Fehler beim Löschen von %s: %s", rel_path, exc)
+        log.error(t("backup.delete_error"), rel_path, exc)
         stats["errors"] += 1
 
 
@@ -719,13 +716,13 @@ def sync_drive_folder(
 
     api = icloud_service.get_session(apple_id)
     if api is None:
-        log.error("Keine Sitzung für %s", apple_id)
+        log.error(t("backup.no_session"), apple_id)
         return {**stats, "errors": 1}
 
     try:
         folder_node = api.drive[folder_name]
     except (KeyError, Exception) as exc:
-        log.error("Ordner '%s' nicht gefunden: %s", folder_name, exc)
+        log.error(t("backup.folder_not_found"), folder_name, exc)
         return {**stats, "errors": 1}
 
     # Skip folders shared *with* this user by another Apple-ID.
@@ -736,9 +733,7 @@ def sync_drive_folder(
             user_record = icloud_service.get_user_record(apple_id)
             if not user_record or owner != user_record:
                 log.warning(
-                    "Überspringe '%s': Ordner gehört einem anderen Benutzer "
-                    "(Fremdfreigabe) und kann nicht über die iCloud-API "
-                    "heruntergeladen werden.",
+                    t("backup.folder_foreign_share"),
                     folder_name,
                 )
                 return stats
@@ -780,7 +775,7 @@ def sync_drive_folder(
                 if _st.st_size == pkg_sizes[rel_path]:
                     remote_mtime = node.date_modified.timestamp() if node.date_modified else 0
                     if abs(remote_mtime - _st.st_mtime) <= 2:
-                        log.debug("Package-Cache-Hit: %s (bekannte Größe %s)", rel_path, pkg_sizes[rel_path])
+                        log.debug(t("backup.package_cache_hit"), rel_path, pkg_sizes[rel_path])
                         stats["skipped"] += 1
                         continue
             except OSError:
@@ -796,13 +791,12 @@ def sync_drive_folder(
         _node_mtime = node.date_modified if node.date_modified else None
         _node_drivewsid = node.data.get("drivewsid", "") if hasattr(node, "data") else ""
         log.debug(
-            "Download wird gestartet: %s – type=%s, remote_size=%s, "
-            "remote_mtime=%s, drivewsid=%s",
+            t("backup.download_starting"),
             rel_path, _node_type, _node_size, _node_mtime, _node_drivewsid,
         )
 
         if dry_run:
-            log.info("[DRY RUN] Würde herunterladen: %s", rel_path)
+            log.info(t("backup.dry_run_would_download"), rel_path)
             stats["downloaded"] += 1
             continue
 
@@ -825,8 +819,7 @@ def sync_drive_folder(
             _local_mtime = _local_stat.st_mtime
             if _node_size and _local_size != _node_size:
                 log.info(
-                    "Package-Download: %s – remote=%s Bytes, "
-                    "heruntergeladen=%s Bytes (Größe wird gecacht)",
+                    t("backup.package_download"),
                     rel_path, _node_size, _local_size,
                 )
                 pkg_sizes[rel_path] = _local_size
@@ -834,34 +827,24 @@ def sync_drive_folder(
                 _remote_ts = _node_mtime.timestamp()
                 if abs(_remote_ts - _local_mtime) > 2:
                     log.warning(
-                        "mtime-Abweichung nach Download: %s – "
-                        "remote=%s, lokal=%s, diff=%.1fs "
-                        "(Datei wird beim nächsten Lauf erneut heruntergeladen!)",
+                        t("backup.mtime_mismatch"),
                         rel_path, _remote_ts, _local_mtime,
                         abs(_remote_ts - _local_mtime),
                     )
 
-            log.info("Heruntergeladen: %s", rel_path)
+            log.info(t("backup.downloaded"), rel_path)
             stats["downloaded"] += 1
         except Exception as exc:
-            log.error("Fehler beim Herunterladen von %s: %s", rel_path, exc)
+            log.error(t("backup.download_error"), rel_path, exc)
             _drivewsid = node.data.get("drivewsid", "")
             if _drivewsid.startswith("FILE_IN_SHARED_FOLDER"):
                 log.warning(
-                    "Hinweis: '%s' ist eine Datei in einem geteilten Ordner "
-                    "(Shared Folder). Apple's Download-API unterstützt "
-                    "geteilte Ordner nur eingeschränkt. "
-                    "Mögliche Lösung: Den Ordnerinhalt in einen eigenen, "
-                    "nicht geteilten Ordner kopieren.",
+                    t("backup.hint_shared_folder"),
                     rel_path,
                 )
             elif _has_url_special_chars(rel_path):
                 log.warning(
-                    "Hinweis: Der Pfad '%s' enthält Sonderzeichen "
-                    "(z.B. #, %%, ?, &, + oder Nicht-ASCII wie ®). "
-                    "Dies kann Probleme mit der iCloud-API verursachen. "
-                    "Bitte den Ordner/die Datei in iCloud Drive "
-                    "umbenennen.",
+                    t("backup.hint_special_chars"),
                     rel_path,
                 )
             if tmp_path.exists():
@@ -958,10 +941,10 @@ def run_drive_backup(
 
         # Skip folders that are entirely excluded
         if _is_folder_fully_excluded(folder, excludes):
-            log.info("Ordner '%s' komplett ausgeschlossen, überspringe.", folder)
+            log.info(t("backup.folder_fully_excluded"), folder)
             continue
 
-        log.info("Synchronisiere Drive-Ordner: %s → %s", folder, dest_path)
+        log.info(t("backup.drive_sync_folder"), folder, dest_path)
         if config_id is not None:
             _set_progress(config_id, {
                 "phase": "drive",
@@ -1022,12 +1005,12 @@ def _download_photo(photo, local_path: Path, stats: dict) -> None:
         versions = photo.versions
         version_info = versions.get("original")
         if not version_info or not version_info.get("url"):
-            log.warning("Keine Download-URL für %s", fname)
+            log.warning(t("backup.no_download_url"), fname)
             stats["errors"] += 1
             return
         url = version_info["url"]
     except Exception as exc:
-        log.error("Fehler beim Abrufen der Version für %s: %s", fname, exc)
+        log.error(t("backup.version_fetch_error"), fname, exc)
         stats["errors"] += 1
         return
 
@@ -1037,7 +1020,7 @@ def _download_photo(photo, local_path: Path, stats: dict) -> None:
         response = photo._service.session.get(url, stream=True)
         response.raise_for_status()
     except Exception as exc:
-        log.error("Download-Fehler für %s: %s", fname, exc)
+        log.error(t("backup.download_error_for"), fname, exc)
         stats["errors"] += 1
         if response is not None:
             response.close()
@@ -1051,7 +1034,7 @@ def _download_photo(photo, local_path: Path, stats: dict) -> None:
                     fh.write(chunk)
         tmp_path.rename(local_path)
     except Exception as exc:
-        log.error("Schreibfehler für %s: %s", local_path.name, exc)
+        log.error(t("backup.write_error_for"), local_path.name, exc)
         if tmp_path.exists():
             tmp_path.unlink()
         stats["errors"] += 1
@@ -1068,7 +1051,7 @@ def _download_photo(photo, local_path: Path, stats: dict) -> None:
         except Exception:
             pass
 
-    log.info("Foto heruntergeladen: %s", local_path.name)
+    log.info(t("backup.photo_downloaded"), local_path.name)
     stats["downloaded"] += 1
 
 
@@ -1108,7 +1091,7 @@ def _process_photo(photo, dest_path: Path, excludes: list[str] | None,
         if photo_cache is not None and photo_id and remote_fp:
             cached_fp = photo_cache.get(str(photo_id))
             if cached_fp and cached_fp == remote_fp:
-                log.debug("Photo-Cache-Hit (fingerprint unverändert): %s", filename)
+                log.debug(t("backup.photo_cache_hit"), filename)
                 stats["skipped"] += 1
                 return filename, True
 
@@ -1125,12 +1108,12 @@ def _process_photo(photo, dest_path: Path, excludes: list[str] | None,
         else:
             # No remote size and no fingerprint match → trust file existence
             if not remote_fp:
-                log.debug("Kein remote_size/fingerprint für %s, überspringe (Datei existiert)", filename)
+                log.debug(t("backup.photo_no_size_fingerprint"), filename)
                 stats["skipped"] += 1
                 return filename, True
 
     if dry_run:
-        log.info("[DRY RUN] Würde herunterladen: %s", filename)
+        log.info(t("backup.dry_run_would_download"), filename)
         stats["downloaded"] += 1
         return filename, False
 
@@ -1182,7 +1165,7 @@ def _reconcile_photos(
             except OSError:
                 continue
     except OSError as exc:
-        log.error("Fehler beim Abgleich lokaler Fotos in %s: %s", local_dir, exc)
+        log.error(t("backup.photo_reconcile_error"), local_dir, exc)
         stats["errors"] += 1
 
 
@@ -1244,13 +1227,12 @@ def _backup_photo_library(
     except BackupCancelled:
         raise
     except Exception as exc:
-        log.error("Fehler beim Iterieren von %s: %s", label, exc)
+        log.error(t("backup.iterate_error"), label, exc)
         stats["errors"] += 1
         had_errors = True
 
     log.info(
-        "%s abgeschlossen: %d verarbeitet, %d heruntergeladen, "
-        "%d übersprungen, %d Fehler",
+        t("backup.library_done"),
         label, processed, stats["downloaded"], stats["skipped"], stats["errors"],
     )
 
@@ -1259,7 +1241,7 @@ def _backup_photo_library(
         _save_photo_cache(destination, label, photo_cache)
         new_entries = len(photo_cache) - cache_size_before
         if new_entries > 0:
-            log.info("Photo-Cache aktualisiert für %s: %d Einträge (+%d neu)",
+            log.info(t("backup.photo_cache_updated"),
                      label, len(photo_cache), new_entries)
 
     # Never reconcile after a broken iteration: remote_files would be
@@ -1269,8 +1251,7 @@ def _backup_photo_library(
         _reconcile_photos(dest_dir, remote_files, sync_policy, archive_base, stats, dry_run)
     elif had_errors and sync_policy != SyncPolicy.KEEP:
         log.warning(
-            "%s: Abgleich übersprungen, da die Foto-Liste unvollständig ist "
-            "(Fehler beim Iterieren).", label,
+            t("backup.reconcile_skipped"), label,
         )
 
     return processed, remote_files
@@ -1292,7 +1273,7 @@ def run_photos_backup(
 
     api = icloud_service.get_session(apple_id)
     if api is None:
-        log.error("Keine Sitzung für %s", apple_id)
+        log.error(t("backup.no_session"), apple_id)
         return {**stats, "errors": 1}
 
     dest_path = settings.backup_path / destination / "photos"
@@ -1301,7 +1282,7 @@ def run_photos_backup(
     archive_root = archive_base or (settings.archive_path / destination)
 
     # ---- Personal library via api.photos.all ----
-    log.info("Sichere iCloud Fotos (Mediathek) für %s", apple_id)
+    log.info(t("backup.photos_backup_start"), apple_id)
 
     mediathek_dir = dest_path / "Mediathek"
     archive_mediathek = archive_root / "photos" / "Mediathek"
@@ -1313,13 +1294,13 @@ def run_photos_backup(
 
     # ---- Shared / family library ----
     if include_family and shared_library_id and shared_library_id.startswith("SharedSync-"):
-        log.info("Sichere geteilte Mediathek (%s) für %s", shared_library_id, apple_id)
+        log.info(t("backup.photos_shared_backup_start"), shared_library_id, apple_id)
         try:
             libraries = api.photos.libraries
             shared_lib = libraries.get(shared_library_id)
             if shared_lib is None:
                 log.warning(
-                    "Geteilte Bibliothek %s nicht gefunden für %s",
+                    t("backup.photos_shared_not_found"),
                     shared_library_id, apple_id,
                 )
             else:
@@ -1334,7 +1315,7 @@ def run_photos_backup(
         except BackupCancelled:
             raise
         except Exception as exc:
-            log.error("Fehler bei geteilter Bibliothek für %s: %s", apple_id, exc)
+            log.error(t("backup.photos_shared_error"), apple_id, exc)
             stats["errors"] += 1
 
     stats["processed"] = processed
@@ -1527,13 +1508,13 @@ def run_contacts_backup(
         _set_progress(config_id, {
             "phase": "contacts",
             "folder": "",
-            "current_file": "Kontakte werden abgerufen...",
+            "current_file": t("backup.contacts_fetching"),
             "downloaded": 0, "skipped": 0, "errors": 0,
         })
 
     contacts = icloud_service.get_contacts(apple_id)
     if contacts is None:
-        log.error("Kontakte für %s konnten nicht abgerufen werden.", apple_id)
+        log.error(t("backup.contacts_fetch_failed"), apple_id)
         stats["errors"] += 1
         return stats
 
@@ -1554,7 +1535,7 @@ def run_contacts_backup(
     written_filenames: set[str] = set()
 
     log.info(
-        "Kontakte-Backup für %s: %d Kontakte gefunden",
+        t("backup.contacts_found"),
         apple_id, len(contacts),
     )
 
@@ -1606,7 +1587,7 @@ def run_contacts_backup(
             stats["downloaded"] += 1
 
         except Exception as exc:
-            log.error("Fehler beim Verarbeiten von Kontakt '%s': %s", display, exc)
+            log.error(t("backup.contact_error"), display, exc)
             stats["errors"] += 1
 
     # Write combined VCF
@@ -1614,7 +1595,7 @@ def run_contacts_backup(
         combined_path = dest_path / "all_contacts.vcf"
         combined_path.write_text("\r\n".join(vcards_combined), encoding="utf-8")
     except Exception as exc:
-        log.error("Fehler beim Schreiben von all_contacts.vcf: %s", exc)
+        log.error(t("backup.write_all_contacts_error"), exc)
         stats["errors"] += 1
 
     # Write raw JSON backup
@@ -1625,7 +1606,7 @@ def run_contacts_backup(
             encoding="utf-8",
         )
     except Exception as exc:
-        log.error("Fehler beim Schreiben von contacts.json: %s", exc)
+        log.error(t("backup.write_contacts_json_error"), exc)
         stats["errors"] += 1
 
     # Handle individual VCF files for contacts that no longer exist
@@ -1648,8 +1629,7 @@ def run_contacts_backup(
         pass
 
     log.info(
-        "Kontakte-Backup für %s abgeschlossen: %d geschrieben, %d übersprungen, "
-        "%d archiviert, %d gelöscht, %d Fehler",
+        t("backup.contacts_done"),
         apple_id, stats["downloaded"], stats["skipped"],
         stats["archived"], stats["deleted"], stats["errors"],
     )
@@ -1787,7 +1767,7 @@ def _event_to_ical(event: dict, cal_name: str = "") -> "icalendar.Event | None":
         return ical_event
 
     except Exception as exc:
-        log.debug("Fehler bei Event-Konvertierung '%s': %s", event.get("title", "?"), exc)
+        log.debug(t("backup.event_convert_error"), event.get("title", "?"), exc)
         return None
 
 
@@ -1815,14 +1795,14 @@ def run_calendar_backup(
         _set_progress(config_id, {
             "phase": "calendar",
             "folder": "",
-            "current_file": "Kalender werden abgerufen...",
+            "current_file": t("backup.calendars_fetching"),
             "downloaded": 0, "skipped": 0, "errors": 0,
         })
 
     # Fetch calendars
     calendars = icloud_service.get_calendars(apple_id)
     if calendars is None:
-        log.error("Kalender für %s konnten nicht abgerufen werden.", apple_id)
+        log.error(t("backup.calendars_fetch_failed"), apple_id)
         stats["errors"] += 1
         return stats
 
@@ -1835,7 +1815,7 @@ def run_calendar_backup(
     # with the full range and let the API handle pagination
     all_events = icloud_service.get_calendar_events(apple_id, from_dt=from_dt, to_dt=to_dt)
     if all_events is None:
-        log.error("Kalender-Events für %s konnten nicht abgerufen werden.", apple_id)
+        log.error(t("backup.calendar_events_fetch_failed"), apple_id)
         stats["errors"] += 1
         return stats
 
@@ -1867,7 +1847,7 @@ def run_calendar_backup(
     written_files: set[str] = set()
 
     log.info(
-        "Kalender-Backup für %s: %d Kalender, %d Events gefunden",
+        t("backup.calendars_found"),
         apple_id, len(calendars), len(all_events),
     )
 
@@ -1882,7 +1862,7 @@ def run_calendar_backup(
             _set_progress(config_id, {
                 "phase": "calendar",
                 "folder": cal_title,
-                "current_file": f"{len(cal_events)} Events",
+                "current_file": t("backup.calendar_event_count", count=len(cal_events)),
                 "downloaded": stats["downloaded"],
                 "skipped": stats["skipped"],
                 "errors": stats["errors"],
@@ -1921,10 +1901,10 @@ def run_calendar_backup(
 
             ics_path.write_text(ics_content, encoding="utf-8")
             stats["downloaded"] += 1
-            log.info("Kalender geschrieben: %s (%d Events)", cal_title, len(cal_events))
+            log.info(t("backup.calendar_written"), cal_title, len(cal_events))
 
         except Exception as exc:
-            log.error("Fehler beim Verarbeiten von Kalender '%s': %s", cal_title, exc)
+            log.error(t("backup.calendar_error"), cal_title, exc)
             stats["errors"] += 1
 
     # Write raw JSON backup
@@ -1940,7 +1920,7 @@ def run_calendar_backup(
             encoding="utf-8",
         )
     except Exception as exc:
-        log.error("Fehler beim Schreiben von calendars.json: %s", exc)
+        log.error(t("backup.write_calendars_json_error"), exc)
         stats["errors"] += 1
 
     # Remove stale .ics files for deleted calendars
@@ -1948,7 +1928,7 @@ def run_calendar_backup(
         if existing.is_file() and existing.name not in written_files:
             try:
                 existing.unlink()
-                log.debug("Gelöschten Kalender entfernt: %s", existing.name)
+                log.debug(t("backup.calendar_removed"), existing.name)
             except OSError:
                 pass
 
@@ -1959,7 +1939,7 @@ def run_calendar_backup(
         pass
 
     log.info(
-        "Kalender-Backup für %s abgeschlossen: %d geschrieben, %d übersprungen, %d Fehler",
+        t("backup.calendars_done"),
         apple_id, stats["downloaded"], stats["skipped"], stats["errors"],
     )
     return stats
@@ -1988,13 +1968,13 @@ def run_reminders_backup(
         _set_progress(config_id, {
             "phase": "reminders",
             "folder": "",
-            "current_file": "Erinnerungen werden abgerufen...",
+            "current_file": t("backup.reminders_fetching"),
             "downloaded": 0, "skipped": 0, "errors": 0,
         })
 
     data = icloud_service.get_reminders(apple_id)
     if data is None:
-        log.error("Erinnerungen für %s konnten nicht abgerufen werden.", apple_id)
+        log.error(t("backup.reminders_fetch_failed"), apple_id)
         stats["errors"] += 1
         return stats
 
@@ -2016,7 +1996,7 @@ def run_reminders_backup(
     written_files: set[str] = set()
 
     log.info(
-        "Erinnerungen-Backup für %s: %d Listen, %d Erinnerungen gefunden",
+        t("backup.reminders_found"),
         apple_id, len(lists), len(reminders),
     )
 
@@ -2036,7 +2016,7 @@ def run_reminders_backup(
         try:
             content = json.dumps(payload, ensure_ascii=False, indent=2, default=str)
         except Exception as exc:
-            log.error("Fehler beim Serialisieren der Liste '%s': %s", title, exc)
+            log.error(t("backup.reminder_list_error"), title, exc)
             stats["errors"] += 1
             continue
 
@@ -2052,7 +2032,7 @@ def run_reminders_backup(
             file_path.write_text(content, encoding="utf-8")
             stats["downloaded"] += 1
         except Exception as exc:
-            log.error("Fehler beim Schreiben von %s: %s", filename, exc)
+            log.error(t("backup.write_error"), filename, exc)
             stats["errors"] += 1
 
     # Combined dump
@@ -2064,7 +2044,7 @@ def run_reminders_backup(
             encoding="utf-8",
         )
     except Exception as exc:
-        log.error("Fehler beim Schreiben von reminders.json: %s", exc)
+        log.error(t("backup.write_reminders_json_error"), exc)
         stats["errors"] += 1
 
     # Remove stale files for deleted lists
@@ -2072,7 +2052,7 @@ def run_reminders_backup(
         if existing.is_file() and existing.name not in written_files:
             try:
                 existing.unlink()
-                log.debug("Gelöschte Erinnerungsliste entfernt: %s", existing.name)
+                log.debug(t("backup.reminder_list_removed"), existing.name)
             except OSError:
                 pass
 
@@ -2082,7 +2062,7 @@ def run_reminders_backup(
         pass
 
     log.info(
-        "Erinnerungen-Backup für %s abgeschlossen: %d geschrieben, %d übersprungen, %d Fehler",
+        t("backup.reminders_done"),
         apple_id, stats["downloaded"], stats["skipped"], stats["errors"],
     )
     return stats
@@ -2125,13 +2105,13 @@ def run_notes_backup(
         _set_progress(config_id, {
             "phase": "notes",
             "folder": "",
-            "current_file": "Notizen werden abgerufen...",
+            "current_file": t("backup.notes_fetching"),
             "downloaded": 0, "skipped": 0, "errors": 0,
         })
 
     data = icloud_service.get_notes(apple_id)
     if data is None:
-        log.error("Notizen für %s konnten nicht abgerufen werden.", apple_id)
+        log.error(t("backup.notes_fetch_failed"), apple_id)
         stats["errors"] += 1
         return stats
 
@@ -2154,7 +2134,7 @@ def run_notes_backup(
     expected_dirs: set[str] = set()
 
     log.info(
-        "Notizen-Backup für %s: %d Ordner, %d Notizen gefunden",
+        t("backup.notes_found"),
         apple_id, len(folders), len(notes),
     )
 
@@ -2239,7 +2219,7 @@ def run_notes_backup(
 
             stats["downloaded"] += 1
         except Exception as exc:
-            log.error("Fehler beim Schreiben der Notiz '%s': %s", title, exc)
+            log.error(t("backup.write_note_error"), title, exc)
             stats["errors"] += 1
 
     # Combined JSON dump
@@ -2250,7 +2230,7 @@ def run_notes_backup(
             encoding="utf-8",
         )
     except Exception as exc:
-        log.error("Fehler beim Schreiben von notes.json: %s", exc)
+        log.error(t("backup.write_notes_json_error"), exc)
         stats["errors"] += 1
 
     # Remove note directories for notes that were renamed or deleted.
@@ -2264,7 +2244,7 @@ def run_notes_backup(
             if rel not in expected_dirs:
                 try:
                     shutil.rmtree(note_dir)
-                    log.debug("Verwaiste Notiz entfernt: %s", rel)
+                    log.debug(t("backup.note_orphan_removed"), rel)
                 except OSError:
                     pass
         # Drop now-empty folder dirs.
@@ -2280,7 +2260,7 @@ def run_notes_backup(
         pass
 
     log.info(
-        "Notizen-Backup für %s abgeschlossen: %d geschrieben, %d übersprungen, %d Fehler",
+        t("backup.notes_done"),
         apple_id, stats["downloaded"], stats["skipped"], stats["errors"],
     )
     return stats
@@ -2303,11 +2283,11 @@ def run_backup(apple_id: str, **kwargs) -> dict:
     """
     with _ACTIVE_BACKUPS_LOCK:
         if apple_id in _ACTIVE_BACKUPS:
-            log.warning("Backup für %s läuft bereits – zweiter Start übersprungen.", apple_id)
+            log.warning(t("backup.already_running_log"), apple_id)
             return {
                 "drive_stats": None, "photos_stats": None, "contacts_stats": None,
                 "calendar_stats": None, "notes_stats": None, "reminders_stats": None,
-                "success": False, "message": "Backup läuft bereits.",
+                "success": False, "message": t("backup.already_running"),
                 "skipped_already_running": True,
             }
         _ACTIVE_BACKUPS.add(apple_id)
@@ -2358,11 +2338,11 @@ def _run_backup_impl(
     check = icloud_service.check_connection(apple_id)
     if not check["valid"]:
         if check.get("requires_2fa") or check.get("requires_password"):
-            log.error("Keine gültige Sitzung für %s – Token abgelaufen.", apple_id)
-            result["message"] = "Token abgelaufen – Zwei-Faktor-Authentifizierung erforderlich."
+            log.error(t("backup.session_invalid"), apple_id)
+            result["message"] = t("backup.token_expired")
             result["auth_expired"] = True
         else:
-            log.error("Verbindungscheck für %s fehlgeschlagen: %s", apple_id, check["message"])
+            log.error(t("backup.connection_check_failed"), apple_id, check["message"])
             result["message"] = check["message"]
         result["success"] = False
         return result
@@ -2379,7 +2359,7 @@ def _run_backup_impl(
     cancelled = False
     try:
         if backup_drive and drive_folders:
-            log.info("Starte iCloud Drive Backup für %s", apple_id)
+            log.info(t("backup.start_drive"), apple_id)
             drive_stats = run_drive_backup(
                 apple_id, drive_folders, destination, exclusions, dry_run, config_id,
                 sync_policy=drive_sync_policy,
@@ -2390,7 +2370,7 @@ def _run_backup_impl(
                 result["success"] = False
 
         if backup_photos:
-            log.info("Starte iCloud Fotos Backup für %s", apple_id)
+            log.info(t("backup.start_photos"), apple_id)
             photos_stats = run_photos_backup(
                 apple_id, destination, photos_include_family,
                 shared_library_id=shared_library_id,
@@ -2403,7 +2383,7 @@ def _run_backup_impl(
                 result["success"] = False
 
         if backup_contacts:
-            log.info("Starte iCloud Kontakte Backup für %s", apple_id)
+            log.info(t("backup.start_contacts"), apple_id)
             contacts_stats = run_contacts_backup(
                 apple_id, destination, config_id=config_id,
                 sync_policy=contacts_sync_policy,
@@ -2414,7 +2394,7 @@ def _run_backup_impl(
                 result["success"] = False
 
         if backup_calendar:
-            log.info("Starte iCloud Kalender Backup für %s", apple_id)
+            log.info(t("backup.start_calendar"), apple_id)
             calendar_stats = run_calendar_backup(
                 apple_id, destination, config_id=config_id,
             )
@@ -2423,7 +2403,7 @@ def _run_backup_impl(
                 result["success"] = False
 
         if backup_reminders:
-            log.info("Starte iCloud Erinnerungen Backup für %s", apple_id)
+            log.info(t("backup.start_reminders"), apple_id)
             reminders_stats = run_reminders_backup(
                 apple_id, destination, config_id=config_id,
             )
@@ -2432,7 +2412,7 @@ def _run_backup_impl(
                 result["success"] = False
 
         if backup_notes:
-            log.info("Starte iCloud Notizen Backup für %s", apple_id)
+            log.info(t("backup.start_notes"), apple_id)
             notes_stats = run_notes_backup(
                 apple_id, destination, config_id=config_id,
             )
@@ -2441,7 +2421,7 @@ def _run_backup_impl(
                 result["success"] = False
     except BackupCancelled:
         cancelled = True
-        log.info("Backup für %s wurde vom Benutzer abgebrochen.", apple_id)
+        log.info(t("backup.cancelled_log"), apple_id)
         result["success"] = False
     finally:
         if config_id is not None:
@@ -2463,50 +2443,50 @@ def _run_backup_impl(
             if retention > 0:
                 prune_old_archives(retention)
         except Exception:
-            log.debug("Archiv-Retention konnte nicht angewendet werden.", exc_info=True)
+            log.debug(t("backup.retention_failed"), exc_info=True)
 
     parts = []
     if cancelled:
-        parts.append("Abgebrochen durch Benutzer")
+        parts.append(t("backup.cancelled_summary"))
     if result["drive_stats"]:
         d = result["drive_stats"]
-        summary = f"Drive: {d['downloaded']} heruntergeladen"
+        summary = t("backup.summary_drive", count=d['downloaded'])
         if d.get('deleted'):
-            summary += f", {d['deleted']} gelöscht"
+            summary += t("backup.summary_deleted", count=d['deleted'])
         if d.get('archived'):
-            summary += f", {d['archived']} archiviert"
-        summary += f", {d['skipped']} übersprungen, {d['errors']} Fehler"
+            summary += t("backup.summary_archived", count=d['archived'])
+        summary += t("backup.summary_tail", skipped=d['skipped'], errors=d['errors'])
         parts.append(summary)
     if result["photos_stats"]:
         p = result["photos_stats"]
-        summary = f"Fotos: {p['downloaded']} heruntergeladen"
+        summary = t("backup.summary_photos", count=p['downloaded'])
         if p.get('deleted'):
-            summary += f", {p['deleted']} gelöscht"
+            summary += t("backup.summary_deleted", count=p['deleted'])
         if p.get('archived'):
-            summary += f", {p['archived']} archiviert"
-        summary += f", {p['skipped']} übersprungen, {p['errors']} Fehler"
+            summary += t("backup.summary_archived", count=p['archived'])
+        summary += t("backup.summary_tail", skipped=p['skipped'], errors=p['errors'])
         parts.append(summary)
     if result["contacts_stats"]:
         c = result["contacts_stats"]
-        summary = f"Kontakte: {c['downloaded']} geschrieben"
+        summary = t("backup.summary_contacts", count=c['downloaded'])
         if c.get('deleted'):
-            summary += f", {c['deleted']} gelöscht"
+            summary += t("backup.summary_deleted", count=c['deleted'])
         if c.get('archived'):
-            summary += f", {c['archived']} archiviert"
-        summary += f", {c['skipped']} übersprungen, {c['errors']} Fehler"
+            summary += t("backup.summary_archived", count=c['archived'])
+        summary += t("backup.summary_tail", skipped=c['skipped'], errors=c['errors'])
         parts.append(summary)
     if result["calendar_stats"]:
         k = result["calendar_stats"]
-        summary = f"Kalender: {k['downloaded']} geschrieben, {k['skipped']} übersprungen, {k['errors']} Fehler"
+        summary = t("backup.summary_calendar", written=k['downloaded'], skipped=k['skipped'], errors=k['errors'])
         parts.append(summary)
     if result["reminders_stats"]:
         r = result["reminders_stats"]
-        summary = f"Erinnerungen: {r['downloaded']} geschrieben, {r['skipped']} übersprungen, {r['errors']} Fehler"
+        summary = t("backup.summary_reminders", written=r['downloaded'], skipped=r['skipped'], errors=r['errors'])
         parts.append(summary)
     if result["notes_stats"]:
         n = result["notes_stats"]
-        summary = f"Notizen: {n['downloaded']} geschrieben, {n['skipped']} übersprungen, {n['errors']} Fehler"
+        summary = t("backup.summary_notes", written=n['downloaded'], skipped=n['skipped'], errors=n['errors'])
         parts.append(summary)
 
-    result["message"] = " | ".join(parts) if parts else "Nichts zu sichern."
+    result["message"] = " | ".join(parts) if parts else t("backup.nothing_to_backup")
     return result
