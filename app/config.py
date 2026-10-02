@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     archive_path: Path = Path("/archive")
     cookie_directory: Path = Path("/config/sessions")
     log_level: str = "INFO"
-    ui_language: Literal["de", "en"] = "de"
+    ui_language: Literal["de", "en", "fr", "it", "es"] = "de"
 
     model_config = {"env_prefix": ""}
 

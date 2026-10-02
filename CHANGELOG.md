@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-10-02
+
+### Added
+- **Französisch, Italienisch und Spanisch:** `UI_LANGUAGE` akzeptiert jetzt
+  zusätzlich `fr`, `it` und `es`. Die Kataloge wurden maschinell aus dem
+  englischen und deutschen Katalog übersetzt; Verbesserungen von
+  Muttersprachlern sind willkommen. Baut auf der Übersetzungsgrundlage von
+  Jeremy Mikkelsen (0.13.0) auf.
+
 ## [0.13.0] - 2026-10-02
 
 ### Added

@@ -3,6 +3,7 @@
 import json
 import re
 from pathlib import Path
+from typing import get_args
 
 import pytest
 import pytest_asyncio
@@ -15,7 +16,7 @@ from app.main import app
 
 _LOCALES = Path(i18n.__file__).parent / "locales"
 _GERMAN = re.compile(
-    r"[äöüÄÖÜß]|\b(Fehler|Einstellungen|Konto|Verbindung|Passwort|Speichern|"
+    r"[äöÄÖÜß]|(?<![gG])ü|\b(Fehler|Einstellungen|Konto|Verbindung|Passwort|Speichern|"
     r"Abbrechen|Sicherung|Datei|Dateien|Ordner|Bitte|Wird|nicht)\b"
 )
 
@@ -32,19 +33,39 @@ def _placeholders(text):
     return sorted(re.findall(r"\{(\w+)\}", text))
 
 
-def test_catalogs_have_identical_keys():
-    de, en = _load("de"), _load("en")
-    assert set(de) == set(en)
+_LANGUAGES = sorted(p.stem for p in _LOCALES.glob("*.json"))
+_TRANSLATIONS = [lang for lang in _LANGUAGES if lang != "de"]
 
 
-def test_catalogs_have_identical_placeholders():
-    de, en = _load("de"), _load("en")
-    mismatched = [k for k in de if _placeholders(de[k]) != _placeholders(en[k])]
+def _log_specifiers(text):
+    return re.findall(r"%(?:\.\d+)?[sdrf]", text)
+
+
+def test_every_supported_language_has_a_catalog():
+    from app.config import Settings
+
+    assert sorted(get_args(Settings.model_fields["ui_language"].annotation)) == _LANGUAGES
+
+
+@pytest.mark.parametrize("lang", _TRANSLATIONS)
+def test_catalogs_have_identical_keys(lang):
+    assert list(_load(lang)) == list(_load("de"))
+
+
+@pytest.mark.parametrize("lang", _TRANSLATIONS)
+def test_catalogs_have_identical_placeholders(lang):
+    de, other = _load("de"), _load(lang)
+    mismatched = [
+        k for k in de
+        if _placeholders(de[k]) != _placeholders(other[k])
+        or _log_specifiers(de[k]) != _log_specifiers(other[k])
+    ]
     assert mismatched == []
 
 
-def test_english_catalog_has_no_german():
-    hits = {k: v for k, v in _load("en").items() if _GERMAN.search(v)}
+@pytest.mark.parametrize("lang", _TRANSLATIONS)
+def test_translated_catalog_has_no_german(lang):
+    hits = {k: v for k, v in _load(lang).items() if _GERMAN.search(v)}
     assert hits == {}
 
 
@@ -52,7 +73,7 @@ def test_invalid_language_is_rejected():
     from app.config import Settings
 
     with pytest.raises(ValueError):
-        Settings(ui_language="fr")
+        Settings(ui_language="xx")
     assert Settings(ui_language=" EN ").ui_language == "en"
 
 
@@ -62,23 +83,29 @@ def test_t_formats_placeholders_and_falls_back_to_key(monkeypatch):
     assert i18n.t("no.such.key") == "no.such.key"
 
 
-@pytest_asyncio.fixture
-async def en_client(tmp_path, monkeypatch):
+def _client(tmp_path, monkeypatch, lang):
     monkeypatch.setattr(config_store, "_CONFIG_FILE", tmp_path / "config.yaml")
-    monkeypatch.setattr(settings, "ui_language", "en")
-    async with AsyncClient(
+    monkeypatch.setattr(settings, "ui_language", lang)
+    return AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test",
         cookies={_COOKIE_NAME: create_session_cookie()},
-    ) as client:
+    )
+
+
+@pytest_asyncio.fixture
+async def en_client(tmp_path, monkeypatch):
+    async with _client(tmp_path, monkeypatch, "en") as client:
         yield client
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("lang", _TRANSLATIONS)
 @pytest.mark.parametrize("path", ["/", "/accounts/a@example.com", "/logs", "/settings"])
-async def test_pages_render_without_german_in_english(en_client, path):
-    response = await en_client.get(path)
+async def test_pages_render_without_german(tmp_path, monkeypatch, lang, path):
+    async with _client(tmp_path, monkeypatch, lang) as client:
+        response = await client.get(path)
     assert response.status_code == 200
-    assert '<html lang="en"' in response.text
+    assert f'<html lang="{lang}"' in response.text
     assert not _GERMAN.search(_visible(response.text))
 
 

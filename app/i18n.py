@@ -1,4 +1,4 @@
-"""Minimal message catalog for the UI language (UI_LANGUAGE = de | en).
+"""Minimal message catalog for the UI language (UI_LANGUAGE = de | en | fr | it | es).
 
 Catalogs live in app/locales/<lang>.json as flat ``key -> message`` maps with
 ``{placeholder}`` fields. Keys starting with ``js.`` are also sent to the
