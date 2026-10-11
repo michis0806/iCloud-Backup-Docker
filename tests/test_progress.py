@@ -1,6 +1,10 @@
 """Tests for backup progress tracking."""
 
+import pytest
+
 from app.services.backup_service import get_progress, _set_progress, _clear_progress
+from app.routers import backup as backup_router
+from app import config_store
 
 
 class TestProgress:
@@ -30,3 +34,31 @@ class TestProgress:
         result = get_progress(102)
         assert result["downloaded"] == 2
         _clear_progress(102)
+
+
+class TestBackupStatusLifecycle:
+    @pytest.mark.asyncio
+    async def test_status_poll_does_not_mark_precheck_as_interrupted(self, monkeypatch):
+        apple_id = "precheck@example.com"
+        running_config = {
+            "last_backup_status": "running",
+            "last_backup_message": None,
+            "last_backup_at": None,
+            "last_backup_started_at": "2026-10-11T10:00:00+00:00",
+            "last_backup_duration_seconds": None,
+            "last_backup_stats": None,
+        }
+        update_status = []
+        monkeypatch.setattr(config_store, "get_backup_config", lambda _id: running_config)
+        monkeypatch.setattr(
+            config_store,
+            "update_backup_status",
+            lambda *args, **kwargs: update_status.append((args, kwargs)),
+        )
+        monkeypatch.setattr(backup_router.backup_service, "get_progress", lambda _id: None)
+
+        response = await backup_router.get_backup_status(apple_id)
+
+        assert response["status"] == "running"
+        assert response["message"] is None
+        assert update_status == []

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.1] - 2026-10-11
+
+### Fixed
+- Laufende Backups werden während der Verbindungsprüfung und der abschließenden
+  Speicherstatistik nicht mehr durch eine Statusabfrage fälschlich als
+  „durch Neustart unterbrochen“ markiert. Tatsächlich unterbrochene Läufe werden
+  weiterhin beim Anwendungsstart zurückgesetzt.
+
 ## [0.14.0] - 2026-10-02
 
 ### Added

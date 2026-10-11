@@ -258,16 +258,10 @@ async def get_backup_status(apple_id: str):
             "message": t("api.backup.no_config"),
         }
 
+    # Detailed progress is absent during connection checks and final storage
+    # scans. Only startup recovery may mark persisted runs as interrupted;
+    # polling must not overwrite the status of a live background task.
     status = cfg.get("last_backup_status", "idle")
-
-    # Guard against phantom "running" state: if persisted status says running
-    # but no backup process is actually active, correct it.
-    if status == "running" and backup_service.get_progress(apple_id) is None:
-        status = "error"
-        config_store.update_backup_status(
-            apple_id, status="error",
-            message=t("api.backup.interrupted"),
-        )
 
     return {
         "status": status,
