@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Ein abgebrochener Backup-Schritt (Drive, Fotos, Kontakte, Kalender,
+  Erinnerungen, Notizen), z. B. weil der iCloud-Fotodienst kurzzeitig nicht
+  verfügbar ist („Photos service not available“), stoppt den Job nicht mehr.
+  Die übrigen Schritte laufen weiter, der abgebrochene Schritt wird am Ende des
+  Jobs (frühestens 60 s nach dem ersten Abbruch) einmal wiederholt. Es gibt
+  keine Wartezeiten mehr innerhalb eines Schritts. Schlägt auch der zweite
+  Versuch fehl, wird der Job als fehlgeschlagen markiert; die echte
+  Apple-Fehlermeldung (HTTP-Status, Grund, URL-Pfad, Antwortinhalt) steht im
+  Log, eine Kurzfassung in Zusammenfassung und Pushover-Benachrichtigung. Für
+  nicht verfügbare Schritte läuft nie ein Abgleich (Archivieren/Löschen).
+
 ## [0.14.2] 2026-10-13
 
 - Bump pyicloud dependency to version 2026.10.0

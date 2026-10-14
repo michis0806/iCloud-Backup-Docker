@@ -8,10 +8,21 @@ import os
 import re
 import shutil
 import threading
+import time
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from fnmatch import fnmatch
 from pathlib import Path
 from shutil import copyfileobj
+from urllib.parse import urlsplit
+
+from pyicloud.exceptions import (
+    PyiCloud2FARequiredException,
+    PyiCloud2SARequiredException,
+    PyiCloudAPIResponseException,
+    PyiCloudFailedLoginException,
+    PyiCloudServiceUnavailable,
+)
 
 from app.config import settings
 from app.i18n import t
@@ -1257,6 +1268,81 @@ def _backup_photo_library(
     return processed, remote_files
 
 
+def _iter_cause_chain(exc: BaseException):
+    seen: set[int] = set()
+    cur: BaseException | None = exc
+    while cur is not None and id(cur) not in seen:
+        seen.add(id(cur))
+        yield cur
+        cur = cur.__cause__
+
+
+def _describe_icloud_error(exc: BaseException, max_body: int = 1000) -> str:
+    """Describe *exc* including its ``__cause__`` chain.
+
+    For pyicloud API response errors the reason, code and (if available) HTTP
+    status, URL path (without query string, which carries dsid/client ids)
+    and the truncated response body are reported.
+    """
+    parts = []
+    for cur in _iter_cause_chain(exc):
+        if isinstance(cur, PyiCloudAPIResponseException):
+            text = f"{type(cur).__name__}: reason={cur.reason!r}, code={cur.code!r}"
+            resp = getattr(cur, "response", None)
+            if resp is not None:
+                try:
+                    path = urlsplit(str(getattr(resp, "url", "") or "")).path
+                except ValueError:
+                    path = ""
+                body = str(getattr(resp, "text", "") or "")
+                if len(body) > max_body:
+                    body = body[:max_body] + "..."
+                text += f", http_status={getattr(resp, 'status_code', None)}, path={path}, body={body!r}"
+        else:
+            text = f"{type(cur).__name__}: {cur}"
+        parts.append(text)
+    return " <- ".join(parts)
+
+
+def _short_icloud_error(exc: BaseException, max_len: int = 120) -> str:
+    """One-line short cause (e.g. ``HTTP 503 Service Unavailable``)."""
+    short = ""
+    for cur in _iter_cause_chain(exc):
+        if isinstance(cur, PyiCloudAPIResponseException):
+            resp = getattr(cur, "response", None)
+            status = getattr(resp, "status_code", None) if resp is not None else None
+            if status is None and isinstance(cur.code, int):
+                status = cur.code
+            reason = str(cur.reason or "").strip()
+            if status is not None:
+                reason_phrase = str(getattr(resp, "reason", "") or "").strip() if resp is not None else ""
+                short = f"HTTP {status} {reason_phrase or reason}".strip()
+            else:
+                short = reason or type(cur).__name__
+            break
+    if not short:
+        short = str(exc).strip() or type(exc).__name__
+    short = " ".join(short.split())
+    return short if len(short) <= max_len else short[: max_len - 3] + "..."
+
+
+def _get_photos_service(api, apple_id: str, info: dict | None = None):
+    """Return ``api.photos`` or None if the service is unavailable.
+
+    Single attempt; the job orchestration retries the whole step once at the
+    end of the run.
+    """
+    try:
+        return api.photos
+    except (PyiCloudServiceUnavailable, PyiCloudAPIResponseException) as exc:
+        # Logged by the job orchestration (backup.step_aborted), not here.
+        detail = _describe_icloud_error(exc)
+        if info is not None:
+            info["cause"] = _short_icloud_error(exc)
+            info["detail"] = detail
+        return None
+
+
 def run_photos_backup(
     apple_id: str,
     destination: str,
@@ -1286,8 +1372,12 @@ def run_photos_backup(
 
     mediathek_dir = dest_path / "Mediathek"
     archive_mediathek = archive_root / "photos" / "Mediathek"
+    info: dict = {}
+    photos = _get_photos_service(api, apple_id, info)
+    if photos is None:
+        return {**stats, "errors": 1, "unavailable": True, **info}
     processed, _ = _backup_photo_library(
-        api, api.photos.all, mediathek_dir, "Mediathek",
+        api, photos.all, mediathek_dir, "Mediathek",
         excludes, stats, dry_run, config_id, sync_policy, archive_mediathek,
         destination=destination,
     )
@@ -1296,7 +1386,7 @@ def run_photos_backup(
     if include_family and shared_library_id and shared_library_id.startswith("SharedSync-"):
         log.info(t("backup.photos_shared_backup_start"), shared_library_id, apple_id)
         try:
-            libraries = api.photos.libraries
+            libraries = photos.libraries
             shared_lib = libraries.get(shared_library_id)
             if shared_lib is None:
                 log.warning(
@@ -2298,6 +2388,51 @@ def run_backup(apple_id: str, **kwargs) -> dict:
             _ACTIVE_BACKUPS.discard(apple_id)
 
 
+_DEFERRED_RETRY_MIN_DELAY = 60  # seconds between first abort and first retry
+
+# Auth problems are handled by the caller and must never be retried here.
+_AUTH_EXCEPTIONS = (
+    PyiCloudFailedLoginException,
+    PyiCloud2FARequiredException,
+    PyiCloud2SARequiredException,
+)
+
+
+@dataclass
+class _BackupStep:
+    key: str
+    result_key: str
+    func: object
+    args: tuple
+    kwargs: dict
+    start_key: str
+
+
+def _execute_step(
+    step: _BackupStep, apple_id: str,
+) -> tuple[dict | None, str | None, str | None]:
+    """Run *step* once.
+
+    Returns ``(stats, None, None)`` or ``(None, short_cause, detail)`` if aborted.
+
+    ``BackupCancelled`` and auth exceptions propagate.
+    """
+    try:
+        stats = step.func(*step.args, **step.kwargs)
+    except (BackupCancelled, *_AUTH_EXCEPTIONS):
+        raise
+    except Exception as exc:
+        detail = _describe_icloud_error(exc)
+        log.warning(t("backup.step_aborted"), t("backup.service_" + step.key), apple_id, detail)
+        return None, _short_icloud_error(exc), detail
+    if stats.get("unavailable"):
+        cause = stats.get("cause") or t("backup.service_" + step.key)
+        detail = stats.get("detail") or cause
+        log.warning(t("backup.step_aborted"), t("backup.service_" + step.key), apple_id, detail)
+        return None, cause, detail
+    return stats, None, None
+
+
 def _run_backup_impl(
     apple_id: str,
     backup_drive: bool = False,
@@ -2358,66 +2493,79 @@ def _run_backup_impl(
 
     cancelled = False
     try:
+        steps = []
         if backup_drive and drive_folders:
-            log.info(t("backup.start_drive"), apple_id)
-            drive_stats = run_drive_backup(
+            steps.append(_BackupStep("drive", "drive_stats", run_drive_backup, (
                 apple_id, drive_folders, destination, exclusions, dry_run, config_id,
-                sync_policy=drive_sync_policy,
-                archive_base=archive_base,
-            )
-            result["drive_stats"] = drive_stats
-            if drive_stats["errors"] > 0:
-                result["success"] = False
-
+            ), dict(sync_policy=drive_sync_policy, archive_base=archive_base),
+                "backup.start_drive"))
         if backup_photos:
-            log.info(t("backup.start_photos"), apple_id)
-            photos_stats = run_photos_backup(
+            steps.append(_BackupStep("photos", "photos_stats", run_photos_backup, (
                 apple_id, destination, photos_include_family,
+            ), dict(
                 shared_library_id=shared_library_id,
                 excludes=exclusions, dry_run=dry_run, config_id=config_id,
                 sync_policy=photos_sync_policy,
                 archive_base=archive_base,
-            )
-            result["photos_stats"] = photos_stats
-            if photos_stats["errors"] > 0:
-                result["success"] = False
-
+            ), "backup.start_photos"))
         if backup_contacts:
-            log.info(t("backup.start_contacts"), apple_id)
-            contacts_stats = run_contacts_backup(
-                apple_id, destination, config_id=config_id,
-                sync_policy=contacts_sync_policy,
+            steps.append(_BackupStep("contacts", "contacts_stats", run_contacts_backup, (
+                apple_id, destination,
+            ), dict(
+                config_id=config_id, sync_policy=contacts_sync_policy,
                 archive_base=archive_base,
-            )
-            result["contacts_stats"] = contacts_stats
-            if contacts_stats["errors"] > 0:
-                result["success"] = False
-
+            ), "backup.start_contacts"))
         if backup_calendar:
-            log.info(t("backup.start_calendar"), apple_id)
-            calendar_stats = run_calendar_backup(
-                apple_id, destination, config_id=config_id,
-            )
-            result["calendar_stats"] = calendar_stats
-            if calendar_stats["errors"] > 0:
-                result["success"] = False
-
+            steps.append(_BackupStep("calendar", "calendar_stats", run_calendar_backup, (
+                apple_id, destination,
+            ), dict(config_id=config_id), "backup.start_calendar"))
         if backup_reminders:
-            log.info(t("backup.start_reminders"), apple_id)
-            reminders_stats = run_reminders_backup(
-                apple_id, destination, config_id=config_id,
-            )
-            result["reminders_stats"] = reminders_stats
-            if reminders_stats["errors"] > 0:
-                result["success"] = False
-
+            steps.append(_BackupStep("reminders", "reminders_stats", run_reminders_backup, (
+                apple_id, destination,
+            ), dict(config_id=config_id), "backup.start_reminders"))
         if backup_notes:
-            log.info(t("backup.start_notes"), apple_id)
-            notes_stats = run_notes_backup(
-                apple_id, destination, config_id=config_id,
-            )
-            result["notes_stats"] = notes_stats
-            if notes_stats["errors"] > 0:
+            steps.append(_BackupStep("notes", "notes_stats", run_notes_backup, (
+                apple_id, destination,
+            ), dict(config_id=config_id), "backup.start_notes"))
+
+        # First pass: an aborted step must not stop the remaining steps.
+        aborted: list[_BackupStep] = []
+        first_abort: float | None = None
+        for step in steps:
+            log.info(t(step.start_key), apple_id)
+            stats, cause, _detail = _execute_step(step, apple_id)
+            if cause is None:
+                result[step.result_key] = stats
+                if stats["errors"] > 0:
+                    result["success"] = False
+                continue
+            if first_abort is None:
+                first_abort = time.monotonic()
+            result[step.result_key] = None
+            aborted.append(step)
+
+        # Second pass: retry each aborted step once, after a minimum pause.
+        if aborted:
+            remaining = _DEFERRED_RETRY_MIN_DELAY - (time.monotonic() - first_abort)
+            while remaining > 0:
+                _check_cancel(config_id)
+                time.sleep(min(1.0, remaining))
+                remaining = _DEFERRED_RETRY_MIN_DELAY - (time.monotonic() - first_abort)
+            _check_cancel(config_id)
+        for step in aborted:
+            log.info(t("backup.step_retry"), t("backup.service_" + step.key), apple_id)
+            stats, cause, detail = _execute_step(step, apple_id)
+            if cause is None:
+                log.info(t("backup.step_retry_ok"), t("backup.service_" + step.key), apple_id)
+                result[step.result_key] = stats
+                if stats["errors"] > 0:
+                    result["success"] = False
+            else:
+                log.error(t("backup.step_retry_failed"), t("backup.service_" + step.key), apple_id, detail)
+                result[step.result_key] = {
+                    "downloaded": 0, "skipped": 0, "errors": 1,
+                    "unavailable": True, "cause": cause,
+                }
                 result["success"] = False
     except BackupCancelled:
         cancelled = True
@@ -2448,7 +2596,12 @@ def _run_backup_impl(
     parts = []
     if cancelled:
         parts.append(t("backup.cancelled_summary"))
-    if result["drive_stats"]:
+    if result["drive_stats"] and result["drive_stats"].get("unavailable"):
+        parts.append(t(
+            "backup.summary_step_unavailable",
+            service=t("backup.service_drive"), cause=result["drive_stats"].get("cause", ""),
+        ))
+    elif result["drive_stats"]:
         d = result["drive_stats"]
         summary = t("backup.summary_drive", count=d['downloaded'])
         if d.get('deleted'):
@@ -2457,7 +2610,12 @@ def _run_backup_impl(
             summary += t("backup.summary_archived", count=d['archived'])
         summary += t("backup.summary_tail", skipped=d['skipped'], errors=d['errors'])
         parts.append(summary)
-    if result["photos_stats"]:
+    if result["photos_stats"] and result["photos_stats"].get("unavailable"):
+        parts.append(t(
+            "backup.summary_step_unavailable",
+            service=t("backup.service_photos"), cause=result["photos_stats"].get("cause", ""),
+        ))
+    elif result["photos_stats"]:
         p = result["photos_stats"]
         summary = t("backup.summary_photos", count=p['downloaded'])
         if p.get('deleted'):
@@ -2466,7 +2624,12 @@ def _run_backup_impl(
             summary += t("backup.summary_archived", count=p['archived'])
         summary += t("backup.summary_tail", skipped=p['skipped'], errors=p['errors'])
         parts.append(summary)
-    if result["contacts_stats"]:
+    if result["contacts_stats"] and result["contacts_stats"].get("unavailable"):
+        parts.append(t(
+            "backup.summary_step_unavailable",
+            service=t("backup.service_contacts"), cause=result["contacts_stats"].get("cause", ""),
+        ))
+    elif result["contacts_stats"]:
         c = result["contacts_stats"]
         summary = t("backup.summary_contacts", count=c['downloaded'])
         if c.get('deleted'):
@@ -2475,15 +2638,30 @@ def _run_backup_impl(
             summary += t("backup.summary_archived", count=c['archived'])
         summary += t("backup.summary_tail", skipped=c['skipped'], errors=c['errors'])
         parts.append(summary)
-    if result["calendar_stats"]:
+    if result["calendar_stats"] and result["calendar_stats"].get("unavailable"):
+        parts.append(t(
+            "backup.summary_step_unavailable",
+            service=t("backup.service_calendar"), cause=result["calendar_stats"].get("cause", ""),
+        ))
+    elif result["calendar_stats"]:
         k = result["calendar_stats"]
         summary = t("backup.summary_calendar", written=k['downloaded'], skipped=k['skipped'], errors=k['errors'])
         parts.append(summary)
-    if result["reminders_stats"]:
+    if result["reminders_stats"] and result["reminders_stats"].get("unavailable"):
+        parts.append(t(
+            "backup.summary_step_unavailable",
+            service=t("backup.service_reminders"), cause=result["reminders_stats"].get("cause", ""),
+        ))
+    elif result["reminders_stats"]:
         r = result["reminders_stats"]
         summary = t("backup.summary_reminders", written=r['downloaded'], skipped=r['skipped'], errors=r['errors'])
         parts.append(summary)
-    if result["notes_stats"]:
+    if result["notes_stats"] and result["notes_stats"].get("unavailable"):
+        parts.append(t(
+            "backup.summary_step_unavailable",
+            service=t("backup.service_notes"), cause=result["notes_stats"].get("cause", ""),
+        ))
+    elif result["notes_stats"]:
         n = result["notes_stats"]
         summary = t("backup.summary_notes", written=n['downloaded'], skipped=n['skipped'], errors=n['errors'])
         parts.append(summary)
