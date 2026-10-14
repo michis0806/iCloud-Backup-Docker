@@ -392,6 +392,17 @@ def _shared_zone(share_id, default_zone: str = "com.apple.CloudDocs") -> str:
     return default_zone
 
 
+def _share_owner_record_name(share_id) -> str | None:
+    """Return ``shareID.zoneID.ownerRecordName`` if present."""
+    if not isinstance(share_id, dict):
+        return None
+    zone_id = share_id.get("zoneID")
+    if not isinstance(zone_id, dict):
+        return None
+    owner = zone_id.get("ownerRecordName")
+    return owner if isinstance(owner, str) and owner else None
+
+
 def _download_with_share_context(connection, docwsid, zone, share_id, **kwargs):
     """Download a file from a shared folder by including shareID context.
 
@@ -461,9 +472,13 @@ def _open_drive_node(node, rel_path: str, **kwargs):
     in ``drivewsid``) because the standard download call is missing the
     ``shareID`` context that Apple's API needs to locate the document.
 
-    On any 404 we attempt four fallbacks:
+    pyicloud's ``node.open()`` already addresses shared-folder documents by
+    their owner when the node data has an ``owner`` dict (since 2026.10.0).
+    On any 404 we attempt these fallbacks:
 
-    0. For shared-folder files: retry with the owner-qualified zone.
+    0a. For shared-folder files: pyicloud's owner path, with the owner taken
+        from ``shareID`` (only if ``node.open()`` did not already use it).
+    0b. For shared-folder files: retry with the owner-qualified zone.
     1. Re-fetch the node metadata via ``retrieveItemDetailsInFolders``
        (POST with JSON body — immune to URL-encoding issues, includes
        ``shareID`` for shared folders) and retry with the fresh
@@ -506,7 +521,25 @@ def _open_drive_node(node, rel_path: str, **kwargs):
                 sorted(node.data.keys()),
             )
 
-        # Fallback 0 (shared zone): the initial node.open() used the plain
+        # Fallback 0a (owner path): pyicloud >= 2026.10.0 addresses shared
+        # documents as ``/download/by_id/<ownerRecordName>``, but node.open()
+        # only does so when the node carries an ``owner`` dict. If it did not,
+        # retry that form with the owner taken from the shareID.
+        share_owner = _share_owner_record_name(share_id)
+        upstream_owner = node.data.get("owner") if isinstance(node.data.get("owner"), dict) else {}
+        if is_shared and share_owner and upstream_owner.get("ownerRecordName") != share_owner:
+            try:
+                log.debug(
+                    t("backup.drive_try_owner_record"),
+                    share_owner, rel_path, docwsid,
+                )
+                return node.connection.get_file(
+                    docwsid, zone=zone, owner_record_name=share_owner, **kwargs,
+                )
+            except Exception:
+                log.debug(t("backup.drive_fallback0_failed"), rel_path)
+
+        # Fallback 0b (shared zone): the initial node.open() used the plain
         # zone (e.g. "com.apple.CloudDocs") but shared-folder files live in
         # the owner's zone.  Retry with the owner-qualified zone immediately.
         if is_shared and share_id and download_zone != zone:

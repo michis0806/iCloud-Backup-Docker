@@ -190,3 +190,112 @@ def test_describe_and_short_error():
     short = bs._short_icloud_error(exc)
     assert short == "HTTP 503 Service Unavailable"
     assert len(bs._short_icloud_error(ConnectionError("y" * 500))) <= 120
+
+
+# ---- pyicloud 2026.10.0 exception hierarchy --------------------------------
+
+def _service_errors():
+    from pyicloud.common.cloudkit.client import CloudKitApiError, CloudKitAuthError
+    from pyicloud.services.notes.client import NotesApiError, NotesAuthError
+    from pyicloud.services.reminders.client import RemindersApiError, RemindersAuthError
+
+    return [
+        CloudKitApiError("ck failed"), CloudKitAuthError("ck auth"),
+        NotesApiError("notes failed"), NotesAuthError("notes auth"),
+        RemindersApiError("reminders failed"), RemindersAuthError("reminders auth"),
+    ]
+
+
+def test_exception_hierarchy_assumptions():
+    from pyicloud.exceptions import (
+        PyiCloudAccountLockedException,
+        PyiCloudAuthRequiredException,
+        PyiCloudConnectionException,
+        PyiCloudEndpointGoneException,
+        PyiCloudException,
+    )
+
+    # New subclasses keep their parent contract.
+    assert issubclass(PyiCloudAccountLockedException, PyiCloudFailedLoginException)
+    assert issubclass(PyiCloudConnectionException, PyiCloudAPIResponseException)
+    assert issubclass(PyiCloudEndpointGoneException, PyiCloudAPIResponseException)
+    # Service errors are now rooted at PyiCloudException, but none of them
+    # became an auth exception or an API response exception.
+    for exc in _service_errors():
+        assert isinstance(exc, PyiCloudException)
+        assert not isinstance(exc, bs._AUTH_EXCEPTIONS)
+        assert not isinstance(exc, PyiCloudAPIResponseException)
+    assert not issubclass(PyiCloudAuthRequiredException, bs._AUTH_EXCEPTIONS)
+    assert not issubclass(PyiCloudConnectionException, bs._AUTH_EXCEPTIONS)
+    # The attributes the error helpers read still exist.
+    exc = PyiCloudAPIResponseException("Bad Gateway", 502, None)
+    assert (exc.reason, exc.code, exc.response) == ("Bad Gateway", 502, None)
+
+
+def _step(exc):
+    def boom(*a, **k):
+        raise exc
+    return bs._BackupStep("contacts", "contacts_stats", boom, (), {}, "x")
+
+
+def test_account_locked_propagates_from_step():
+    from pyicloud.exceptions import PyiCloudAccountLockedException
+
+    locked = PyiCloudAccountLockedException("-20209", FakeResponse())
+    with pytest.raises(PyiCloudAccountLockedException):
+        bs._execute_step(_step(locked), "a@b.c")
+
+
+@pytest.mark.parametrize("exc", [
+    *_service_errors(),
+    __import__("pyicloud.exceptions", fromlist=["x"]).PyiCloudConnectionException(
+        "Request failed to iCloud"
+    ),
+], ids=lambda e: type(e).__name__)
+def test_service_and_connection_errors_are_deferred_not_auth(exc):
+    stats, cause, detail = bs._execute_step(_step(exc), "a@b.c")
+    assert stats is None
+    assert cause and detail
+    assert type(exc).__name__ in detail
+
+
+def test_connection_error_retried_in_run(monkeypatch):
+    from pyicloud.exceptions import PyiCloudConnectionException
+
+    calls = []
+    _patch_steps(monkeypatch, calls, lambda: OK)
+
+    def down(*a, **k):
+        calls.append("contacts")
+        raise PyiCloudConnectionException("Request failed to iCloud")
+
+    monkeypatch.setattr(bs, "run_contacts_backup", down)
+    result = _run()
+    assert calls == ["photos", "contacts", "calendar", "contacts"]
+    assert result["contacts_stats"]["cause"] == "Request failed to iCloud"
+
+
+def test_short_error_for_connection_and_gone():
+    from pyicloud.exceptions import PyiCloudConnectionException, PyiCloudEndpointGoneException
+
+    assert bs._short_icloud_error(PyiCloudConnectionException("Request failed to iCloud")) == (
+        "Request failed to iCloud"
+    )
+    gone = PyiCloudEndpointGoneException("p1-photos.icloud.com/database/1/query")
+    short = bs._short_icloud_error(gone)
+    assert short.startswith("HTTP 410 Apple no longer serves p1-photos.icloud.com")
+    assert len(short) <= 120
+    assert "code=410" in bs._describe_icloud_error(gone)
+
+
+def test_photos_service_connection_error_is_unavailable():
+    from pyicloud.exceptions import PyiCloudConnectionException
+
+    class Api:
+        @property
+        def photos(self):
+            raise PyiCloudConnectionException("Request failed to iCloud")
+
+    info = {}
+    assert bs._get_photos_service(Api(), "a@b.c", info) is None
+    assert info["cause"] == "Request failed to iCloud"

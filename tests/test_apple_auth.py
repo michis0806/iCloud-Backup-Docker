@@ -336,3 +336,153 @@ def test_expired_challenge_does_not_consume_code(api):
     with pytest.raises(ValueError, match="abgelaufen"):
         api.validate_selected_code("123456")
     api.session.post.assert_not_called()
+
+
+# ---- pyicloud 2026.10.0 interface guards ----------------------------------
+
+def test_private_pyicloud_interface_used_by_adapter_still_exists(tmp_path):
+    """Fail loudly on a pyicloud bump that renames a hook the adapter relies on."""
+    import inspect
+
+    from pyicloud.hsa2_bridge import TrustedDeviceBridgeBootstrapper, TrustedDeviceBridgeState
+
+    for name in (
+        "_get_mfa_auth_options", "_augment_webauthn_options",
+        "_clear_trusted_device_bridge_state", "_get_auth_headers",
+        "_set_two_factor_delivery_state", "_supports_trusted_device_bridge",
+        "_current_hsa2_boot_context", "_validate_token", "_update_state",
+        "_srp_authentication", "trust_session", "request_2fa_code",
+        "is_trusted_session", "requires_2fa", "requires_2sa",
+    ):
+        assert hasattr(PyiCloudService, name), name
+    assert "pause_2fa" in inspect.signature(PyiCloudService.__init__).parameters
+    assert "pause_2fa" in inspect.signature(PyiCloudService._srp_authentication).parameters
+
+    client = PyiCloudService(
+        "test@example.com", "unused", cookie_directory=str(tmp_path), authenticate=False,
+    )
+    for attr in (
+        "_auth_data", "_auth_endpoint", "_requires_mfa", "_pause_2fa",
+        "_two_factor_code_requested", "_trusted_device_bridge",
+        "_trusted_device_bridge_state", "session",
+    ):
+        assert hasattr(client, attr), attr
+    assert isinstance(client._trusted_device_bridge, TrustedDeviceBridgeBootstrapper)
+    assert set(inspect.signature(TrustedDeviceBridgeBootstrapper.start).parameters) >= {
+        "session", "auth_endpoint", "headers", "boot_context", "user_agent",
+    }
+    assert set(inspect.signature(TrustedDeviceBridgeBootstrapper.validate_code).parameters) >= {
+        "session", "auth_endpoint", "headers", "bridge_state", "code",
+    }
+    assert "uses_legacy_trusted_device_verifier" in dir(TrustedDeviceBridgeState)
+
+
+def test_mfa_options_use_a_single_html_request_without_json_probe(api):
+    # pyicloud 2026.10.0 would add a second GET with Accept: application/json
+    # for accounts without security keys. The adapter keeps the 2.7.0 shape.
+    api._auth_data = {}
+    api.session.get.return_value.json.return_value = {"trustedPhoneNumbers": [{"id": 1}]}
+    assert [p["id"] for p in api.trusted_phones()] == [1]
+    api.session.get.assert_called_once()
+    assert api.session.get.call_args.kwargs["headers"]["Accept"] == "text/html"
+    api.session.put.assert_not_called()
+    api.session.post.assert_not_called()
+
+
+def test_upstream_mfa_options_would_probe_json_twice(api):
+    # Guard: if pyicloud drops the JSON probe, the override above is obsolete.
+    api.session.get.return_value.json.return_value = {"trustedPhoneNumbers": [{"id": 1}]}
+    PyiCloudService._get_mfa_auth_options(api)
+    api.session.get.assert_called_once()  # our override is in effect
+    api.session.get.reset_mock()
+    PyiCloudService._augment_webauthn_options(api, {})
+    api.session.get.assert_called_once()
+    assert api.session.get.call_args.kwargs["headers"]["Accept"] == "application/json"
+
+
+def test_real_srp_login_with_real_mfa_options_sends_no_challenge(api, monkeypatch):
+    from pyicloud import base
+    from pyicloud.exceptions import PyiCloud2FARequiredException
+
+    srp_user = Mock()
+    srp_user.start_authentication.return_value = ("test@example.com", b"public")
+    srp_user.process_challenge.return_value = b"proof"
+    srp_user.H_AMK = b"server-proof"
+    monkeypatch.setattr(base.srp, "User", Mock(return_value=srp_user))
+    monkeypatch.setattr(base, "SrpPassword", Mock())
+    init_response = Mock()
+    init_response.json.return_value = {
+        "salt": "AA==", "b": "AA==", "c": "challenge", "iteration": 1, "protocol": "s2k",
+    }
+    api.session.post.side_effect = [
+        init_response, PyiCloud2FARequiredException("test@example.com", Mock()),
+    ]
+    api.session.get.return_value.json.return_value = {"trustedPhoneNumbers": [{"id": 1}]}
+    api._auth_data = {}
+    api._srp_authentication(pause_2fa=True)
+    urls = [c.args[0] if c.args else c.kwargs.get("url", "") for c in api.session.get.call_args_list]
+    # authorize/signin + the HTML auth shell; nothing that delivers a code.
+    assert len(urls) == 2
+    assert not any("verify" in str(u) for u in urls)
+    api.session.put.assert_not_called()
+    assert api.requires_2fa
+    assert api.challenge_method is None
+
+
+def _real_session(api, tmp_path):
+    from pyicloud.session import PyiCloudSession
+
+    api._session = PyiCloudSession(api, "offline-test", str(tmp_path))
+
+
+@pytest.mark.parametrize("status", [403, 409])
+def test_account_lock_during_validation_surfaces_and_is_not_success(api, monkeypatch, tmp_path, status):
+    from pyicloud.exceptions import PyiCloudAccountLockedException, PyiCloudFailedLoginException
+    from requests import Session
+
+    api.request_challenge("sms", "7")
+    _real_session(api, tmp_path)
+    response = hsa2_response({
+        "authenticationType": "hsa2", "securityCode": {"valid": True},
+        "serviceErrors": [{"code": "-20209"}],
+    }, status=status)
+    monkeypatch.setattr(Session, "request", Mock(return_value=response))
+    with pytest.raises(PyiCloudAccountLockedException) as info:
+        api.validate_selected_code("123456")
+    # Still a failed login for callers that only know the base class.
+    assert isinstance(info.value, PyiCloudFailedLoginException)
+    assert not api.code_verified
+    api.trust_session.assert_not_called()
+
+
+def test_unreachable_icloud_during_validation_keeps_challenge(api, monkeypatch, tmp_path):
+    import requests
+    from pyicloud.exceptions import PyiCloudConnectionException
+    from requests import Session
+
+    api.request_challenge("push")
+    _real_session(api, tmp_path)
+    transport = Mock(side_effect=requests.exceptions.ConnectionError("down"))
+    monkeypatch.setattr(Session, "request", transport)
+    with pytest.raises(PyiCloudConnectionException):
+        api.validate_selected_code("123456")
+    assert not api.code_verified
+    assert api.challenge_method == "push"
+    api.trust_session.assert_not_called()
+
+
+def test_upstream_409_helper_is_weaker_than_adapter_check(api):
+    # Documents why the adapter keeps its own 409 check: pyicloud only looks at
+    # securityCode.valid and would accept a locked/cooldown or erroring body.
+    from pyicloud.exceptions import PyiCloud2FARequiredException
+
+    for payload in (
+        {"securityCode": {"valid": True, "securityCodeLocked": True}, "authenticationType": "hsa2"},
+        {"securityCode": {"valid": True}, "serviceErrors": [{"code": "-21669"}], "authenticationType": "hsa2"},
+        {"securityCode": {"valid": True}},
+    ):
+        response = hsa2_response(payload)
+        assert PyiCloudService._is_accepted_security_code_conflict(response)
+        assert not api._code_accepted_in_conflict(
+            PyiCloud2FARequiredException("test@example.com", response)
+        )

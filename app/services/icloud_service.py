@@ -5,7 +5,11 @@ import logging
 import re
 from pathlib import Path
 
-from pyicloud.exceptions import PyiCloudFailedLoginException
+from pyicloud.exceptions import (
+    PyiCloudAccountLockedException,
+    PyiCloudConnectionException,
+    PyiCloudFailedLoginException,
+)
 
 from app import config_store
 from app.config import settings
@@ -72,6 +76,9 @@ def authenticate(apple_id: str, password: str | None = None) -> dict:
             cookie_directory=cookie_dir,
             verify=True,
         )
+    except PyiCloudAccountLockedException:
+        # Subclass of PyiCloudFailedLoginException; must be checked first.
+        return {"status": "error", "message": t("icloud.account_locked")}
     except PyiCloudFailedLoginException as exc:
         msg = str(exc)
         if "No password" in msg or "password" in msg.lower():
@@ -127,6 +134,11 @@ def submit_2fa_code(apple_id: str, code: str) -> dict:
                 "status": "error",
                 "message": t("icloud.invalid_code"),
             }
+    except PyiCloudAccountLockedException:
+        return {"status": "error", "message": t("icloud.account_locked")}
+    except PyiCloudConnectionException as exc:
+        # Apple was not reached; the challenge stays pending for a retry.
+        return {"status": "error", "message": t("icloud.connection_error", exc=exc)}
     except Exception as exc:
         return {"status": "error", "message": t("icloud.2fa_error", exc=exc)}
 
@@ -376,6 +388,10 @@ def get_session(apple_id: str) -> PyiCloudService | None:
         if api.is_trusted_session and not api.requires_2fa and not api.requires_2sa:
             _sessions[apple_id] = api
             return api
+    except PyiCloudAccountLockedException:
+        # A stored-password login would only hit the lock again.
+        log.warning(t("icloud.account_locked_log"), apple_id)
+        return None
     except Exception:
         pass
 
@@ -599,6 +615,16 @@ def check_connection(apple_id: str) -> dict:
             cookie_directory=cookie_dir,
             verify=True,
         )
+    except PyiCloudAccountLockedException:
+        # Never retry with the stored password against a locked account.
+        # After unlocking, Apple requires a fresh sign-in.
+        log.warning(t("icloud.account_locked_log"), apple_id)
+        return {
+            "valid": False,
+            "message": t("icloud.account_locked"),
+            "requires_2fa": False,
+            "requires_password": True,
+        }
     except PyiCloudFailedLoginException as exc:
         # Saved token is dead – with a stored password, a fresh full login
         # can renew the session without asking the user for anything.

@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-10-14
+
+### Changed
+- **pyicloud 2026.10.0:** Update von 2.7.0 auf die aktuelle pyicloud-Version
+  (Kalender-Versionierung). Der Pin bleibt exakt. Der 2FA-Adapter überspringt
+  die neue zusätzliche JSON-Abfrage des Auth-Endpunkts, damit Apple vor der
+  Kanalauswahl weiterhin keinen Code verschickt. Die eigene 409-Prüfung und der
+  Fallback für geteilte Drive-Ordner bleiben, weil sie strenger bzw. breiter
+  sind als die neuen Upstream-Varianten. `rich` ist keine Abhängigkeit mehr.
+- Gesperrte Apple-Accounts werden erkannt und klar gemeldet; gegen einen
+  gesperrten Account wird nicht erneut mit dem gespeicherten Passwort
+  angemeldet. Ist iCloud während der 2FA-Eingabe nicht erreichbar, bleibt die
+  laufende Abfrage für einen neuen Versuch offen.
+- Der pyicloud-Update-Workflow veröffentlicht nichts mehr automatisch. Er legt
+  für eine neue pyicloud-Version einen PR mit angehobenem Pin und
+  Testergebnis an, der vor dem Release geprüft wird.
+
 ### Fixed
 - Ein abgebrochener Backup-Schritt (Drive, Fotos, Kontakte, Kalender,
   Erinnerungen, Notizen), z. B. weil der iCloud-Fotodienst kurzzeitig nicht
@@ -19,9 +36,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Log, eine Kurzfassung in Zusammenfassung und Pushover-Benachrichtigung. Für
   nicht verfügbare Schritte läuft nie ein Abgleich (Archivieren/Löschen).
 
-## [0.14.2] 2026-10-13
+## [0.14.2] - 2026-10-13
 
-- Bump pyicloud dependency to version 2026.10.0
+### Changed
+- Neubau des Images ohne inhaltliche Änderung. Der ursprünglich automatisch
+  erzeugte Eintrag „Bump pyicloud dependency to version 2026.10.0“ war falsch:
+  `requirements.txt` pinnte weiterhin pyicloud 2.7.0, und genau diese Version
+  war im Image enthalten. Das tatsächliche Update folgt in 0.15.0.
 
 ## [0.14.1] - 2026-10-11
 

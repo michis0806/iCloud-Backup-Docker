@@ -51,13 +51,35 @@ tests/
 pyicloud distinguishes two auth modes:
 
 - **2FA (HSA2):** Modern Apple accounts use `services/apple_auth.py` and the
-  pinned pyicloud 2.7.0. Login uses `pause_2fa=True`; automatic library delivery
-  is disabled. `request_challenge("push" | "sms", phone_id)` requests only the
-  selected channel, without automatic SMS fallback. Phone metadata may also
-  be nested under `phoneNumberVerification`. `validate_selected_code(code)`
-  retains the selected verifier and bridge context, completes trust once,
-  and checks existing tokens if Apple's result is ambiguous. Do not add
-  another `trust_session()` or start a fresh login during code validation.
+  pinned pyicloud 2026.10.0 (calendar versioning). Login uses `pause_2fa=True`;
+  automatic library delivery is disabled. `request_challenge("push" | "sms", phone_id)`
+  requests only the selected channel, without automatic SMS fallback. Phone
+  metadata may also be nested under `phoneNumberVerification`.
+  `validate_selected_code(code)` retains the selected verifier and bridge
+  context, completes trust once, and checks existing tokens if Apple's result
+  is ambiguous. Do not add another `trust_session()` or start a fresh login
+  during code validation.
+- **Internal pyicloud hooks the adapter uses:** `request_2fa_code()` (overridden
+  to return False), `_augment_webauthn_options()` (overridden as a no-op: since
+  2026.10.0 pyicloud would send a second, JSON GET to the auth endpoint for every
+  account without security keys), `_get_mfa_auth_options()`, `_auth_data`,
+  `_auth_endpoint`, `_get_auth_headers()`, `_supports_trusted_device_bridge()`,
+  `_trusted_device_bridge.start/validate_code`, `_trusted_device_bridge_state`
+  (`uses_legacy_trusted_device_verifier`), `_current_hsa2_boot_context()`,
+  `_clear_trusted_device_bridge_state()`, `_set_two_factor_delivery_state()`,
+  `_two_factor_code_requested`, `_validate_token()`, `_requires_mfa`,
+  `_update_state()`, `trust_session()`. `tests/test_apple_auth.py` asserts that
+  they exist; re-check them on every pyicloud bump.
+- **HTTP 409 with `securityCode.valid`:** pyicloud 2026.10.0 accepts such
+  answers inside its own `validate_2fa_code()`, but only checks `valid`. The
+  adapter does not call that method (it would use pyicloud's own phone choice
+  and `pushMode`) and keeps its stricter `_code_accepted_in_conflict()`.
+- **Error types (2026.10.0):** `PyiCloudConnectionException` (subclass of
+  `PyiCloudAPIResponseException`, `code=None`) means iCloud was not reached; it
+  is not a failed login and must not trigger a password prompt.
+  `PyiCloudAccountLockedException` (subclass of `PyiCloudFailedLoginException`,
+  service error `-20209`) means the Apple Account is locked; `icloud_service`
+  reports `icloud.account_locked` and never retries with the stored password.
 - **2SA (HSA1):** Legacy two-step. Devices come from `api.trusted_devices` (`/listDevices` endpoint). Code is sent via `api.send_verification_code(device)` and validated via `api.validate_verification_code(device, code)`.
 
 The `icloud_service.py` handles both flows transparently.
@@ -185,6 +207,20 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8080
 ## Common Pitfalls
 
 - **pyicloud `photo.download()`** loads the entire file into RAM. Use `_download_photo()` instead, which streams via `session.get(url, stream=True)` + `iter_content()`.
+- **pyicloud exception hierarchy:** Since 2026.10.0 the service errors
+  (`CloudKitApiError`, `NotesError`, `RemindersApiError`, their `*AuthError`
+  siblings, …) derive from `PyiCloudException`, but not from
+  `PyiCloudAPIResponseException` or the login/2FA exceptions. `_execute_step()`
+  re-raises only `_AUTH_EXCEPTIONS` (failed login incl. account locked, 2FA,
+  2SA); everything else, including `PyiCloudConnectionException`, is deferred
+  and retried once. `tests/test_deferred_retry.py` pins these assumptions.
+- **`rich` is not a dependency:** pyicloud 2026.10.0 imports it lazily (only
+  for debug output of the Notes HTML exporter, which this app does not use).
+- **Shared Drive folders:** pyicloud 2026.10.0 `node.open()` adds the owner to
+  the download path (`/download/by_id/<ownerRecordName>`) when the node has an
+  `owner` dict. `_open_drive_node()` keeps its own fallbacks for the 404 case:
+  the same owner path with the owner from `shareID`, then the owner-qualified
+  zone, `shareID` query parameters and alternative document ids.
 - **2FA vs 2SA:** Modern accounts use HSA2 (2FA). The old `trusted_devices` / `listDevices` API returns nothing for HSA2 accounts – use `_auth_data["trustedPhoneNumbers"]` instead.
 - **Exclusion paths:** Must work for both top-level and subfolder paths (e.g. `Documents/subfolder`).
 - **Log level changes:** `LOG_LEVEL` env var is applied at startup via `config.py`. The log handler uses a ring buffer (`log_handler.py`) that captures all levels.

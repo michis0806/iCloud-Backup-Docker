@@ -1,5 +1,11 @@
 name: Check pyicloud Updates
 
+# Prepares a reviewable PR for new pyicloud versions. It never releases anything:
+# requirements.txt pins pyicloud exactly on purpose, because the 2FA adapter
+# (app/services/apple_auth.py) relies on internal pyicloud interfaces (see AGENTS.md).
+# Note: PRs created with GITHUB_TOKEN do not trigger other workflows, so this
+# workflow runs the test suite itself and reports the result in the PR body.
+
 on:
   schedule:
     # Daily at 06:00 UTC
@@ -10,12 +16,12 @@ env:
   PACKAGE_NAME: pyicloud
 
 jobs:
-  check-and-release:
+  prepare-upgrade-pr:
     runs-on: ubuntu-latest
 
     permissions:
       contents: write
-      actions: write
+      pull-requests: write
 
     steps:
       - name: Get latest pyicloud version from PyPI
@@ -51,9 +57,12 @@ jobs:
 
       - name: Compare versions
         id: compare
+        env:
+          PYPI_VERSION: ${{ steps.pypi.outputs.version }}
+          CACHED_VERSION: ${{ steps.cached.outputs.version }}
         run: |
-          LATEST="${{ steps.pypi.outputs.version }}"
-          CACHED="${{ steps.cached.outputs.version }}"
+          LATEST="$PYPI_VERSION"
+          CACHED="$CACHED_VERSION"
           if [ "$LATEST" = "$CACHED" ]; then
             echo "pyicloud $LATEST is already built – skipping."
             echo "changed=false" >> "$GITHUB_OUTPUT"
@@ -65,77 +74,122 @@ jobs:
       - name: Checkout repository
         if: steps.compare.outputs.changed == 'true'
         uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-          fetch-tags: true
 
-      - name: Determine next version
+      - name: Check for an existing PR
         if: steps.compare.outputs.changed == 'true'
-        id: next
+        id: existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.pypi.outputs.version }}
         run: |
-          # Get the latest semver tag (e.g. v0.9.6)
-          LATEST_TAG=$(git tag -l 'v*' --sort=-v:refname | head -n 1)
-          if [ -z "$LATEST_TAG" ]; then
-            NEXT="v0.0.1"
+          BRANCH="deps/pyicloud-${VERSION}"
+          # Only an open PR counts as handled. A branch left over from a run whose
+          # PR creation failed is overwritten (force push) and the PR retried.
+          OPEN_PRS=$(gh pr list --head "$BRANCH" --state open --json number --jq 'length')
+          if [ "$OPEN_PRS" != "0" ]; then
+            echo "Open PR for $BRANCH already exists - nothing to do."
+            echo "exists=true" >> "$GITHUB_OUTPUT"
           else
-            # Strip the leading 'v'
-            VERSION="${LATEST_TAG#v}"
-            MAJOR=$(echo "$VERSION" | cut -d. -f1)
-            MINOR=$(echo "$VERSION" | cut -d. -f2)
-            PATCH=$(echo "$VERSION" | cut -d. -f3)
-            PATCH=$((PATCH + 1))
-            NEXT="v${MAJOR}.${MINOR}.${PATCH}"
+            echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
-          echo "tag=$NEXT" >> "$GITHUB_OUTPUT"
-          echo "Next release: $LATEST_TAG -> $NEXT"
 
-      - name: Update CHANGELOG.md
-        if: steps.compare.outputs.changed == 'true'
+      - name: Create branch and update pin
+        if: steps.compare.outputs.changed == 'true' && steps.existing.outputs.exists == 'false'
+        env:
+          VERSION: ${{ steps.pypi.outputs.version }}
         run: |
-          TAG="${{ steps.next.outputs.tag }}"
-          VERSION="${TAG#v}"
-          DATE=$(date -u +%Y-%m-%d)
-          PYICLOUD_VERSION="${{ steps.pypi.outputs.version }}"
-          # Insert new version section after ## [Unreleased]
-          sed -i "s/^## \[Unreleased\]$/## [Unreleased]\n\n## [${VERSION}] ${DATE}\n\n- Bump pyicloud dependency to version ${PYICLOUD_VERSION}/" CHANGELOG.md
+          git checkout -b "deps/pyicloud-${VERSION}"
+          # Matches pyicloud==..., >=, ~=, <= forms; trailing comments are kept.
+          sed -i -E "s/^pyicloud[[:space:]]*(==|>=|<=|~=)[^#[:space:]]*/pyicloud==${VERSION}/" requirements.txt
+          if ! grep -qE "^pyicloud==${VERSION}( |#|$)" requirements.txt; then
+            echo "Failed to update pyicloud pin in requirements.txt"
+            exit 1
+          fi
+          git diff requirements.txt
 
-      - name: Commit and push CHANGELOG
-        if: steps.compare.outputs.changed == 'true'
+      - name: Set up Python
+        if: steps.compare.outputs.changed == 'true' && steps.existing.outputs.exists == 'false'
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies and run tests
+        if: steps.compare.outputs.changed == 'true' && steps.existing.outputs.exists == 'false'
+        id: tests
         run: |
+          # A failing install or test run must not stop the workflow: the PR is created either way.
+          set +e
+          {
+            python -m pip install -r requirements.txt -r requirements-dev.txt &&
+            python -m pytest -q
+          } > "$RUNNER_TEMP/test-output.txt" 2>&1
+          STATUS=$?
+          tail -n 40 "$RUNNER_TEMP/test-output.txt" > "$RUNNER_TEMP/test-tail.txt"
+          cat "$RUNNER_TEMP/test-tail.txt"
+          if [ "$STATUS" -eq 0 ]; then
+            echo "result=passed" >> "$GITHUB_OUTPUT"
+          else
+            echo "result=failed" >> "$GITHUB_OUTPUT"
+          fi
+          exit 0
+
+      - name: Commit, push and open PR
+        if: steps.compare.outputs.changed == 'true' && steps.existing.outputs.exists == 'false'
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.pypi.outputs.version }}
+          TEST_RESULT: ${{ steps.tests.outputs.result }}
+        run: |
+          BRANCH="deps/pyicloud-${VERSION}"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add CHANGELOG.md
-          git commit -m "Update CHANGELOG for ${{ steps.next.outputs.tag }}"
-          git push
+          git add requirements.txt
+          git commit -m "Bump pyicloud to ${VERSION}"
+          git push --force origin "$BRANCH"
 
-      - name: Create release
-        if: steps.compare.outputs.changed == 'true'
-        id: release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          TAG="${{ steps.next.outputs.tag }}"
-          PYICLOUD_VERSION="${{ steps.pypi.outputs.version }}"
-          COMMIT_SHA=$(git rev-parse HEAD)
-          gh release create "$TAG" \
-            --title "$TAG" \
-            --notes "Bump pyicloud dependency to version $PYICLOUD_VERSION" \
-            --target "$COMMIT_SHA"
+          if [ "$TEST_RESULT" = "passed" ]; then
+            RESULT_LINE="Tests: **passed**"
+          else
+            RESULT_LINE="Tests: **FAILED** (or dependency installation failed)"
+          fi
+          FENCE='```'
+          {
+            echo "Automated pyicloud upgrade to ${VERSION}."
+            echo
+            echo "Upstream release notes: https://github.com/timlaing/pyicloud/releases/tag/${VERSION}"
+            echo
+            echo "## Test result"
+            echo
+            echo "$RESULT_LINE"
+            echo
+            echo "Last lines of \`python -m pytest -q\`:"
+            echo
+            echo "$FENCE"
+            cat "$RUNNER_TEMP/test-tail.txt"
+            echo "$FENCE"
+            echo
+            echo "## Review checklist (see AGENTS.md)"
+            echo
+            echo "- [ ] Verify the 2FA adapter (\`app/services/apple_auth.py\`) against the new pyicloud internals"
+            echo "- [ ] Run a live reauth against a real Apple account"
+            echo "- [ ] Update CHANGELOG.md"
+          } > "$RUNNER_TEMP/pr-body.md"
 
-      - name: Trigger Docker build
-        if: steps.compare.outputs.changed == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          TAG="${{ steps.next.outputs.tag }}"
-          gh workflow run docker-publish.yml --ref "$TAG"
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "Bump pyicloud to ${VERSION}" \
+            --body-file "$RUNNER_TEMP/pr-body.md"
 
       - name: Save version to cache
-        if: steps.compare.outputs.changed == 'true'
-        run: echo "${{ steps.pypi.outputs.version }}" > .pyicloud-version
+        if: steps.compare.outputs.changed == 'true' && (steps.existing.outputs.exists == 'true' || steps.pr.outcome == 'success')
+        env:
+          VERSION: ${{ steps.pypi.outputs.version }}
+        run: echo "$VERSION" > .pyicloud-version
 
       - name: Update cache
-        if: steps.compare.outputs.changed == 'true'
+        if: steps.compare.outputs.changed == 'true' && (steps.existing.outputs.exists == 'true' || steps.pr.outcome == 'success')
         uses: actions/cache/save@v5
         with:
           path: .pyicloud-version

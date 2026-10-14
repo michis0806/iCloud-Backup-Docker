@@ -225,3 +225,93 @@ def test_get_notes_real_error_returns_none(monkeypatch):
     monkeypatch.setattr(icloud_service, "get_session", lambda _: DummyApi())
 
     assert icloud_service.get_notes("broken@icloud.com") is None
+
+
+# ---- pyicloud 2026.10.0: locked accounts and unreachable iCloud ------------
+
+def _locked():
+    from pyicloud.exceptions import PyiCloudAccountLockedException
+    from tests.test_apple_auth import hsa2_response
+
+    return PyiCloudAccountLockedException(
+        "-20209", hsa2_response({"serviceErrors": [{"code": "-20209"}]}, status=403),
+    )
+
+
+def _unreachable():
+    from pyicloud.exceptions import PyiCloudConnectionException
+
+    return PyiCloudConnectionException("Request failed to iCloud")
+
+
+def _no_stored_login(monkeypatch):
+    stored = Mock(side_effect=AssertionError("must not log in with stored password"))
+    monkeypatch.setattr(icloud_service, "_stored_password_login", stored)
+    return stored
+
+
+def test_authenticate_reports_locked_account(monkeypatch):
+    monkeypatch.setattr(icloud_service, "_sessions", {})
+    monkeypatch.setattr(icloud_service, "PyiCloudService", Mock(side_effect=_locked()))
+    result = icloud_service.authenticate("locked@icloud.com", "pw")
+    assert result["status"] == "error"
+    assert result["message"] == icloud_service.t("icloud.account_locked")
+    assert "requires_password" not in result
+
+
+def test_authenticate_reports_outage_as_connection_error(monkeypatch):
+    monkeypatch.setattr(icloud_service, "_sessions", {})
+    monkeypatch.setattr(icloud_service, "PyiCloudService", Mock(side_effect=_unreachable()))
+    result = icloud_service.authenticate("down@icloud.com", "pw")
+    assert result["status"] == "error"
+    assert result["message"].startswith(icloud_service.t("icloud.connection_error", exc="").rstrip())
+    assert "requires_password" not in result
+
+
+def test_check_connection_locked_account_does_not_retry_with_stored_password(monkeypatch):
+    monkeypatch.setattr(icloud_service, "_sessions", {})
+    monkeypatch.setattr(icloud_service, "PyiCloudService", Mock(side_effect=_locked()))
+    stored = _no_stored_login(monkeypatch)
+    result = icloud_service.check_connection("locked@icloud.com")
+    assert result["valid"] is False
+    assert result["requires_password"] is True
+    assert result["message"] == icloud_service.t("icloud.account_locked")
+    stored.assert_not_called()
+
+
+def test_check_connection_outage_is_not_a_failed_login(monkeypatch):
+    # pyicloud < 2026.10 wrapped transport errors as PyiCloudFailedLoginException,
+    # which made an outage look like an expired session.
+    monkeypatch.setattr(icloud_service, "_sessions", {})
+    monkeypatch.setattr(icloud_service, "PyiCloudService", Mock(side_effect=_unreachable()))
+    stored = _no_stored_login(monkeypatch)
+    result = icloud_service.check_connection("down@icloud.com")
+    assert result["valid"] is False
+    assert not result.get("requires_password")
+    assert not result["requires_2fa"]
+    stored.assert_not_called()
+
+
+def test_get_session_locked_account_skips_stored_password_login(monkeypatch):
+    monkeypatch.setattr(icloud_service, "_sessions", {})
+    monkeypatch.setattr(icloud_service, "PyiCloudService", Mock(side_effect=_locked()))
+    stored = _no_stored_login(monkeypatch)
+    assert icloud_service.get_session("locked@icloud.com") is None
+    stored.assert_not_called()
+
+
+def test_submit_code_during_outage_keeps_challenge(monkeypatch, api, tmp_path):
+    import requests
+    from pyicloud.session import PyiCloudSession
+    from requests import Session
+
+    apple_id = "sms@icloud.com"
+    api.request_challenge("push")
+    api._session = PyiCloudSession(api, "offline-test", str(tmp_path))
+    monkeypatch.setattr(Session, "request", Mock(side_effect=requests.exceptions.Timeout("slow")))
+    monkeypatch.setattr(icloud_service, "_sessions", {apple_id: api})
+    result = icloud_service.submit_2fa_code(apple_id, "123456")
+    assert result["status"] == "error"
+    assert result["message"].startswith(icloud_service.t("icloud.connection_error", exc="").rstrip())
+    assert api.challenge_method == "push" and not api.code_verified
+    api.trust_session.assert_not_called()

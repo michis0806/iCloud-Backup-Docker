@@ -1,8 +1,14 @@
-"""Explicit, single-channel 2FA for pyicloud 2.7.0.
+"""Explicit, single-channel 2FA for pyicloud 2026.10.0.
 
-Keep this adapter in sync with the other iCloud application. pyicloud's
-automatic delivery and implicit SMS fallback are unsuitable for a channel picker.
+pyicloud's automatic delivery and implicit SMS fallback are unsuitable for a
+channel picker. Unified Inbox has a related copy; both keep their own sessions,
+so the copies may diverge (see AGENTS.md).
 Private hooks are covered by offline tests; the dependency is pinned accordingly.
+
+pyicloud 2026.10.0 accepts 409 responses with ``securityCode.valid`` in its own
+``validate_2fa_code()``. This adapter does not use that path: it validates
+against the channel the user selected and applies a stricter 409 check (HSA2
+auth type, no service errors, no lock/cooldown flags), so the check stays here.
 """
 
 import logging
@@ -36,6 +42,18 @@ class InteractiveICloudService(PyiCloudService):
     def request_2fa_code(self):
         """Constructor hook: wait for the user's explicit channel selection."""
         return False
+
+    def _augment_webauthn_options(self, auth_options):
+        """Skip pyicloud's extra JSON probe of the auth endpoint.
+
+        Since 2026.10.0, ``_get_mfa_auth_options()`` sends a second GET with
+        ``Accept: application/json`` whenever security-key options are absent,
+        i.e. for every code-based account. pyicloud itself notes that the JSON
+        variant collapses Apple's answer to the SMS-oriented shape. This adapter
+        only offers push and SMS codes, so keep the single HTML request that
+        2.7.0 made and that the explicit channel flow was verified against.
+        """
+        return None
 
     @property
     def pending_auth_expired(self):
