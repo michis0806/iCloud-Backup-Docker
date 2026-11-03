@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.1] - 2026-11-03
+
+### Changed
+- **pyicloud 2026.10.1:** Update von 2026.10.0. Für Anmeldung, Fotos und Drive
+  ändert sich nichts; neu sind Sicherheitsschlüssel-Abbruch und erweiterte
+  Erinnerungsdaten („Frühe Erinnerungen“, „Dringend“), die jetzt mitgesichert
+  werden. Die Erinnerungsdateien werden deshalb beim ersten Lauf einmal neu
+  geschrieben.
+
+### Fixed
+- Interne Verwaltungsfelder der Erinnerungsmodelle (Serverkopien von Titel und
+  Notiz, Apple-Konto-ID aus frühen Erinnerungen) landen nicht im Backup.
+- Tests verwenden eigene temporäre Datenverzeichnisse statt `/config`. Dadurch
+  laufen sie auch ohne Root-Rechte, etwa im pyicloud-Update-Workflow, der für
+  2026.10.1 fälschlich fehlgeschlagene Tests gemeldet hatte.
+
 ## [0.15.0] - 2026-10-14
 
 ### Changed

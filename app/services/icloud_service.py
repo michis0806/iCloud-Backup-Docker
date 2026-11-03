@@ -814,6 +814,19 @@ def _model_to_dict(obj):
     return {k: v for k, v in vars(obj).items() if not k.startswith("_")}
 
 
+# pyicloud >= 2026.10.1 keeps write-side bookkeeping on Reminder models: the
+# server copies of title/notes (duplicates of ``title``/``desc``) and an Apple
+# account id from early-reminder payloads. They are not reminder content.
+_REMINDER_INTERNAL_FIELDS = ("server_title", "server_desc", "early_reminder_account_id")
+
+
+def _reminder_to_dict(rem) -> dict:
+    data = _model_to_dict(rem)
+    for key in _REMINDER_INTERNAL_FIELDS:
+        data.pop(key, None)
+    return data
+
+
 def _is_missing_zone_error(exc: Exception) -> bool:
     """Return True when the error means the account has no Notes/Reminders zone.
 
@@ -848,7 +861,7 @@ def get_reminders(apple_id: str) -> dict | None:
 
     try:
         lists = [_model_to_dict(lst) for lst in api.reminders.lists()]
-        reminders = [_model_to_dict(rem) for rem in api.reminders.reminders()]
+        reminders = [_reminder_to_dict(rem) for rem in api.reminders.reminders()]
         return {"lists": lists, "reminders": reminders}
     except Exception as exc:
         if _is_missing_zone_error(exc):

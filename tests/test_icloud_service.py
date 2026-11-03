@@ -165,6 +165,35 @@ def test_get_reminders_missing_zone_returns_empty(monkeypatch):
     assert icloud_service.get_reminders("empty@icloud.com") == {"lists": [], "reminders": []}
 
 
+def test_get_reminders_drops_internal_model_fields(monkeypatch):
+    """Write-side bookkeeping of pyicloud 2026.10.1 is not backed up."""
+
+    class DummyReminder:
+        def model_dump(self):
+            return {
+                "id": "r1", "title": "Milch", "desc": "", "list_id": "l1",
+                "early_reminders": [], "urgent": None,
+                "server_title": "Milch", "server_desc": "",
+                "early_reminder_account_id": "ACCOUNT-ID",
+            }
+
+    class DummyReminders:
+        def lists(self):
+            return [{"id": "l1", "title": "Einkauf"}]
+
+        def reminders(self):
+            return [DummyReminder()]
+
+    class DummyApi:
+        reminders = DummyReminders()
+
+    monkeypatch.setattr(icloud_service, "get_session", lambda _: DummyApi())
+
+    [rem] = icloud_service.get_reminders("a@icloud.com")["reminders"]
+    assert rem["title"] == "Milch" and rem["early_reminders"] == []
+    assert not {"server_title", "server_desc", "early_reminder_account_id"} & rem.keys()
+
+
 def test_get_reminders_real_error_returns_none(monkeypatch):
     class DummyReminders:
         def lists(self):
