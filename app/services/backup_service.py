@@ -639,10 +639,9 @@ def _walk_remote(node, prefix: str = "", excludes: list[str] | None = None,
     update the cache after an error-free run.
     """
     excludes = excludes or []
-    try:
-        children = node.dir()
-    except Exception:
-        children = []
+    # An incomplete listing is not an empty folder. Let failures escape so
+    # sync_drive_folder aborts before reconciliation can remove local files.
+    children = node.dir()
 
     for name in children:
         child = node[name]

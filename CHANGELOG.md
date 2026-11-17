@@ -7,7 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.3] - 2026-11-17
+
+### Fixed
+- Fehlgeschlagene oder abgebrochene Drive-Ordnerabfragen werden nicht mehr als
+  leere Ordner behandelt. Bei einer unvollständigen Dateiliste entfällt der
+  lokale Lösch-/Archivabgleich; vorhandene Backups und Etag-Caches bleiben
+  erhalten. Der betroffene Schritt wird über die bestehende Fehlerbehandlung
+  erneut versucht.
+
 ## [0.15.2] - 2026-11-17
+
+Vorabversion; Docker-Veröffentlichung zugunsten von 0.15.3 angehalten.
 
 ### Fixed
 - **Hängende Backups blockieren nicht mehr tagelang den Zeitplan:** Jeder
