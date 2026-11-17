@@ -3,14 +3,14 @@
 import asyncio
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from app import config_store
-from app.services import backup_service
+from app.services import backup_worker
 from app.services.notification import notify_backup_result, notify_token_expired
 from app.i18n import t
 
@@ -74,18 +74,29 @@ async def _run_backup_job(apple_id: str) -> None:
         log.warning(t("sched.no_config"), apple_id)
         return
 
+    if not backup_worker.try_reserve(apple_id):
+        log.info(t("sched.skipped_running"), apple_id)
+        return
+    try:
+        await _run_reserved_backup_job(apple_id, cfg)
+    finally:
+        backup_worker.release(apple_id)
+
+
+async def _run_reserved_backup_job(apple_id: str, cfg: dict) -> None:
+    """Run and finalize an account while its reservation remains held."""
+    start_time = datetime.now(timezone.utc)
     config_store.update_backup_status(
-        apple_id,
-        status="running",
-        at=datetime.utcnow().isoformat(),
+        apple_id, status="running", started_at=start_time.isoformat(),
     )
 
-    # Run the actual backup in a thread to avoid blocking the event loop
+    # Monitor the isolated worker off the event loop.
     try:
         folders = _parse_folders(cfg)
         result = await asyncio.to_thread(
-            backup_service.run_backup,
+            backup_worker.run_backup,
             apple_id=apple_id,
+            reserved=True,
             backup_drive=cfg.get("backup_drive", False),
             backup_photos=cfg.get("backup_photos", False),
             backup_contacts=cfg.get("backup_contacts", False),
@@ -108,14 +119,12 @@ async def _run_backup_job(apple_id: str) -> None:
             return
         status = "success" if result["success"] else "error"
         message = result["message"]
-        dest = cfg.get("destination", "") or apple_id.replace("@", "_at_").replace(".", "_")
-        storage = backup_service.get_backup_storage_stats(dest)
         stats = {
             "drive": result.get("drive_stats"),
             "photos": result.get("photos_stats"),
             "contacts": result.get("contacts_stats"),
             "calendar": result.get("calendar_stats"),
-            "storage": storage,
+            "storage": result.get("storage"),
         }
         if result.get("auth_expired"):
             config_store.update_account_status(
@@ -129,7 +138,12 @@ async def _run_backup_job(apple_id: str) -> None:
         message = str(exc)
         stats = None
 
-    config_store.update_backup_status(apple_id, status=status, message=message, stats=stats)
+    end_time = datetime.now(timezone.utc)
+    config_store.update_backup_status(
+        apple_id, status=status, message=message, stats=stats,
+        at=end_time.isoformat(),
+        duration_seconds=round((end_time - start_time).total_seconds()),
+    )
     notify_backup_result(apple_id, status, message)
 
 

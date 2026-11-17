@@ -59,6 +59,13 @@ jobs:
             APP_BUILD_DATE=${{ steps.builddate.outputs.value }}
           cache-from: type=gha
 
+      - name: Unit and worker watchdog tests
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}/tests:/app/tests:ro" \
+            --entrypoint sh "${IMAGE_NAME}:smoke-test" \
+            -c 'pip install --no-cache-dir pytest pytest-asyncio httpx && python -m pytest -q'
+
       - name: Smoke test
         run: |
           set -uo pipefail

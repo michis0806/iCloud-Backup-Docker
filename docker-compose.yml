@@ -25,6 +25,7 @@ services:
     environment:
       - TZ=${TZ:-Europe/Berlin}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - BACKUP_TIMEOUT_SECONDS=${BACKUP_TIMEOUT_SECONDS:-21600}
       - UI_LANGUAGE=${UI_LANGUAGE:-de}  # de, en, fr, it oder es
       # Benachrichtigungen (Pushover) werden in der Web-Oberfläche unter
       # "Einstellungen" konfiguriert und in /config/config.yaml gespeichert.

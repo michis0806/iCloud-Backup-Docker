@@ -53,6 +53,7 @@ Open **http://localhost:8080** and log in.
 | `AUTH_PASSWORD` | *(random)* | Web UI password. Random if not set (check logs). |
 | `SECRET_KEY` | *(uses AUTH_PASSWORD)* | Secret for cookie signing. Falls back to `AUTH_PASSWORD` if not set. |
 | `LOG_LEVEL` | `INFO` | Log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`). |
+| `BACKUP_TIMEOUT_SECONDS` | `21600` | Maximum runtime per account, including storage scans (6 hours; minimum 60 seconds). Timed-out workers are stopped so other accounts can continue. |
 | `ARCHIVE_PATH` | `./archive` | Host path for archived files (sync policy "archive"). |
 | `TZ` | `Europe/Berlin` | Container timezone. |
 

@@ -2,7 +2,7 @@ import secrets
 from pathlib import Path
 from typing import Literal
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     archive_path: Path = Path("/archive")
     cookie_directory: Path = Path("/config/sessions")
     log_level: str = "INFO"
+    backup_timeout_seconds: int = Field(default=21600, ge=60)
     ui_language: Literal["de", "en", "fr", "it", "es"] = "de"
 
     model_config = {"env_prefix": ""}

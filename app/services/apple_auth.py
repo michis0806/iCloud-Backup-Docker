@@ -18,9 +18,21 @@ from time import monotonic
 
 from pyicloud import PyiCloudService
 from pyicloud.exceptions import PyiCloudAPIResponseException, PyiCloud2FARequiredException
+from requests.adapters import HTTPAdapter
 from app.i18n import t
 
 log = logging.getLogger(__name__)
+
+DEFAULT_HTTP_TIMEOUT = (10, 120)
+
+
+class _DefaultTimeoutHTTPAdapter(HTTPAdapter):
+    """Apply finite connect/read timeouts to pyicloud's unbounded requests."""
+
+    def send(self, request, **kwargs):
+        if kwargs.get("timeout") is None:
+            kwargs["timeout"] = DEFAULT_HTTP_TIMEOUT
+        return super().send(request, **kwargs)
 
 
 class SessionCompletionRequired(RuntimeError):
@@ -38,6 +50,31 @@ class InteractiveICloudService(PyiCloudService):
         # automatic delivery. A paused session is never treated as authenticated.
         kwargs["pause_2fa"] = True
         super().__init__(*args, **kwargs)
+        # PyiCloudService only calls authenticate from its constructor when
+        # authenticate=True. Install the adapters here too for offline or
+        # deferred-auth instances, before they can make any service requests.
+        self._install_session_timeout_adapters()
+
+    def authenticate(self, *args, **kwargs):
+        # PyiCloudService dispatches to this override during its constructor,
+        # after creating PyiCloudSession but before the first authentication
+        # request. Mounting adapters here bounds those requests as well.
+        self._install_session_timeout_adapters()
+        return super().authenticate(*args, **kwargs)
+
+    def _install_session_timeout_adapters(self):
+        session = getattr(self, "_session", None)
+        if session is None or getattr(session, "_icloud_timeout_adapters_installed", False):
+            return
+        for prefix in ("https://", "http://"):
+            current = session.get_adapter(prefix)
+            session.mount(prefix, _DefaultTimeoutHTTPAdapter(
+                pool_connections=getattr(current, "_pool_connections", 10),
+                pool_maxsize=getattr(current, "_pool_maxsize", 10),
+                max_retries=current.max_retries,
+                pool_block=getattr(current, "_pool_block", False),
+            ))
+        session._icloud_timeout_adapters_installed = True
 
     def request_2fa_code(self):
         """Constructor hook: wait for the user's explicit channel selection."""

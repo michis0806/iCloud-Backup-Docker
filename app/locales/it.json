@@ -153,6 +153,8 @@
   "backup.update_needed_mtime": "Aggiornamento necessario (mtime diverso): %s – remote=%s, local=%s, diff=%.1fs",
   "backup.update_needed_size": "Aggiornamento necessario (dimensione diversa): %s – remote=%s byte, local=%s byte",
   "backup.version_fetch_error": "Errore durante il recupero della versione per %s: %s",
+  "backup.worker_timeout": "Backup interrotto dopo aver superato la durata massima di {seconds} secondi.",
+  "backup.worker_exited": "Il processo di backup è terminato in modo imprevisto (codice di uscita {code}).",
   "backup.write_all_contacts_error": "Errore durante la scrittura di all_contacts.vcf: %s",
   "backup.write_calendars_json_error": "Errore durante la scrittura di calendars.json: %s",
   "backup.write_contacts_json_error": "Errore durante la scrittura di contacts.json: %s",

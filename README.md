@@ -78,6 +78,7 @@ Zusätzlich wird die Version in der Web-UI im Footer angezeigt.
 | `ARCHIVE_PATH` | `./archive` | Host path for archived files (used when sync policy is set to "archive") |
 | `CONFIG_PATH` | `./config` | Host path for configuration & sessions |
 | `LOG_LEVEL` | `INFO` | Log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
+| `BACKUP_TIMEOUT_SECONDS` | `21600` | Maximum runtime per account in seconds, including final storage scans (6 hours; minimum 60). |
 | `UI_LANGUAGE` | `de` | Language of the web UI, status messages and log lines (`de`, `en`, `fr`, `it` or `es`). Values already stored in `config.yaml` keep the language they were written in. |
 | `TZ` | `Europe/Berlin` | Timezone |
 
@@ -119,6 +120,28 @@ The container healthcheck (`/health`) reads `/backups`, `/config` and
 `/archive`. If one of them is unreachable (e.g. `Host is down`), `/health`
 answers with HTTP 503 and lists the failing paths, and Docker marks the
 container as `unhealthy`.
+
+If the archive is a subdirectory of the backup share, access both through the
+same container mount. For example, with the share mounted at `/backups`, set
+`ARCHIVE_PATH=/backups/.recycle` **inside the container's `environment` section**.
+This is distinct from the Compose `.env` variable used to select a host path.
+Separate bind mounts for the same share force archive moves to copy files,
+which can be slow or hang in SMB filesystem calls. Using one mount allows a
+rename while preserving the existing archive directory.
+
+### Backup timeout
+
+Each account's backup runs in a separate worker process. After
+`BACKUP_TIMEOUT_SECONDS`, the worker is terminated, the backup is marked as
+failed, and the scheduled batch continues with the next account. The limit
+also covers local storage statistics and the optional iCloud storage refresh.
+Progress, logs and the cancel button remain available. If the operating system
+cannot terminate a worker, that account stays locked against overlapping runs
+until the worker exits; other accounts can continue.
+
+iCloud HTTP requests additionally use a 10-second connection timeout and a
+120-second read timeout by default. The read timeout limits waiting between
+received data, so a large download can continue while data is arriving.
 
 ### docker-compose.yml
 

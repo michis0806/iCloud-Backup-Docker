@@ -123,9 +123,9 @@ def _is_cancelled(config_id: str | None) -> bool:
 
 
 def _register_cancel_event(config_id: str) -> None:
-    """Register a fresh cancel event for the given backup run."""
+    """Register the cancel event, preserving a request made during preflight."""
     with _progress_lock:
-        _cancel_events[config_id] = threading.Event()
+        _cancel_events.setdefault(config_id, threading.Event())
 
 
 class BackupCancelled(Exception):

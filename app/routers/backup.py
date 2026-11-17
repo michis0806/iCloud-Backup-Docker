@@ -13,13 +13,31 @@ from app.schemas import (
     BackupConfigCreate, BackupConfigResponse, BackupTriggerResponse,
     ScheduleUpdate, ScheduleResponse,
 )
-from app.services import backup_service, icloud_service, storage_cache
+from app.services import backup_service, backup_worker, icloud_service
 from app.services.notification import notify_backup_result, notify_token_expired
 from app.services.scheduler import sync_scheduled_jobs
 from app.i18n import t
 
 log = logging.getLogger("icloud-backup")
 router = APIRouter(prefix="/api/backup", tags=["backup"])
+
+
+def _start_reserved_task(apple_id: str, coroutine) -> None:
+    """Hold the account reservation until final status has been persisted."""
+    async def run():
+        try:
+            await coroutine
+        finally:
+            backup_worker.release(apple_id)
+
+    task_coroutine = run()
+    try:
+        asyncio.create_task(task_coroutine)
+    except Exception:
+        task_coroutine.close()
+        coroutine.close()
+        backup_worker.release(apple_id)
+        raise
 
 
 @router.get("/configs/{apple_id}", response_model=BackupConfigResponse)
@@ -53,19 +71,6 @@ async def trigger_backup(apple_id: str):
     if cfg is None or (not cfg.get("backup_drive") and not cfg.get("backup_photos") and not cfg.get("backup_contacts") and not cfg.get("backup_calendar") and not cfg.get("backup_notes") and not cfg.get("backup_reminders")):
         raise HTTPException(status_code=400, detail=t("api.backup.no_config"))
 
-    # Reject a second start while a backup for this account is running –
-    # concurrent runs race on the same directory tree.
-    if backup_service.get_progress(apple_id) is not None:
-        raise HTTPException(status_code=409, detail=t("api.backup.already_running"))
-
-    # Mark as running
-    start_time = datetime.now(timezone.utc)
-    config_store.update_backup_status(
-        apple_id,
-        status="running",
-        started_at=start_time.isoformat(),
-    )
-
     # Parse folders
     if cfg.get("drive_config_mode", "simple") == "simple":
         folders = cfg.get("drive_folders_simple") or []
@@ -73,12 +78,29 @@ async def trigger_backup(apple_id: str):
         text = cfg.get("drive_folders_advanced") or ""
         folders = [line.strip() for line in text.splitlines() if line.strip()]
 
-    # Run backup in background thread
+    # Reject a second start while a backup for this account is running –
+    # concurrent runs race on the same directory tree.
+    if not backup_worker.try_reserve(apple_id):
+        raise HTTPException(status_code=409, detail=t("api.backup.already_running"))
+
+    # Mark as running
+    start_time = datetime.now(timezone.utc)
+    try:
+        config_store.update_backup_status(
+            apple_id, status="running", started_at=start_time.isoformat(),
+        )
+    except Exception:
+        backup_worker.release(apple_id)
+        raise
+
+    # Monitor the isolated worker off the event loop.
     async def _run():
         try:
             result = await asyncio.to_thread(
-                backup_service.run_backup,
+                backup_worker.run_backup,
                 apple_id=apple_id,
+                reserved=True,
+                refresh_storage=True,
                 backup_drive=cfg.get("backup_drive", False),
                 backup_photos=cfg.get("backup_photos", False),
                 backup_contacts=cfg.get("backup_contacts", False),
@@ -100,15 +122,12 @@ async def trigger_backup(apple_id: str):
                 return
             status = "success" if result["success"] else "error"
             message = result["message"]
-            # Scan local backup dirs for file counts and sizes
-            dest = cfg.get("destination", "") or apple_id.replace("@", "_at_").replace(".", "_")
-            storage = backup_service.get_backup_storage_stats(dest)
             stats = {
                 "drive": result.get("drive_stats"),
                 "photos": result.get("photos_stats"),
                 "contacts": result.get("contacts_stats"),
                 "calendar": result.get("calendar_stats"),
-                "storage": storage,
+                "storage": result.get("storage"),
             }
             # Notify and update account status when token has expired
             if result.get("auth_expired"):
@@ -129,15 +148,9 @@ async def trigger_backup(apple_id: str):
             apple_id, status=status, message=message, stats=stats,
             at=end_time.isoformat(), duration_seconds=duration,
         )
-        # Refresh cached iCloud storage breakdown so the dashboard shows
-        # up-to-date numbers without hitting Apple on every page load.
-        try:
-            await asyncio.to_thread(storage_cache.refresh, apple_id)
-        except Exception:
-            log.debug(t("api.backup.cache_refresh_failed"), apple_id, exc_info=True)
         notify_backup_result(apple_id, status, message)
 
-    asyncio.create_task(_run())
+    _start_reserved_task(apple_id, _run())
 
     return BackupTriggerResponse(
         message=t("api.backup.started"),
@@ -159,30 +172,38 @@ async def trigger_all_backups():
         if cfg is None or (not cfg.get("backup_drive") and not cfg.get("backup_photos") and not cfg.get("backup_contacts") and not cfg.get("backup_calendar") and not cfg.get("backup_notes") and not cfg.get("backup_reminders")):
             continue
 
-        # Check if already running
-        if backup_service.get_progress(apple_id) is not None:
-            continue
-
-        run_start_time = datetime.now(timezone.utc)
-        config_store.update_backup_status(
-            apple_id, status="running", started_at=run_start_time.isoformat(),
-        )
-
         if cfg.get("drive_config_mode", "simple") == "simple":
             folders = cfg.get("drive_folders_simple") or []
         else:
             text = cfg.get("drive_folders_advanced") or ""
             folders = [line.strip() for line in text.splitlines() if line.strip()]
 
+        # Check if already running
+        if not backup_worker.try_reserve(apple_id):
+            continue
+
+        run_start_time = datetime.now(timezone.utc)
+        try:
+            config_store.update_backup_status(
+                apple_id, status="running", started_at=run_start_time.isoformat(),
+            )
+        except Exception:
+            backup_worker.release(apple_id)
+            raise
+
         async def _run(apple_id=apple_id, cfg=cfg, folders=folders, _start=run_start_time):
             try:
                 result = await asyncio.to_thread(
-                    backup_service.run_backup,
+                    backup_worker.run_backup,
                     apple_id=apple_id,
+                    reserved=True,
+                    refresh_storage=True,
                     backup_drive=cfg.get("backup_drive", False),
                     backup_photos=cfg.get("backup_photos", False),
                     backup_contacts=cfg.get("backup_contacts", False),
                     backup_calendar=cfg.get("backup_calendar", False),
+                    backup_notes=cfg.get("backup_notes", False),
+                    backup_reminders=cfg.get("backup_reminders", False),
                     drive_folders=folders,
                     photos_include_family=cfg.get("photos_include_family", False),
                     shared_library_id=cfg.get("shared_library_id"),
@@ -198,14 +219,12 @@ async def trigger_all_backups():
                     return
                 status = "success" if result["success"] else "error"
                 message = result["message"]
-                dest = cfg.get("destination", "") or apple_id.replace("@", "_at_").replace(".", "_")
-                storage = backup_service.get_backup_storage_stats(dest)
                 stats = {
                     "drive": result.get("drive_stats"),
                     "photos": result.get("photos_stats"),
                     "contacts": result.get("contacts_stats"),
                     "calendar": result.get("calendar_stats"),
-                    "storage": storage,
+                    "storage": result.get("storage"),
                 }
                 if result.get("auth_expired"):
                     config_store.update_account_status(
@@ -225,13 +244,9 @@ async def trigger_all_backups():
                 apple_id, status=status, message=message, stats=stats,
                 at=end_time.isoformat(), duration_seconds=duration,
             )
-            try:
-                await asyncio.to_thread(storage_cache.refresh, apple_id)
-            except Exception:
-                log.debug(t("api.backup.cache_refresh_failed"), apple_id, exc_info=True)
             notify_backup_result(apple_id, status, message)
 
-        asyncio.create_task(_run())
+        _start_reserved_task(apple_id, _run())
         triggered.append(apple_id)
 
     if not triggered:

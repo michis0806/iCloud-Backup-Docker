@@ -153,6 +153,8 @@
   "backup.update_needed_mtime": "Update needed (mtime differs): %s – remote=%s, local=%s, diff=%.1fs",
   "backup.update_needed_size": "Update needed (size differs): %s – remote=%s bytes, local=%s bytes",
   "backup.version_fetch_error": "Error fetching version for %s: %s",
+  "backup.worker_timeout": "Backup aborted after exceeding the maximum runtime of {seconds} seconds.",
+  "backup.worker_exited": "Backup process exited unexpectedly (exit code {code}).",
   "backup.write_all_contacts_error": "Error writing all_contacts.vcf: %s",
   "backup.write_calendars_json_error": "Error writing calendars.json: %s",
   "backup.write_contacts_json_error": "Error writing contacts.json: %s",

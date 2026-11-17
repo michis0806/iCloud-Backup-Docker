@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.2] - 2026-11-17
+
+### Fixed
+- **Hängende Backups blockieren nicht mehr tagelang den Zeitplan:** Jeder
+  Account läuft in einem überwachten separaten Prozess. Nach standardmäßig
+  sechs Stunden (`BACKUP_TIMEOUT_SECONDS`, mindestens 60 Sekunden) wird der
+  Prozess beendet und der Lauf als fehlgeschlagen gemeldet; die übrigen
+  Accounts laufen weiter. Die Grenze umfasst auch die Speicherstatistik.
+  Fortschritt, Logs und Abbrechen funktionieren über die Prozessgrenze hinweg.
+- iCloud-Anfragen haben standardmäßig 10 Sekunden Verbindungs- und 120 Sekunden
+  Lese-Timeout. Laufende Downloads dürfen länger dauern, solange Daten ankommen.
+- Geplante Backups speichern Start, Ende und Laufzeit korrekt mit UTC-Zeitzone.
+  „Alle starten“ berücksichtigt auch Notizen und Erinnerungen.
+
+### Documentation
+- Archivierung auf SMB-Freigaben: Liegt das Archiv im Backup-Verzeichnis,
+  sollte `ARCHIVE_PATH` denselben Container-Mount verwenden, damit große
+  Dateien verschoben statt zwischen getrennten Bind-Mounts kopiert werden.
+
 ## [0.15.1] - 2026-11-03
 
 ### Changed

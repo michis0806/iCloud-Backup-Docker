@@ -102,6 +102,17 @@ Drive downloads use `node.open(stream=True)` which returns a `Response` and is r
 
 ### Backup Service
 
+- Production callers use `services/backup_worker.py` to run each account in an
+  isolated process with `BACKUP_TIMEOUT_SECONDS` (default 21600). Reserve the
+  account before persisting `running`; obtain storage statistics from the worker
+  result so a filesystem scan cannot block the web event loop or escape the
+  deadline. Do not replace process termination with `wait_for(to_thread(...))`:
+  cancelling that await leaves the writer alive. `backup_service.run_backup()`
+  remains the in-process implementation used by workers and unit tests.
+- When the archive is inside the backup share, configure the container's
+  `ARCHIVE_PATH` through the backup mount (e.g. `/backups/.recycle`). Two bind
+  mounts of the same SMB share cause `shutil.move()` to fall back to copying;
+  a single mount enables a rename and avoids large kernel copies.
 - **Drive backup:** Recursively walks iCloud Drive folders, downloads files via `_open_drive_node()` (wraps `node.open(stream=True)` with fallback logic for special characters), uses etag caching to skip unchanged folders.
 - **Photos backup:** Iterates `api.photos.all`, organizes by date into `YYYY/MM/DD/` directories. Change detection uses a **multi-level approach**: (1) fingerprint cache (`resOriginalFingerprint` / `recordChangeTag`) as primary check, (2) file size comparison as fallback. The fingerprint cache is persisted per library in `/config/.icloud-photo-cache-*.json`.
 - **Contacts backup:** Fetches all contacts via `api.contacts.all`, converts each to vCard 3.0 format (manual conversion in `_contact_to_vcard()`). Creates individual VCF files, a combined `all_contacts.vcf`, and a raw `contacts.json`. SHA-256 hash per `contactId` for change detection (cache: `/config/.icloud-contacts-cache-*.json`). Deleted contacts are handled via configurable sync policy (default: archive).
@@ -180,6 +191,7 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8080
 | `CONFIG_PATH` | `./config` | Host path for configuration & sessions |
 | `ARCHIVE_PATH` | `./archive` | Host path for archived files (sync policy = "archive") |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
+| `BACKUP_TIMEOUT_SECONDS` | `21600` | Per-account worker deadline including final storage scans; minimum 60 seconds |
 | `UI_LANGUAGE` | `de` | UI language: `de`, `en`, `fr`, `it` or `es` |
 | `TZ` | `Europe/Berlin` | Container timezone |
 

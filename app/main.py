@@ -18,6 +18,7 @@ from app.config import settings
 from app.i18n import get_language, js_messages, t
 from app.routers import accounts, backup, settings as settings_router
 from app.services.log_handler import log_buffer
+from app.services.backup_worker import shutdown_workers
 from app.services.scheduler import start_scheduler, stop_scheduler, sync_scheduled_jobs
 
 # ---------------------------------------------------------------------------
@@ -86,6 +87,7 @@ async def lifespan(app: FastAPI):
     )
     yield
     stop_scheduler()
+    await asyncio.to_thread(shutdown_workers)
     log.info(t("main.service_stopped"))
 
 
